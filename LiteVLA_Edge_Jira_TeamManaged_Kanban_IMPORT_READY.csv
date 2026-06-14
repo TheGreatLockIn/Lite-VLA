@@ -1,0 +1,1537 @@
+Summary,Work type,Work item ID,Parent,Description
+Project Discovery and Technical Scope,Epic,100,,"Objective — Turn the LiteVLA-Edge paper into a realistic beginner-friendly implementation plan.
+Context — The paper is a systems deployment paper for on-device VLA inference using a compact multimodal model, ROS 2, quantization, and latency benchmarking.
+Scope — Included: paper analysis, MVP definition, assumptions, architecture decisions, risks, team responsibilities, and project conventions.
+Success criteria — MVP scope is documented; team roles are clear; core technical risks are tracked; implementation is split into beginner-sized work items
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+"Repository, Development Environment, and Tooling",Epic,101,,"Objective — Create a stable engineering foundation for Python, ROS 2, ML experiments, and deployment scripts.
+Context — The team needs a repeatable setup before building the model, ROS nodes, and benchmarks.
+Scope — Included: repo layout, dependency management, local dev setup, coding standards, CI basics, configuration, and run scripts.
+Success criteria — new engineer can run setup from README; workspace builds locally; basic checks run in CI; configuration is versioned safely
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+ROS 2 Simulation and Robot Control Skeleton,Epic,102,,"Objective — Build the non-ML robot loop that receives camera frames and publishes movement commands.
+Context — The paper routes model outputs through a ROS 2 bridge using velocity commands; this skeleton proves the robot path before adding ML.
+Scope — Included: simulation environment, camera subscription, velocity publishing, dummy controller, heartbeat, and manual control.
+Success criteria — simulation runs; robot moves from dummy actions; camera frames are available; control loop remains stable without ML
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+"Action Interface, Parser, and Safety Layer",Epic,103,,"Objective — Define safe structured actions and convert model text into bounded robot commands.
+Context — The model must produce deterministic action commands that are safe to parse and execute in ROS 2.
+Scope — Included: discrete and continuous action schemas, parsers, validation, safety clamps, fallback STOP behavior, and command smoothing.
+Success criteria — invalid model output maps to STOP; velocity limits are enforced; parser has unit tests; action schema is documented
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+Baseline Vision-Language Inference Prototype,Epic,104,,"Objective — Connect a starter VLM to the robot loop before custom fine-tuning.
+Context — Beginners should first prove image plus instruction can produce action-like outputs before training.
+Scope — Included: model selection, prompt templates, image preprocessing, inference wrapper, parser integration, and baseline latency logs.
+Success criteria — model accepts image and instruction; model returns valid action text; baseline works in offline scripts; latency is measured
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+"Dataset Generation, Labeling, and Validation",Epic,105,,"Objective — Create an image-instruction-action dataset for supervised fine-tuning.
+Context — The paper relies on curated robotic demonstrations but does not provide a full dataset recipe, so the team must create a simplified version.
+Scope — Included: data schema, simulation data collection, labels, train/validation split, dataset loader, quality checks, and dataset documentation.
+Success criteria — dataset schema is stable; first labeled dataset is created; loader works in training script; quality report identifies label issues
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+Supervised Fine-Tuning and Model Evaluation,Epic,106,,"Objective — Fine-tune a compact multimodal model to output robot actions.
+Context — The paper uses supervised image-to-action learning with LoRA before quantization; this epic implements a beginner-scaled version.
+Scope — Included: training format, LoRA config, training loop, checkpoints, validation, manual inspection, and comparison against baseline.
+Success criteria — first adapter trains successfully; validation metrics are reported; model outputs valid actions; results are reproducible from config
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+"Quantization, GGUF Packaging, and Edge Runtime",Epic,107,,"Objective — Compress and package the trained model for faster local inference.
+Context — The paper uses post-training 4-bit GGUF quantization and llama.cpp CUDA inference for on-device deployment.
+Scope — Included: quantization experiments, GGUF conversion research, llama.cpp execution, Jetson setup, runtime configuration, and FP32 versus quantized comparison.
+Success criteria — quantized inference path is documented; at least one low-bit model runs; latency is measured; export blockers are explicitly captured
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+End-to-End ROS 2 VLA Runtime Integration,Epic,108,,"Objective — Replace dummy actions with the model inference service inside the robot control loop.
+Context — The target system is a perception-reasoning-action loop where the model runs asynchronously and ROS 2 publishes safe commands.
+Scope — Included: inference service, ROS client node, async orchestration, instruction management, runtime health checks, and end-to-end demo flow.
+Success criteria — camera plus instruction reaches model; model action reaches /cmd_vel; runtime handles inference delays; demo runs without crashes
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+"Benchmarking, Evaluation, and Observability",Epic,109,,"Objective — Measure latency, output validity, task success, safety behavior, and system reliability.
+Context — The paper emphasizes deployability and latency, so the project needs reproducible benchmarks and logs.
+Scope — Included: benchmark scripts, metric definitions, simulation episodes, failure analysis, logging dashboards, and comparison tables.
+Success criteria — mean and p95 latency are reported; valid action rate is reported; simulation success rate is measured; failure cases are saved
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+"Final Demo, Documentation, and Handoff",Epic,110,,"Objective — Package the work into a clear demo and learning-friendly handoff.
+Context — The team needs a final artifact that explains what was built, what differs from the paper, and how to continue.
+Scope — Included: demo script, architecture diagrams, setup docs, final report, known limitations, and next-step backlog.
+Success criteria — demo can be run by a teammate; documentation explains setup and architecture; results table is included; future work is clearly listed
+Risks and dependencies — N/A
+Other information — Source: uploaded LiteVLA-Edge paper and Jira CSV generation prompt."
+Summarize the LiteVLA-Edge system architecture,Story,1000,100,"Objective — Produce a shared architecture summary for the team.
+Context — The paper describes a perception, reasoning, and action pipeline around a compact VLA model and ROS 2.
+Scope — Included: one-page summary, component list, data flow, and assumptions.
+Success criteria — team can explain the system in plain language; major components are listed; paper-specific claims are separated from project assumptions
+Risks and dependencies — N/A
+Other information — N/A"
+Define MVP demo task and non-goals,Story,1001,100,"Objective — Choose a narrow demo that can be completed by beginners.
+Context — The full research system is too broad for a first implementation.
+Scope — Included: target robot task, input instruction examples, environment assumptions, and out-of-scope items.
+Success criteria — single MVP demo is approved; non-goals are explicit; success criteria are measurable
+Risks and dependencies — N/A
+Other information — N/A"
+Create team roles and ownership map,Story,1002,100,"Objective — Assign clear responsibilities for a 3-4 person engineering team.
+Context — The work spans ML, ROS, deployment, data, and QA.
+Scope — Included: role definitions, ownership map, review responsibilities, and backup owners.
+Success criteria — each epic has an accountable owner; handoff boundaries are clear; backup owners are identified
+Risks and dependencies — N/A
+Other information — N/A"
+Document technical assumptions and constraints,Story,1003,100,"Objective — Record hardware, model, runtime, and simulation assumptions.
+Context — The paper uses Orin-class hardware and specific runtime settings, but the team may start on laptops.
+Scope — Included: hardware availability, GPU assumptions, ROS version, model size, and deployment priorities.
+Success criteria — assumptions are visible; unknowns are tracked; decisions can be revisited
+Risks and dependencies — N/A
+Other information — N/A"
+Create initial risk register,Story,1004,100,"Objective — Track technical and project risks early.
+Context — Known risks include dataset quality, model export, latency, and safety.
+Scope — Included: risk list, severity, mitigation, owner, and review cadence.
+Success criteria — top risks are documented; mitigations are assigned; risks are reviewed weekly
+Risks and dependencies — N/A
+Other information — N/A"
+Initialize repository structure,Story,1005,101,"Objective — Create a clean repository layout for ML, ROS, deployment, data, and docs.
+Context — A consistent structure reduces integration friction across beginners.
+Scope — Included: top-level folders, package boundaries, placeholder files, and README navigation.
+Success criteria — repo is easy to navigate; each system area has a folder; README explains layout
+Risks and dependencies — N/A
+Other information — N/A"
+Create Python environment setup,Story,1006,101,"Objective — Make Python dependencies reproducible.
+Context — ML inference, dataset tools, and benchmark scripts need consistent package versions.
+Scope — Included: requirements files, virtual environment instructions, and smoke tests.
+Success criteria — fresh environment installs successfully; smoke test imports core packages; versions are documented
+Risks and dependencies — N/A
+Other information — N/A"
+Create ROS 2 workspace setup,Story,1007,101,"Objective — Make ROS workspace creation repeatable.
+Context — ROS nodes should build consistently for all teammates.
+Scope — Included: workspace skeleton, package creation, dependency notes, and build command.
+Success criteria — colcon build succeeds; workspace path is documented; ROS package names are consistent
+Risks and dependencies — N/A
+Other information — N/A"
+Add configuration management,Story,1008,101,"Objective — Centralize runtime and training settings.
+Context — The project needs editable settings for model path, topic names, velocities, and benchmark parameters.
+Scope — Included: YAML or JSON config files, example config, and config loader.
+Success criteria — default config loads; sensitive values are excluded; runtime can change topics without code edits
+Risks and dependencies — N/A
+Other information — N/A"
+Set up basic CI checks,Story,1009,101,"Objective — Add lightweight automated checks for the project.
+Context — Beginners benefit from fast feedback on syntax and tests.
+Scope — Included: linting or formatting, unit tests, and basic build commands.
+Success criteria — CI runs on pull requests; unit tests execute; failures are visible
+Risks and dependencies — N/A
+Other information — N/A"
+Create experiment logging convention,Story,1010,101,"Objective — Standardize how training, inference, and benchmark outputs are saved.
+Context — Evaluation will produce many runs and results that need traceability.
+Scope — Included: run directory structure, metrics files, config snapshots, and naming rules.
+Success criteria — each run has config and metrics; outputs are timestamped; results can be compared later
+Risks and dependencies — N/A
+Other information — N/A"
+Select and set up simulation environment,Story,1011,102,"Objective — Choose and configure the first simulation environment.
+Context — Simulation avoids real hardware safety issues while the team learns.
+Scope — Included: simulator selection, install notes, simple world, and robot model.
+Success criteria — simulator launches; robot model appears; camera feed is available or planned
+Risks and dependencies — Simulator complexity may slow beginners.
+Other information — N/A"
+Implement camera frame subscriber,Story,1012,102,"Objective — Receive camera frames from simulation or a physical camera.
+Context — The VLA pipeline starts with RGB frames.
+Scope — Included: ROS image topic subscription, frame conversion, timestamp handling, and debug view.
+Success criteria — node receives frames; frame dimensions are logged; latest frame is accessible to inference
+Risks and dependencies — N/A
+Other information — N/A"
+Implement velocity command publisher,Story,1013,102,"Objective — Publish robot movement commands through ROS 2.
+Context — The action output should eventually map to geometry_msgs/Twist.
+Scope — Included: publisher node, topic configuration, command construction, and basic tests.
+Success criteria — publisher sends Twist commands; robot moves in simulation; topic name is configurable
+Risks and dependencies — N/A
+Other information — N/A"
+Build dummy action generator,Story,1014,102,"Objective — Use hardcoded or scripted actions before ML is connected.
+Context — This isolates robotics integration from model uncertainty.
+Scope — Included: dummy action modes, command sequence playback, and logging.
+Success criteria — dummy mode moves robot; commands are logged; dummy action can be swapped for model output later
+Risks and dependencies — N/A
+Other information — N/A"
+Add low-level control heartbeat,Story,1015,102,"Objective — Maintain a stable command heartbeat independent of model inference speed.
+Context — The paper describes low-level control continuing faster than reasoning.
+Scope — Included: timer loop, last-safe-command behavior, timeout, and stop fallback.
+Success criteria — commands publish at configured heartbeat; timeout triggers STOP; heartbeat does not depend on model call duration
+Risks and dependencies — N/A
+Other information — N/A"
+Add manual teleoperation mode,Story,1016,102,"Objective — Allow a human to drive the robot for testing and data collection.
+Context — Teleoperation helps create demonstrations and debug control.
+Scope — Included: keyboard or joystick control, mode switch, and command logging.
+Success criteria — human can control robot; manual mode overrides model mode; commands can be recorded
+Risks and dependencies — N/A
+Other information — N/A"
+Define discrete action schema,Story,1017,103,"Objective — Create the first safe action vocabulary.
+Context — Discrete actions are easier for beginners to train, test, and parse than continuous values.
+Scope — Included: MOVE_FORWARD, TURN_LEFT, TURN_RIGHT, SLOW_DOWN, STOP, and mapping to velocities.
+Success criteria — action list is documented; each action maps to a bounded command; schema supports initial demo
+Risks and dependencies — N/A
+Other information — N/A"
+Define continuous command schema,Story,1018,103,"Objective — Prepare an optional JSON schema for direct velocity output.
+Context — The paper discusses structured velocity-style commands, which may be useful after discrete actions work.
+Scope — Included: JSON fields, value ranges, stop flag, and validation rules.
+Success criteria — schema is documented; bounds are explicit; continuous mode can be deferred safely
+Risks and dependencies — N/A
+Other information — N/A"
+Implement discrete action parser,Story,1019,103,"Objective — Extract a valid action from model text.
+Context — VLMs may return extra text unless constrained.
+Scope — Included: strict parsing, normalization, invalid-output handling, and tests.
+Success criteria — valid actions parse correctly; extra whitespace is tolerated; unknown text returns invalid result
+Risks and dependencies — N/A
+Other information — N/A"
+Implement JSON command parser,Story,1020,103,"Objective — Parse optional continuous command JSON safely.
+Context — Later models may output JSON velocity commands.
+Scope — Included: JSON parsing, type validation, clipping, and failure handling.
+Success criteria — valid JSON parses; invalid JSON fails safely; out-of-range values are clipped or rejected
+Risks and dependencies — N/A
+Other information — N/A"
+Implement safety clamp and fallback behavior,Story,1021,103,"Objective — Guarantee unsafe actions cannot be published directly.
+Context — Robot control needs deterministic safeguards regardless of model behavior.
+Scope — Included: velocity limits, invalid output fallback, emergency stop integration, and logs.
+Success criteria — all commands are bounded; invalid output maps to STOP; safety events are logged
+Risks and dependencies — N/A
+Other information — N/A"
+Add command smoothing,Story,1022,103,"Objective — Reduce jerky command changes between model outputs.
+Context — Low-frequency reasoning can create abrupt robot movement.
+Scope — Included: simple smoothing, rate limit, and bypass for STOP.
+Success criteria — smoothing limits sudden changes; STOP still applies immediately; settings are configurable
+Risks and dependencies — N/A
+Other information — N/A"
+Select starter vision-language model,Story,1023,104,"Objective — Pick a model suitable for baseline local inference.
+Context — The paper references compact VLMs and a SmolVLM-style backbone, but the team may need a practical starting point.
+Scope — Included: candidate comparison, hardware requirements, license notes, and initial choice.
+Success criteria — model choice is documented; minimum hardware is known; fallback model is identified
+Risks and dependencies — Some models may not support desired export path.
+Other information — N/A"
+Create image preprocessing pipeline,Story,1024,104,"Objective — Prepare camera frames for the selected model.
+Context — VLMs require specific image size, color format, and normalization.
+Scope — Included: resize, color conversion, batching, and sample tests.
+Success criteria — preprocessor accepts ROS frame arrays; output matches model expectations; sample image inference succeeds
+Risks and dependencies — N/A
+Other information — N/A"
+Design baseline prompting strategy,Story,1025,104,"Objective — Write prompts that constrain the model to valid actions.
+Context — Prompting can reduce invalid text before fine-tuning.
+Scope — Included: system prompt, instruction template, action list, and response constraints.
+Success criteria — prompt includes allowed actions; prompt requests action-only output; examples are documented
+Risks and dependencies — N/A
+Other information — N/A"
+Implement baseline inference wrapper,Story,1026,104,"Objective — Create a callable wrapper around the starter VLM.
+Context — The rest of the system needs a stable interface independent of model internals.
+Scope — Included: input image, instruction, output text, timing, and error handling.
+Success criteria — wrapper returns text output; errors are caught and logged; latency is measured
+Risks and dependencies — N/A
+Other information — N/A"
+Evaluate zero-shot baseline outputs,Story,1027,104,"Objective — Measure how well the untrained model follows action prompts.
+Context — This gives a baseline before dataset creation and fine-tuning.
+Scope — Included: small test set, valid action rate, qualitative notes, and failure examples.
+Success criteria — valid action rate is reported; common failure modes are listed; baseline examples are saved
+Risks and dependencies — N/A
+Other information — N/A"
+Connect baseline inference to action parser,Story,1028,104,"Objective — Turn baseline model text into structured actions.
+Context — The parser and safety layer should work before full ROS integration.
+Scope — Included: inference wrapper output, parser call, safety fallback, and standalone test.
+Success criteria — valid model text becomes action; invalid model text becomes STOP; integration test passes
+Risks and dependencies — N/A
+Other information — N/A"
+Define dataset schema and file layout,Story,1029,105,"Objective — Specify how image, instruction, and action examples are stored.
+Context — Fine-tuning depends on consistent data records.
+Scope — Included: JSONL or CSV schema, image path rules, metadata fields, and examples.
+Success criteria — schema is documented; sample records validate; folder layout is created
+Risks and dependencies — N/A
+Other information — N/A"
+Build simulation data capture tool,Story,1030,105,"Objective — Save synchronized frames and robot state from simulation.
+Context — The team needs examples generated from repeatable simulated scenarios.
+Scope — Included: frame saving, timestamping, command recording, and episode metadata.
+Success criteria — frames are saved; commands align with timestamps; episode metadata is recorded
+Risks and dependencies — N/A
+Other information — N/A"
+Create synthetic starter dataset,Story,1031,105,"Objective — Generate a small first dataset to unblock training pipeline work.
+Context — A tiny dataset helps test loaders and training before full data collection.
+Scope — Included: simple images or simulation screenshots, action labels, and validation split.
+Success criteria — at least 200 examples exist; all examples validate; training script can load them
+Risks and dependencies — N/A
+Other information — N/A"
+Design labeling workflow,Story,1032,105,"Objective — Make it easy to label or correct image-action examples.
+Context — Manual review is needed to improve dataset quality.
+Scope — Included: labeling guide, review process, and simple labeling script or spreadsheet.
+Success criteria — labeling instructions are clear; labels use approved action schema; reviewed labels are traceable
+Risks and dependencies — N/A
+Other information — N/A"
+Implement dataset validation checks,Story,1033,105,"Objective — Detect missing files, invalid labels, and malformed records.
+Context — Bad data can silently break training.
+Scope — Included: schema validation, image existence check, label validation, and summary report.
+Success criteria — validator catches missing images; invalid actions are reported; summary count is generated
+Risks and dependencies — N/A
+Other information — N/A"
+Create dataset loader for training,Story,1034,105,"Objective — Load images and labels into the fine-tuning pipeline.
+Context — Training scripts need a reliable dataset interface.
+Scope — Included: loader class, transforms, batching, and smoke tests.
+Success criteria — loader returns image, instruction, and label; batching works; small dataset can run through one training batch
+Risks and dependencies — N/A
+Other information — N/A"
+Create dataset versioning and documentation,Story,1035,105,"Objective — Track dataset changes and quality over time.
+Context — Fine-tuning results must be tied to a known dataset version.
+Scope — Included: version naming, changelog, stats, and storage notes.
+Success criteria — dataset version is referenced in training runs; changelog exists; stats are documented
+Risks and dependencies — N/A
+Other information — N/A"
+Prepare model training format,Story,1036,106,"Objective — Convert labeled examples into the model-specific supervised fine-tuning format.
+Context — Different VLMs require different conversation or prompt formats.
+Scope — Included: training prompt format, label target format, masking rules, and sample inspection.
+Success criteria — formatted examples are generated; labels are visible in target tokens; sample inspection looks correct
+Risks and dependencies — N/A
+Other information — N/A"
+Configure LoRA fine-tuning,Story,1037,106,"Objective — Set up parameter-efficient fine-tuning for the selected model.
+Context — The paper uses LoRA with rank and scaling settings before quantization.
+Scope — Included: LoRA target modules, rank, alpha, dropout, and trainable parameter report.
+Success criteria — LoRA adapter attaches successfully; trainable parameter count is logged; config is saved with run
+Risks and dependencies — Target modules vary by model architecture.
+Other information — N/A"
+Implement first training loop,Story,1038,106,"Objective — Run supervised fine-tuning for at least one small experiment.
+Context — A minimal run validates data, model, and optimizer integration.
+Scope — Included: training script, optimizer, checkpoint save, and basic logging.
+Success criteria — one epoch or short run completes; checkpoint is saved; loss is logged
+Risks and dependencies — N/A
+Other information — N/A"
+Add validation metrics,Story,1039,106,"Objective — Evaluate action prediction quality on held-out data.
+Context — The team needs measurable progress beyond training loss.
+Scope — Included: valid action rate, exact action accuracy, confusion matrix or counts, and sample outputs.
+Success criteria — validation script runs; accuracy is reported; invalid output rate is reported
+Risks and dependencies — N/A
+Other information — N/A"
+Compare fine-tuned model against baseline,Story,1040,106,"Objective — Show whether training improved action outputs.
+Context — The zero-shot baseline may be weak; comparison shows learning value.
+Scope — Included: same validation set, baseline metrics, fine-tuned metrics, and summary table.
+Success criteria — comparison table exists; fine-tuned model result is documented; regressions are flagged
+Risks and dependencies — N/A
+Other information — N/A"
+Create manual model inspection workflow,Story,1041,106,"Objective — Review qualitative predictions to understand errors.
+Context — Manual inspection helps beginners diagnose model behavior.
+Scope — Included: sample viewer, prediction examples, failure buckets, and notes.
+Success criteria — example predictions are easy to inspect; failure modes are categorized; next dataset fixes are identified
+Risks and dependencies — N/A
+Other information — N/A"
+Make training runs reproducible,Story,1042,106,"Objective — Ensure experiments can be rerun with the same settings.
+Context — Reproducibility is critical for debugging and benchmarking.
+Scope — Included: seed setting, config snapshot, dependency info, dataset version, and run metadata.
+Success criteria — run metadata is saved; dataset version is recorded; config snapshot exists
+Risks and dependencies — N/A
+Other information — N/A"
+Research model export and quantization path,Story,1043,107,"Objective — Determine the practical path from trained model to low-bit inference.
+Context — Multimodal GGUF export can be model-specific and may be risky.
+Scope — Included: export compatibility, conversion tools, fallback options, and blocker list.
+Success criteria — export path is documented; fallback path is identified; blockers have owners
+Risks and dependencies — Selected model may not support direct GGUF export.
+Other information — N/A"
+Run Python low-bit quantization experiment,Story,1044,107,"Objective — Try a practical low-bit inference path before GGUF.
+Context — This reduces risk if llama.cpp export is delayed.
+Scope — Included: 8-bit or 4-bit model loading, sample inference, and output comparison.
+Success criteria — quantized model loads; sample prediction works; latency and memory are measured
+Risks and dependencies — N/A
+Other information — N/A"
+Attempt GGUF conversion,Story,1045,107,"Objective — Convert the model or supported components to GGUF if feasible.
+Context — The paper uses GGUF Q4_K_M as the deployment format.
+Scope — Included: conversion command, output artifact, conversion logs, and blockers.
+Success criteria — GGUF file is produced or blocker is documented; conversion steps are reproducible; logs are saved
+Risks and dependencies — VLM projector or vision encoder may not be supported by conversion tooling.
+Other information — N/A"
+Run llama.cpp inference prototype,Story,1046,107,"Objective — Test local inference with llama.cpp where supported.
+Context — The paper relies on llama.cpp CUDA backend for optimized inference.
+Scope — Included: CLI command, model loading, prompt input, output token limit, and timing.
+Success criteria — llama.cpp runs a sample prompt; output token limit is configured; timing is logged
+Risks and dependencies — Vision input support may differ depending on model and runtime.
+Other information — N/A"
+Configure Jetson or edge hardware runtime,Story,1047,107,"Objective — Prepare edge hardware for deployment experiments.
+Context — The paper targets Jetson Orin-class hardware, but setup must be explicit.
+Scope — Included: power mode notes, CUDA availability, storage, dependencies, and thermal checks.
+Success criteria — hardware boots and runs basic GPU check; runtime dependencies are installed; setup steps are documented
+Risks and dependencies — Hardware may be unavailable or slower than paper setup.
+Other information — N/A"
+Compare FP32 and quantized action stability,Story,1048,107,"Objective — Check whether quantization changes action outputs.
+Context — The paper discusses action precision and drift concerns after 4-bit quantization.
+Scope — Included: same test set, FP32 predictions, quantized predictions, mismatch rate, and examples.
+Success criteria — mismatch rate is reported; critical mismatches are reviewed; quantized safety concerns are documented
+Risks and dependencies — N/A
+Other information — N/A"
+Package runtime configuration for deployment,Story,1049,107,"Objective — Create repeatable scripts for model runtime settings.
+Context — The paper uses constrained context and short output to reduce latency.
+Scope — Included: context length, output token limit, GPU offload settings, model path, and startup command.
+Success criteria — runtime command is reproducible; settings are documented; scripts use config values
+Risks and dependencies — N/A
+Other information — N/A"
+Create inference service API,Story,1050,108,"Objective — Expose model inference through a stable local service or module interface.
+Context — ROS code should not depend directly on model internals.
+Scope — Included: request format, response format, health check, and error response.
+Success criteria — service accepts image and instruction; response includes raw output and parsed action; health check works
+Risks and dependencies — N/A
+Other information — N/A"
+Implement ROS inference client node,Story,1051,108,"Objective — Connect ROS camera frames to the inference service.
+Context — The ROS loop needs the latest frame and current instruction to request actions.
+Scope — Included: frame retrieval, instruction input, async request, and response handling.
+Success criteria — node sends frames to service; node receives actions; errors become STOP
+Risks and dependencies — N/A
+Other information — N/A"
+Add instruction management,Story,1052,108,"Objective — Allow operators to set or change the robot goal text.
+Context — The model is language-conditioned, so the instruction must be part of runtime state.
+Scope — Included: static config instruction, CLI update, ROS parameter or topic update.
+Success criteria — default instruction is loaded; instruction can be changed without code edit; current instruction is logged
+Risks and dependencies — N/A
+Other information — N/A"
+Integrate model actions with safety and publisher,Story,1053,108,"Objective — Route model outputs through parser, safety, smoothing, and /cmd_vel.
+Context — The model must never directly control the robot without validation.
+Scope — Included: full model-to-command path, fallback handling, and logs.
+Success criteria — model output reaches parser; safe command is published; invalid output stops robot
+Risks and dependencies — N/A
+Other information — N/A"
+Implement asynchronous inference loop,Story,1054,108,"Objective — Prevent slow model inference from freezing robot control.
+Context — VLA inference may run slower than the low-level heartbeat.
+Scope — Included: worker thread or async task, latest frame policy, timeout, and result queue.
+Success criteria — heartbeat continues during inference; old frames are skipped or handled intentionally; timeouts are safe
+Risks and dependencies — N/A
+Other information — N/A"
+Add runtime health and diagnostics,Story,1055,108,"Objective — Expose enough state to debug the end-to-end loop.
+Context — Beginners need visibility when model, ROS, or parser fails.
+Scope — Included: status logs, counters, recent action, latency, and safety events.
+Success criteria — health output shows model status; latency is visible; safety event count is visible
+Risks and dependencies — N/A
+Other information — N/A"
+Run full simulation integration demo,Story,1056,108,"Objective — Demonstrate image plus instruction to robot movement.
+Context — This validates the main architecture before detailed benchmarking.
+Scope — Included: demo launch file, scenario setup, instruction, runtime logs, and pass/fail notes.
+Success criteria — demo starts from one command; robot moves according to model or baseline action; logs capture full pipeline
+Risks and dependencies — N/A
+Other information — N/A"
+Define evaluation metrics and benchmark plan,Story,1057,109,"Objective — Create a focused benchmark plan aligned with the paper and MVP.
+Context — The paper emphasizes latency, reasoning frequency, and deployment feasibility.
+Scope — Included: metric definitions, run counts, test sets, simulation scenarios, and reporting format.
+Success criteria — metrics are documented; benchmark scripts have clear inputs; team agrees on target comparisons
+Risks and dependencies — N/A
+Other information — N/A"
+Create offline inference benchmark,Story,1058,109,"Objective — Measure image-to-action latency outside ROS.
+Context — Offline benchmarking isolates model and preprocessing speed.
+Scope — Included: N-run benchmark, warm-up, timing breakdown, and metrics file.
+Success criteria — benchmark runs for configured N; timing stats are saved; warm-up behavior is documented
+Risks and dependencies — N/A
+Other information — N/A"
+Create ROS end-to-end latency benchmark,Story,1059,109,"Objective — Measure frame ingestion to command publication latency.
+Context — End-to-end timing is closer to the paper-style system claim.
+Scope — Included: timestamps across camera, inference, parser, safety, and publish steps.
+Success criteria — end-to-end latency is reported; component timing is available; logs can be analyzed
+Risks and dependencies — N/A
+Other information — N/A"
+Create action validity benchmark,Story,1060,109,"Objective — Measure how often model outputs are parseable and safe.
+Context — Valid output rate is a key practical metric for structured VLA control.
+Scope — Included: test dataset, parser results, invalid examples, and safety fallback count.
+Success criteria — valid action rate is reported; invalid examples are saved; fallback count is visible
+Risks and dependencies — N/A
+Other information — N/A"
+Run simulation task success evaluation,Story,1061,109,"Objective — Measure whether the robot completes simple scenarios.
+Context — Latency alone does not prove robotic behavior works.
+Scope — Included: episode runner, success condition, failures, and summary table.
+Success criteria — at least 10 episodes run; success rate is reported; failure reasons are captured
+Risks and dependencies — N/A
+Other information — N/A"
+Analyze failure cases and dataset fixes,Story,1062,109,"Objective — Turn benchmark failures into actionable improvements.
+Context — Failures should inform prompt, dataset, parser, or safety changes.
+Scope — Included: failure taxonomy, sample review, prioritized fixes, and new backlog items.
+Success criteria — failure types are categorized; top fixes are identified; new tasks are created if needed
+Risks and dependencies — N/A
+Other information — N/A"
+Create results comparison table,Story,1063,109,"Objective — Summarize project results against paper-inspired targets.
+Context — The final report should distinguish reproduction from simplified prototype.
+Scope — Included: latency, frequency, valid output rate, task success, hardware, and model size.
+Success criteria — table includes project metrics; paper reference metrics are labeled as reference only; limitations are stated
+Risks and dependencies — N/A
+Other information — N/A"
+Create final demo script,Story,1064,110,"Objective — Write a clear script for presenting the working prototype.
+Context — The team needs a repeatable demo that explains the system and shows it running.
+Scope — Included: demo flow, commands, expected outputs, fallback plan, and talking points.
+Success criteria — demo can be run from instructions; presenter knows expected behavior; fallback demo exists
+Risks and dependencies — N/A
+Other information — N/A"
+Write implementation README,Story,1065,110,"Objective — Document how to set up and run the project.
+Context — A beginner-friendly README makes the work reusable.
+Scope — Included: setup, simulation run, inference run, training, benchmarks, and troubleshooting.
+Success criteria — README covers main commands; new teammate can run smoke tests; known issues are listed
+Risks and dependencies — N/A
+Other information — N/A"
+Create architecture documentation,Story,1066,110,"Objective — Explain the final system design and data flow.
+Context — Architecture docs help connect the implementation back to the paper.
+Scope — Included: component diagram, topic/service list, model flow, safety layer, and deployment notes.
+Success criteria — diagram is updated; ROS topics are documented; model interface is documented
+Risks and dependencies — N/A
+Other information — N/A"
+Write final project report,Story,1067,110,"Objective — Summarize what was built, results, limitations, and future work.
+Context — The project should produce a learning artifact beyond code.
+Scope — Included: objective, implementation summary, experiments, results, deviations from paper, and next steps.
+Success criteria — report includes metrics; limitations are honest; future work is prioritized
+Risks and dependencies — N/A
+Other information — N/A"
+Prepare knowledge transfer session,Story,1068,110,"Objective — Help all teammates understand and maintain the project.
+Context — Shared understanding reduces bus factor after the demo.
+Scope — Included: walkthrough agenda, code tour, known risks, and next backlog review.
+Success criteria — session agenda exists; each component owner presents; open questions are recorded
+Risks and dependencies — N/A
+Other information — N/A"
+Create Jira import and project setup notes,Story,1069,110,"Objective — Provide guidance for importing this CSV and using the board.
+Context — The user wants a Jira-ready backlog with simple workflow notes.
+Scope — Included: import mapping, issue hierarchy, workflow, labels, and board conventions.
+Success criteria — CSV import instructions are clear; workflow uses simple statuses; labels are suggested
+Risks and dependencies — N/A
+Other information — N/A"
+Extract core components from the paper,Subtask,10000,1000,"Objective — Create a component list from the paper.
+Success criteria — perception, model inference, parser, ROS bridge, and controller are listed
+Notes — N/A"
+Create a simplified architecture diagram,Subtask,10001,1000,"Objective — Draw a beginner-friendly diagram of the prototype.
+Success criteria — diagram shows image input, instruction, model, parser, safety, and /cmd_vel
+Notes — N/A"
+Document paper claims versus implementation goals,Subtask,10002,1000,"Objective — Separate what the paper reports from what the project will attempt.
+Success criteria — latency, hardware, model, and training choices are documented
+Notes — N/A"
+Select first simulated task,Subtask,10003,1001,"Objective — Pick the first task scenario.
+Success criteria — task has camera input, text instruction, and simple movement output
+Notes — N/A"
+Write MVP acceptance criteria,Subtask,10004,1001,"Objective — Define when the project counts as working.
+Success criteria — criteria cover model output, ROS command, safety, and logs
+Notes — N/A"
+List explicit non-goals,Subtask,10005,1001,"Objective — Prevent scope creep.
+Success criteria — real robot, exact paper latency, and large-scale benchmark scope are documented if deferred
+Notes — N/A"
+Define role responsibilities,Subtask,10006,1002,"Objective — Document ML, ROS, deployment, and QA responsibilities.
+Success criteria — roles are clear and non-overlapping
+Notes — N/A"
+Assign primary and backup owners,Subtask,10007,1002,"Objective — Map owners to epics and critical systems.
+Success criteria — every epic has an owner and reviewer
+Notes — N/A"
+Create communication cadence,Subtask,10008,1002,"Objective — Define a lightweight weekly sync and demo rhythm.
+Success criteria — cadence is documented in project README
+Notes — N/A"
+Inventory available hardware,Subtask,10009,1003,"Objective — List laptops, GPUs, Jetson boards, cameras, and storage.
+Success criteria — inventory includes owner and availability
+Notes — N/A"
+Choose initial ROS 2 distribution,Subtask,10010,1003,"Objective — Pick a ROS 2 version for the team.
+Success criteria — chosen version is documented with install link or notes
+Notes — N/A"
+Create assumptions register,Subtask,10011,1003,"Objective — Track key assumptions and risk owners.
+Success criteria — register includes assumption, impact, owner, and status
+Notes — N/A"
+List ML risks,Subtask,10012,1004,"Objective — Capture risks around fine-tuning and action quality.
+Success criteria — dataset, overfitting, invalid outputs, and drift risks are recorded
+Notes — N/A"
+List robotics risks,Subtask,10013,1004,"Objective — Capture ROS and control risks.
+Success criteria — unsafe commands, control jitter, and simulation mismatch risks are recorded
+Notes — N/A"
+List deployment risks,Subtask,10014,1004,"Objective — Capture export and quantization risks.
+Success criteria — GGUF, llama.cpp, CUDA, and Jetson blockers are recorded
+Notes — N/A"
+Create top-level folders,Subtask,10015,1005,"Objective — Add folders for ros_ws, ml, data, deployment, docs, scripts, and tests.
+Success criteria — folders exist with placeholder README files
+Notes — N/A"
+Add root README,Subtask,10016,1005,"Objective — Explain project purpose and folder layout.
+Success criteria — README includes setup summary and architecture link
+Notes — N/A"
+Add contribution guidelines,Subtask,10017,1005,"Objective — Document branch, commit, and review rules.
+Success criteria — guidelines include PR checklist and code style basics
+Notes — N/A"
+Create requirements file,Subtask,10018,1006,"Objective — Define starter dependencies for ML and utilities.
+Success criteria — requirements file installs without conflict
+Notes — N/A"
+Add environment setup script,Subtask,10019,1006,"Objective — Automate local Python setup where practical.
+Success criteria — script creates environment or gives clear commands
+Notes — N/A"
+Add Python smoke test,Subtask,10020,1006,"Objective — Verify imports and basic runtime.
+Success criteria — smoke test passes locally
+Notes — N/A"
+Create ROS workspace skeleton,Subtask,10021,1007,"Objective — Add ros_ws source layout.
+Success criteria — ros_ws/src exists and is documented
+Notes — N/A"
+Create control bridge package,Subtask,10022,1007,"Objective — Create package for camera, parser, and command nodes.
+Success criteria — package builds with colcon
+Notes — N/A"
+Document ROS environment sourcing,Subtask,10023,1007,"Objective — Add commands for setup.bash and local shell usage.
+Success criteria — README includes source commands
+Notes — N/A"
+Define config schema,Subtask,10024,1008,"Objective — List configuration keys for runtime, model, ROS, and benchmark settings.
+Success criteria — schema includes defaults and comments
+Notes — N/A"
+Implement config loader,Subtask,10025,1008,"Objective — Load config from file with validation.
+Success criteria — missing required keys fail with clear error
+Notes — N/A"
+Add example config file,Subtask,10026,1008,"Objective — Provide safe example settings for local development.
+Success criteria — example config runs the dummy pipeline
+Notes — N/A"
+Add Python test command,Subtask,10027,1009,"Objective — Configure pytest or equivalent test runner.
+Success criteria — test command runs locally
+Notes — N/A"
+Add lint or format check,Subtask,10028,1009,"Objective — Add basic code quality check.
+Success criteria — check catches syntax or formatting issues
+Notes — N/A"
+Add CI workflow file,Subtask,10029,1009,"Objective — Run tests and checks automatically.
+Success criteria — workflow passes on main branch
+Notes — N/A"
+Define run output folder format,Subtask,10030,1010,"Objective — Create naming scheme for experiments.
+Success criteria — format includes date, run type, and short description
+Notes — N/A"
+Implement metrics JSON writer,Subtask,10031,1010,"Objective — Save benchmark and training metrics consistently.
+Success criteria — writer creates valid JSON with run metadata
+Notes — N/A"
+Document experiment naming rules,Subtask,10032,1010,"Objective — Explain how teammates should name runs.
+Success criteria — rules appear in docs or README
+Notes — N/A"
+Compare simulator options,Subtask,10033,1011,"Objective — Evaluate Gazebo, Webots, Isaac Sim, or turtlesim for MVP fit.
+Success criteria — choice is documented with tradeoffs
+Notes — N/A"
+Create simple simulation world,Subtask,10034,1011,"Objective — Set up a world with open space and colored objects.
+Success criteria — world launches with at least one target object
+Notes — N/A"
+Verify robot spawn,Subtask,10035,1011,"Objective — Spawn or load the robot model.
+Success criteria — robot appears and can receive commands
+Notes — N/A"
+Create image subscriber node,Subtask,10036,1012,"Objective — Subscribe to /image_raw or configured camera topic.
+Success criteria — node logs incoming frame timestamps
+Notes — N/A"
+Convert ROS image to array,Subtask,10037,1012,"Objective — Convert image messages to a format usable by ML code.
+Success criteria — conversion works on sample frame
+Notes — N/A"
+Add debug frame save option,Subtask,10038,1012,"Objective — Save sample frames for dataset and debugging.
+Success criteria — flag saves images to configured folder
+Notes — N/A"
+Create /cmd_vel publisher,Subtask,10039,1013,"Objective — Publish geometry_msgs/Twist messages.
+Success criteria — messages appear on configured topic
+Notes — N/A"
+Add command helper function,Subtask,10040,1013,"Objective — Convert linear and angular values into Twist messages.
+Success criteria — helper returns correct message fields
+Notes — N/A"
+Test movement commands in simulation,Subtask,10041,1013,"Objective — Send forward, left, right, and stop commands.
+Success criteria — robot response is visible
+Notes — N/A"
+Implement constant forward action,Subtask,10042,1014,"Objective — Generate a simple MOVE_FORWARD command.
+Success criteria — robot moves forward in dummy mode
+Notes — N/A"
+Implement scripted action sequence,Subtask,10043,1014,"Objective — Run a short sequence such as forward, turn, stop.
+Success criteria — sequence executes in order
+Notes — N/A"
+Add dummy mode configuration,Subtask,10044,1014,"Objective — Allow runtime to choose dummy or model mode.
+Success criteria — config toggles dummy mode without code changes
+Notes — N/A"
+Implement heartbeat timer,Subtask,10045,1015,"Objective — Publish current safe command at a fixed rate.
+Success criteria — timer runs at configured frequency
+Notes — N/A"
+Add command timeout,Subtask,10046,1015,"Objective — Stop if no fresh action arrives in time.
+Success criteria — expired command becomes STOP
+Notes — N/A"
+Log heartbeat health,Subtask,10047,1015,"Objective — Expose last command time and timeout status.
+Success criteria — logs show heartbeat status
+Notes — N/A"
+Choose teleoperation input method,Subtask,10048,1016,"Objective — Pick keyboard or joystick for MVP.
+Success criteria — input method is documented
+Notes — N/A"
+Wire teleop to /cmd_vel,Subtask,10049,1016,"Objective — Send manual commands to the robot.
+Success criteria — manual movement works
+Notes — N/A"
+Record teleop commands,Subtask,10050,1016,"Objective — Save command timestamps for dataset creation.
+Success criteria — recorded commands align with frame timestamps
+Notes — N/A"
+Choose action names,Subtask,10051,1017,"Objective — Finalize the allowed discrete actions.
+Success criteria — action names are uppercase and unambiguous
+Notes — N/A"
+Map actions to velocities,Subtask,10052,1017,"Objective — Define linear_x and angular_z for each action.
+Success criteria — mapping table is documented
+Notes — N/A"
+Add schema constants,Subtask,10053,1017,"Objective — Represent actions in shared code.
+Success criteria — constants are used by parser and controller
+Notes — N/A"
+Define JSON command fields,Subtask,10054,1018,"Objective — Specify linear_x, angular_z, and stop fields.
+Success criteria — fields and types are documented
+Notes — N/A"
+Define numeric bounds,Subtask,10055,1018,"Objective — Set minimum and maximum values for velocities.
+Success criteria — bounds match safety limits
+Notes — N/A"
+Create example commands,Subtask,10056,1018,"Objective — Write valid and invalid examples for parser tests.
+Success criteria — examples are included in docs
+Notes — N/A"
+Implement parser function,Subtask,10057,1019,"Objective — Parse text into a known action enum or value.
+Success criteria — parser handles exact valid actions
+Notes — N/A"
+Add normalization rules,Subtask,10058,1019,"Objective — Handle whitespace, punctuation, and lowercase.
+Success criteria — normalized valid outputs parse correctly
+Notes — N/A"
+Write parser unit tests,Subtask,10059,1019,"Objective — Cover valid, invalid, and noisy outputs.
+Success criteria — tests pass in CI
+Notes — N/A"
+Implement JSON parsing utility,Subtask,10060,1020,"Objective — Load command JSON from model text.
+Success criteria — utility returns structured result or error
+Notes — N/A"
+Validate required fields,Subtask,10061,1020,"Objective — Check presence and types of required fields.
+Success criteria — missing fields are rejected
+Notes — N/A"
+Test malformed outputs,Subtask,10062,1020,"Objective — Add tests for broken JSON and unsafe values.
+Success criteria — malformed output maps to STOP path
+Notes — N/A"
+Add velocity clamp function,Subtask,10063,1021,"Objective — Clip or reject unsafe velocity commands.
+Success criteria — commands never exceed configured limits
+Notes — N/A"
+Implement invalid-output STOP,Subtask,10064,1021,"Objective — Convert parser failures into STOP.
+Success criteria — invalid model text produces zero velocity
+Notes — N/A"
+Add safety event logging,Subtask,10065,1021,"Objective — Log why commands were modified or stopped.
+Success criteria — logs include reason and original output
+Notes — N/A"
+Define smoothing strategy,Subtask,10066,1022,"Objective — Choose rate limit or moving average for commands.
+Success criteria — strategy is documented
+Notes — N/A"
+Implement command rate limiter,Subtask,10067,1022,"Objective — Limit change in linear and angular commands.
+Success criteria — outputs respect max delta per tick
+Notes — N/A"
+Test STOP bypass,Subtask,10068,1022,"Objective — Ensure emergency and invalid STOP are immediate.
+Success criteria — STOP command is not delayed by smoothing
+Notes — N/A"
+List candidate small VLMs,Subtask,10069,1023,"Objective — Compare models such as SmolVLM, Moondream, PaliGemma, or other accessible options.
+Success criteria — table includes size, hardware, and library support
+Notes — N/A"
+Run model loading smoke test,Subtask,10070,1023,"Objective — Verify selected model loads locally or in notebook.
+Success criteria — model loads without crash
+Notes — N/A"
+Document model license and constraints,Subtask,10071,1023,"Objective — Record usage constraints and model source.
+Success criteria — license notes are in docs
+Notes — N/A"
+Implement image resize and conversion,Subtask,10072,1024,"Objective — Convert frames into model-ready images.
+Success criteria — output dimensions and color mode are correct
+Notes — N/A"
+Add preprocessing configuration,Subtask,10073,1024,"Objective — Make size and format configurable.
+Success criteria — settings are read from config
+Notes — N/A"
+Test preprocessing on saved frames,Subtask,10074,1024,"Objective — Run pipeline on sample images.
+Success criteria — no corrupted images or shape errors
+Notes — N/A"
+Write action-only prompt template,Subtask,10075,1025,"Objective — Create prompt instructing the model to return one action.
+Success criteria — template includes exact allowed actions
+Notes — N/A"
+Create few-shot prompt examples,Subtask,10076,1025,"Objective — Add optional examples for common scenes.
+Success criteria — examples map image context and instruction to actions
+Notes — N/A"
+Version prompt templates,Subtask,10077,1025,"Objective — Save templates in repo for repeatable testing.
+Success criteria — prompt version is logged in benchmark output
+Notes — N/A"
+Create inference function,Subtask,10078,1026,"Objective — Implement image plus instruction to model text.
+Success criteria — function runs on one sample
+Notes — N/A"
+Add timing instrumentation,Subtask,10079,1026,"Objective — Measure preprocessing, inference, and parsing time.
+Success criteria — timing values are returned with output
+Notes — N/A"
+Add model error handling,Subtask,10080,1026,"Objective — Handle load or inference failures cleanly.
+Success criteria — failure returns safe error result
+Notes — N/A"
+Create baseline test images,Subtask,10081,1027,"Objective — Collect a small set of representative images.
+Success criteria — at least 20 test images are available
+Notes — N/A"
+Run prompt evaluation script,Subtask,10082,1027,"Objective — Run baseline model on test images and instructions.
+Success criteria — outputs are saved with timings
+Notes — N/A"
+Summarize baseline failures,Subtask,10083,1027,"Objective — Review invalid and wrong outputs.
+Success criteria — failure categories are documented
+Notes — N/A"
+Create model-to-action adapter,Subtask,10084,1028,"Objective — Convert wrapper output to parser input and structured action result.
+Success criteria — adapter returns action plus parse status
+Notes — N/A"
+Add fallback path test,Subtask,10085,1028,"Objective — Verify invalid model output uses STOP.
+Success criteria — test covers invalid output and exception case
+Notes — N/A"
+Log raw and parsed output,Subtask,10086,1028,"Objective — Save both raw text and parsed action for debugging.
+Success criteria — logs contain raw_output and parsed_action fields
+Notes — N/A"
+Choose dataset file format,Subtask,10087,1029,"Objective — Select JSONL or CSV for training records.
+Success criteria — choice supports image path, instruction, action, and metadata
+Notes — N/A"
+Define required fields,Subtask,10088,1029,"Objective — Document required and optional dataset fields.
+Success criteria — fields include image_path, instruction, action, timestamp, source
+Notes — N/A"
+Create sample dataset records,Subtask,10089,1029,"Objective — Add example records to docs or fixtures.
+Success criteria — sample records pass validation
+Notes — N/A"
+Implement frame recorder,Subtask,10090,1030,"Objective — Save camera frames at configured interval.
+Success criteria — images are written with unique names
+Notes — N/A"
+Record command labels,Subtask,10091,1030,"Objective — Save current action or teleop command with timestamps.
+Success criteria — label records align to frame timestamps
+Notes — N/A"
+Save episode metadata,Subtask,10092,1030,"Objective — Record scenario, instruction, and object placement metadata.
+Success criteria — metadata file exists per episode
+Notes — N/A"
+Collect starter frames,Subtask,10093,1031,"Objective — Gather first batch of images from simulation or simple scenes.
+Success criteria — at least 200 frames are saved
+Notes — N/A"
+Assign initial action labels,Subtask,10094,1031,"Objective — Label each frame with one discrete action.
+Success criteria — each record has a valid action label
+Notes — N/A"
+Create train validation split,Subtask,10095,1031,"Objective — Split records into train and validation sets.
+Success criteria — split files contain no duplicate record IDs
+Notes — N/A"
+Write labeling guidelines,Subtask,10096,1032,"Objective — Define how to choose actions from images and instructions.
+Success criteria — guidelines include examples and edge cases
+Notes — N/A"
+Create labeling template,Subtask,10097,1032,"Objective — Create CSV or lightweight tool for labels.
+Success criteria — template includes image path, instruction, action, notes
+Notes — N/A"
+Add label review checklist,Subtask,10098,1032,"Objective — Define what reviewers check before training.
+Success criteria — checklist covers invalid labels and ambiguous scenes
+Notes — N/A"
+Implement record schema validation,Subtask,10099,1033,"Objective — Check required fields and data types.
+Success criteria — invalid records fail with clear messages
+Notes — N/A"
+Implement image path validation,Subtask,10100,1033,"Objective — Verify every image path exists.
+Success criteria — missing image paths are listed
+Notes — N/A"
+Implement label distribution report,Subtask,10101,1033,"Objective — Summarize action counts and imbalance.
+Success criteria — report shows counts by action
+Notes — N/A"
+Implement dataset class,Subtask,10102,1034,"Objective — Create code to load dataset records and images.
+Success criteria — getitem returns expected fields
+Notes — N/A"
+Add transform pipeline,Subtask,10103,1034,"Objective — Apply model-specific preprocessing in loader or collator.
+Success criteria — transforms match model input expectations
+Notes — N/A"
+Write loader smoke test,Subtask,10104,1034,"Objective — Load a batch from sample dataset.
+Success criteria — test passes with fixture dataset
+Notes — N/A"
+Define dataset version naming,Subtask,10105,1035,"Objective — Create dataset version convention.
+Success criteria — version string appears in dataset metadata
+Notes — N/A"
+Generate dataset stats file,Subtask,10106,1035,"Objective — Save counts, split sizes, and label distribution.
+Success criteria — stats file is produced by validation script
+Notes — N/A"
+Write dataset card,Subtask,10107,1035,"Objective — Document source, scope, limitations, and usage.
+Success criteria — dataset card exists in docs
+Notes — N/A"
+Define training prompt template,Subtask,10108,1036,"Objective — Create instruction format used during fine-tuning.
+Success criteria — template includes image reference, goal, and action target
+Notes — N/A"
+Write dataset conversion script,Subtask,10109,1036,"Objective — Convert raw dataset records into training format.
+Success criteria — script produces valid training file
+Notes — N/A"
+Inspect formatted samples,Subtask,10110,1036,"Objective — Manually review examples before training.
+Success criteria — at least 10 samples are checked
+Notes — N/A"
+Identify LoRA target modules,Subtask,10111,1037,"Objective — Choose model layers to adapt.
+Success criteria — target module names are documented
+Notes — N/A"
+Create LoRA config file,Subtask,10112,1037,"Objective — Set rank, alpha, dropout, and related settings.
+Success criteria — config loads in training script
+Notes — N/A"
+Log trainable parameters,Subtask,10113,1037,"Objective — Print and save count of trainable parameters.
+Success criteria — run output includes trainable parameter summary
+Notes — N/A"
+Create training entrypoint,Subtask,10114,1038,"Objective — Add command-line script for fine-tuning.
+Success criteria — script accepts config path and dataset path
+Notes — N/A"
+Run one-batch training smoke test,Subtask,10115,1038,"Objective — Verify forward and backward pass work.
+Success criteria — one batch completes without error
+Notes — N/A"
+Save adapter checkpoint,Subtask,10116,1038,"Objective — Persist trained LoRA adapter.
+Success criteria — checkpoint folder contains adapter files
+Notes — N/A"
+Implement validation inference script,Subtask,10117,1039,"Objective — Run model on validation examples.
+Success criteria — predictions are saved with labels
+Notes — N/A"
+Compute exact action accuracy,Subtask,10118,1039,"Objective — Compare predicted action to expected label.
+Success criteria — accuracy value is included in metrics file
+Notes — N/A"
+Compute invalid output rate,Subtask,10119,1039,"Objective — Measure parse failures.
+Success criteria — invalid output percentage is reported
+Notes — N/A"
+Run baseline on validation set,Subtask,10120,1040,"Objective — Collect zero-shot model predictions on same examples.
+Success criteria — baseline metrics are saved
+Notes — N/A"
+Run fine-tuned model on validation set,Subtask,10121,1040,"Objective — Collect adapter model predictions.
+Success criteria — fine-tuned metrics are saved
+Notes — N/A"
+Create comparison report,Subtask,10122,1040,"Objective — Summarize baseline versus fine-tuned results.
+Success criteria — report includes accuracy and invalid output rate
+Notes — N/A"
+Save prediction samples,Subtask,10123,1041,"Objective — Write image, instruction, label, and prediction examples to an output folder.
+Success criteria — samples include correct and incorrect outputs
+Notes — N/A"
+Create failure category list,Subtask,10124,1041,"Objective — Define categories such as wrong direction, invalid text, over-cautious stop, or ambiguity.
+Success criteria — categories are documented
+Notes — N/A"
+Review first failure batch,Subtask,10125,1041,"Objective — Manually inspect failed predictions.
+Success criteria — review notes include action items
+Notes — N/A"
+Add seed configuration,Subtask,10126,1042,"Objective — Set random seeds where supported.
+Success criteria — seed appears in config and run metadata
+Notes — N/A"
+Snapshot training config,Subtask,10127,1042,"Objective — Save the exact config used for each run.
+Success criteria — config copy exists in run folder
+Notes — N/A"
+Record dataset and model versions,Subtask,10128,1042,"Objective — Store dataset version and base model identifier.
+Success criteria — metadata includes dataset_version and base_model
+Notes — N/A"
+Check GGUF support for selected model,Subtask,10129,1043,"Objective — Verify whether the selected VLM can be converted to GGUF.
+Success criteria — support status is documented
+Notes — N/A"
+Identify fallback quantization options,Subtask,10130,1043,"Objective — List alternatives such as bitsandbytes, ONNX, TensorRT, or standard Python quantization.
+Success criteria — fallback table includes effort and risk
+Notes — N/A"
+Create deployment decision record,Subtask,10131,1043,"Objective — Document chosen export path and why.
+Success criteria — decision record is approved by team
+Notes — N/A"
+Load model in reduced precision,Subtask,10132,1044,"Objective — Run selected model with available quantization support.
+Success criteria — model loads successfully
+Notes — N/A"
+Run sample quantized predictions,Subtask,10133,1044,"Objective — Compare outputs on a small image set.
+Success criteria — predictions are saved
+Notes — N/A"
+Record memory and latency,Subtask,10134,1044,"Objective — Measure rough memory and inference time.
+Success criteria — metrics are saved in run folder
+Notes — N/A"
+Prepare merged or adapter model for export,Subtask,10135,1045,"Objective — Create exportable model files from base model plus LoRA adapter.
+Success criteria — export input folder is created
+Notes — N/A"
+Run GGUF conversion command,Subtask,10136,1045,"Objective — Attempt conversion using documented tooling.
+Success criteria — command output is saved
+Notes — N/A"
+Document conversion result,Subtask,10137,1045,"Objective — Record success, failure, or unsupported components.
+Success criteria — result notes include next steps
+Notes — N/A"
+Build or install llama.cpp,Subtask,10138,1046,"Objective — Prepare runtime environment for local inference.
+Success criteria — llama.cpp binary or server is available
+Notes — N/A"
+Run text-only sanity check,Subtask,10139,1046,"Objective — Verify runtime works independently of VLM image path.
+Success criteria — sample text inference succeeds
+Notes — N/A"
+Run multimodal inference if supported,Subtask,10140,1046,"Objective — Attempt image plus instruction inference.
+Success criteria — result or blocker is documented
+Notes — N/A"
+Document edge hardware specs,Subtask,10141,1047,"Objective — Record Jetson or alternative edge hardware details.
+Success criteria — specs include RAM, GPU, OS, CUDA, and power mode if available
+Notes — N/A"
+Install runtime dependencies,Subtask,10142,1047,"Objective — Install CUDA-enabled runtime dependencies where applicable.
+Success criteria — basic GPU command succeeds
+Notes — N/A"
+Run edge smoke test,Subtask,10143,1047,"Objective — Run a small inference or dummy benchmark on hardware.
+Success criteria — smoke test result is logged
+Notes — N/A"
+Generate FP32 reference predictions,Subtask,10144,1048,"Objective — Run full-precision or base inference on comparison set.
+Success criteria — reference predictions are saved
+Notes — N/A"
+Generate quantized predictions,Subtask,10145,1048,"Objective — Run quantized model on the same set.
+Success criteria — quantized predictions are saved
+Notes — N/A"
+Compute action mismatch rate,Subtask,10146,1048,"Objective — Compare action labels across modes.
+Success criteria — mismatch report is generated
+Notes — N/A"
+Define runtime config fields,Subtask,10147,1049,"Objective — Add settings for context length, max tokens, device, and model path.
+Success criteria — fields are present in config schema
+Notes — N/A"
+Create inference launch script,Subtask,10148,1049,"Objective — Start the selected inference runtime from a single command.
+Success criteria — script launches runtime with configured model
+Notes — N/A"
+Log runtime settings at startup,Subtask,10149,1049,"Objective — Record exact runtime settings for benchmarks.
+Success criteria — startup log includes model path and token limits
+Notes — N/A"
+Define inference request response contract,Subtask,10150,1050,"Objective — Specify inputs and outputs for inference calls.
+Success criteria — contract includes image, instruction, action, timing, and error fields
+Notes — N/A"
+Implement local inference endpoint or callable,Subtask,10151,1050,"Objective — Create service or module callable for model inference.
+Success criteria — call returns response for sample input
+Notes — N/A"
+Add health check,Subtask,10152,1050,"Objective — Expose model loaded and ready status.
+Success criteria — health check returns ready or error state
+Notes — N/A"
+Read latest camera frame in client,Subtask,10153,1051,"Objective — Maintain latest frame for inference requests.
+Success criteria — client has non-blocking access to latest frame
+Notes — N/A"
+Send instruction with frame,Subtask,10154,1051,"Objective — Include configured or user-provided goal text in request.
+Success criteria — request includes instruction field
+Notes — N/A"
+Handle service failures safely,Subtask,10155,1051,"Objective — Convert service timeout or error into STOP.
+Success criteria — service failure does not crash ROS node
+Notes — N/A"
+Add default instruction config,Subtask,10156,1052,"Objective — Load starting instruction from config.
+Success criteria — runtime uses configured instruction
+Notes — N/A"
+Implement instruction update method,Subtask,10157,1052,"Objective — Allow instruction updates through CLI, ROS param, or topic.
+Success criteria — update changes future inference requests
+Notes — N/A"
+Log instruction changes,Subtask,10158,1052,"Objective — Record when instruction changes.
+Success criteria — logs include timestamp and new instruction
+Notes — N/A"
+Wire parser into ROS client path,Subtask,10159,1053,"Objective — Parse model output before command generation.
+Success criteria — parsed action appears in logs
+Notes — N/A"
+Apply safety before publish,Subtask,10160,1053,"Objective — Clamp or stop unsafe commands.
+Success criteria — published commands respect safety bounds
+Notes — N/A"
+Publish final command to /cmd_vel,Subtask,10161,1053,"Objective — Send final safe Twist command.
+Success criteria — robot responds to model output in simulation
+Notes — N/A"
+Choose async execution model,Subtask,10162,1054,"Objective — Decide thread, process, or async event loop approach.
+Success criteria — decision is documented
+Notes — N/A"
+Implement inference worker,Subtask,10163,1054,"Objective — Run model calls outside the heartbeat publisher.
+Success criteria — worker produces actions without blocking heartbeat
+Notes — N/A"
+Add stale result handling,Subtask,10164,1054,"Objective — Discard or mark old inference results.
+Success criteria — stale outputs do not override newer safe state
+Notes — N/A"
+Add diagnostics data structure,Subtask,10165,1055,"Objective — Track current runtime status and counters.
+Success criteria — status includes model_loaded, last_action, last_latency, and safety_stop_count
+Notes — N/A"
+Publish or log diagnostics,Subtask,10166,1055,"Objective — Make diagnostics visible through logs or ROS topic.
+Success criteria — diagnostic output updates during runtime
+Notes — N/A"
+Add runtime summary on shutdown,Subtask,10167,1055,"Objective — Print summary metrics after a run.
+Success criteria — shutdown output includes counts and average latency
+Notes — N/A"
+Create demo launch command,Subtask,10168,1056,"Objective — Start simulator, ROS nodes, and inference mode together.
+Success criteria — single documented command launches demo components
+Notes — N/A"
+Record demo run output,Subtask,10169,1056,"Objective — Capture logs and optionally video for review.
+Success criteria — demo artifact is saved
+Notes — N/A"
+Write demo pass fail checklist,Subtask,10170,1056,"Objective — Define what must happen for demo to pass.
+Success criteria — checklist is completed after run
+Notes — N/A"
+Define latency metrics,Subtask,10171,1057,"Objective — Specify mean, p50, p95, min, max, and standard deviation.
+Success criteria — definitions are in benchmark plan
+Notes — N/A"
+Define behavior metrics,Subtask,10172,1057,"Objective — Specify valid action rate, task success, and safety stop rate.
+Success criteria — behavior metrics are documented
+Notes — N/A"
+Define benchmark scenarios,Subtask,10173,1057,"Objective — List offline image tests and simulation episodes.
+Success criteria — scenarios include inputs and expected outputs
+Notes — N/A"
+Implement benchmark runner,Subtask,10174,1058,"Objective — Run repeated inference on a fixed sample set.
+Success criteria — runner accepts model path and dataset path
+Notes — N/A"
+Add warm-up phase,Subtask,10175,1058,"Objective — Exclude warm-up runs from reported metrics.
+Success criteria — metrics distinguish warm-up and measured runs
+Notes — N/A"
+Save latency summary,Subtask,10176,1058,"Objective — Write latency statistics to JSON or CSV.
+Success criteria — summary includes mean and p95 latency
+Notes — N/A"
+Add pipeline timestamps,Subtask,10177,1059,"Objective — Record timestamps at each pipeline stage.
+Success criteria — logs include stage timestamps
+Notes — N/A"
+Implement ROS latency analyzer,Subtask,10178,1059,"Objective — Compute latency from runtime logs.
+Success criteria — analyzer outputs summary statistics
+Notes — N/A"
+Validate timestamp consistency,Subtask,10179,1059,"Objective — Check clock source and ordering.
+Success criteria — negative or impossible timings are flagged
+Notes — N/A"
+Run parser over prediction logs,Subtask,10180,1060,"Objective — Analyze raw outputs from model runs.
+Success criteria — each output has parse status
+Notes — N/A"
+Compute valid action percentage,Subtask,10181,1060,"Objective — Summarize parse success rate.
+Success criteria — report includes valid and invalid counts
+Notes — N/A"
+Save invalid output samples,Subtask,10182,1060,"Objective — Collect raw invalid responses for prompt or training fixes.
+Success criteria — invalid samples are stored for review
+Notes — N/A"
+Define episode success criteria,Subtask,10183,1061,"Objective — Specify what counts as success for the simulated task.
+Success criteria — criteria are measurable from logs or state
+Notes — N/A"
+Create episode runner,Subtask,10184,1061,"Objective — Automate repeated simulation runs where feasible.
+Success criteria — runner starts and ends episodes consistently
+Notes — N/A"
+Summarize episode outcomes,Subtask,10185,1061,"Objective — Report success, failure, timeout, and safety stop counts.
+Success criteria — summary table is generated
+Notes — N/A"
+Categorize failed predictions,Subtask,10186,1062,"Objective — Assign failure categories to benchmark errors.
+Success criteria — categories cover major error types
+Notes — N/A"
+Review representative failed episodes,Subtask,10187,1062,"Objective — Inspect logs and frames from failed runs.
+Success criteria — review notes include likely root cause
+Notes — N/A"
+Create improvement recommendations,Subtask,10188,1062,"Objective — Suggest data, prompt, or code changes.
+Success criteria — recommendations are prioritized
+Notes — N/A"
+Collect final metrics,Subtask,10189,1063,"Objective — Gather best benchmark results from run outputs.
+Success criteria — metrics are linked to run IDs
+Notes — N/A"
+Create comparison table,Subtask,10190,1063,"Objective — Build table for README or final report.
+Success criteria — table includes hardware and model configuration
+Notes — N/A"
+Document interpretation limits,Subtask,10191,1063,"Objective — Explain why results are not direct head-to-head reproduction.
+Success criteria — limitations are included near results table
+Notes — N/A"
+Write demo runbook,Subtask,10192,1064,"Objective — Document step-by-step demo setup and commands.
+Success criteria — runbook can be followed by another teammate
+Notes — N/A"
+Prepare demo scenario assets,Subtask,10193,1064,"Objective — Save world, dataset examples, or instructions needed for demo.
+Success criteria — assets are in repo or documented location
+Notes — N/A"
+Create fallback recording plan,Subtask,10194,1064,"Objective — Prepare video or screenshots in case live demo fails.
+Success criteria — fallback artifact is available
+Notes — N/A"
+Document setup steps,Subtask,10195,1065,"Objective — Write install and environment setup instructions.
+Success criteria — steps cover Python and ROS setup
+Notes — N/A"
+Document run commands,Subtask,10196,1065,"Objective — Add commands for dummy, baseline, trained, and benchmark modes.
+Success criteria — commands are copy-pasteable
+Notes — N/A"
+Add troubleshooting section,Subtask,10197,1065,"Objective — Record common setup and runtime issues.
+Success criteria — section includes symptoms and fixes
+Notes — N/A"
+Update architecture diagram,Subtask,10198,1066,"Objective — Create final diagram matching implemented system.
+Success criteria — diagram shows actual components and interfaces
+Notes — N/A"
+Document ROS topics and nodes,Subtask,10199,1066,"Objective — List nodes, topics, messages, and responsibilities.
+Success criteria — docs include /image_raw and /cmd_vel or configured equivalents
+Notes — N/A"
+Document model interface,Subtask,10200,1066,"Objective — Explain request and response format for inference.
+Success criteria — docs include sample request and response
+Notes — N/A"
+Write implementation summary,Subtask,10201,1067,"Objective — Describe the final prototype in plain language.
+Success criteria — summary covers ML, ROS, dataset, and deployment pieces
+Notes — N/A"
+Add results and analysis section,Subtask,10202,1067,"Objective — Include benchmark results and interpretation.
+Success criteria — results cite run IDs and hardware configuration
+Notes — N/A"
+Add limitations and future work,Subtask,10203,1067,"Objective — Document gaps versus paper and next improvements.
+Success criteria — future work includes real robot and stronger benchmark ideas
+Notes — N/A"
+Create code tour agenda,Subtask,10204,1068,"Objective — Plan walkthrough by system area.
+Success criteria — agenda covers repo, ROS, ML, dataset, and benchmarks
+Notes — N/A"
+Capture open questions,Subtask,10205,1068,"Objective — Record unresolved technical and product questions.
+Success criteria — question list includes owners or next steps
+Notes — N/A"
+Review next backlog items,Subtask,10206,1068,"Objective — Prioritize what to do after MVP.
+Success criteria — post-MVP backlog is updated
+Notes — N/A"
+Write CSV import mapping notes,Subtask,10207,1069,"Objective — Explain Jira CSV column mapping and hierarchy.
+Success criteria — notes map Summary, Issue type, Work item ID, Parent, Status, and Description
+Notes — N/A"
+Define board workflow,Subtask,10208,1069,"Objective — Recommend To Do, In Progress, Done states.
+Success criteria — workflow is concise and beginner-friendly
+Notes — N/A"
+Suggest labels and components,Subtask,10209,1069,"Objective — Provide labels for ML, ROS, dataset, deployment, evaluation, docs, and safety.
+Success criteria — label list is included in setup notes
+Notes — N/A"
+[LEARNING] Understand concepts for: Summarize the LiteVLA-Edge system architecture,Subtask,10210,1000,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Summarize the LiteVLA-Edge system architecture,Subtask,10211,1000,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define MVP demo task and non-goals,Subtask,10212,1001,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define MVP demo task and non-goals,Subtask,10213,1001,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create team roles and ownership map,Subtask,10214,1002,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create team roles and ownership map,Subtask,10215,1002,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Document technical assumptions and constraints,Subtask,10216,1003,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Document technical assumptions and constraints,Subtask,10217,1003,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create initial risk register,Subtask,10218,1004,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create initial risk register,Subtask,10219,1004,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Initialize repository structure,Subtask,10220,1005,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Initialize repository structure,Subtask,10221,1005,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create Python environment setup,Subtask,10222,1006,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create Python environment setup,Subtask,10223,1006,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create ROS 2 workspace setup,Subtask,10224,1007,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create ROS 2 workspace setup,Subtask,10225,1007,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add configuration management,Subtask,10226,1008,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add configuration management,Subtask,10227,1008,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Set up basic CI checks,Subtask,10228,1009,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Set up basic CI checks,Subtask,10229,1009,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create experiment logging convention,Subtask,10230,1010,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create experiment logging convention,Subtask,10231,1010,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Select and set up simulation environment,Subtask,10232,1011,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Select and set up simulation environment,Subtask,10233,1011,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement camera frame subscriber,Subtask,10234,1012,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement camera frame subscriber,Subtask,10235,1012,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement velocity command publisher,Subtask,10236,1013,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement velocity command publisher,Subtask,10237,1013,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Build dummy action generator,Subtask,10238,1014,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Build dummy action generator,Subtask,10239,1014,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add low-level control heartbeat,Subtask,10240,1015,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add low-level control heartbeat,Subtask,10241,1015,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add manual teleoperation mode,Subtask,10242,1016,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add manual teleoperation mode,Subtask,10243,1016,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define discrete action schema,Subtask,10244,1017,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define discrete action schema,Subtask,10245,1017,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define continuous command schema,Subtask,10246,1018,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define continuous command schema,Subtask,10247,1018,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement discrete action parser,Subtask,10248,1019,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement discrete action parser,Subtask,10249,1019,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement JSON command parser,Subtask,10250,1020,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement JSON command parser,Subtask,10251,1020,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement safety clamp and fallback behavior,Subtask,10252,1021,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement safety clamp and fallback behavior,Subtask,10253,1021,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add command smoothing,Subtask,10254,1022,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add command smoothing,Subtask,10255,1022,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Select starter vision-language model,Subtask,10256,1023,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Select starter vision-language model,Subtask,10257,1023,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create image preprocessing pipeline,Subtask,10258,1024,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create image preprocessing pipeline,Subtask,10259,1024,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Design baseline prompting strategy,Subtask,10260,1025,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Design baseline prompting strategy,Subtask,10261,1025,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement baseline inference wrapper,Subtask,10262,1026,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement baseline inference wrapper,Subtask,10263,1026,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Evaluate zero-shot baseline outputs,Subtask,10264,1027,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Evaluate zero-shot baseline outputs,Subtask,10265,1027,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Connect baseline inference to action parser,Subtask,10266,1028,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Connect baseline inference to action parser,Subtask,10267,1028,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define dataset schema and file layout,Subtask,10268,1029,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define dataset schema and file layout,Subtask,10269,1029,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Build simulation data capture tool,Subtask,10270,1030,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Build simulation data capture tool,Subtask,10271,1030,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create synthetic starter dataset,Subtask,10272,1031,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create synthetic starter dataset,Subtask,10273,1031,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Design labeling workflow,Subtask,10274,1032,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Design labeling workflow,Subtask,10275,1032,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement dataset validation checks,Subtask,10276,1033,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement dataset validation checks,Subtask,10277,1033,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create dataset loader for training,Subtask,10278,1034,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create dataset loader for training,Subtask,10279,1034,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create dataset versioning and documentation,Subtask,10280,1035,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create dataset versioning and documentation,Subtask,10281,1035,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Prepare model training format,Subtask,10282,1036,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Prepare model training format,Subtask,10283,1036,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Configure LoRA fine-tuning,Subtask,10284,1037,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Configure LoRA fine-tuning,Subtask,10285,1037,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement first training loop,Subtask,10286,1038,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement first training loop,Subtask,10287,1038,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add validation metrics,Subtask,10288,1039,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add validation metrics,Subtask,10289,1039,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Compare fine-tuned model against baseline,Subtask,10290,1040,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Compare fine-tuned model against baseline,Subtask,10291,1040,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create manual model inspection workflow,Subtask,10292,1041,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create manual model inspection workflow,Subtask,10293,1041,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Make training runs reproducible,Subtask,10294,1042,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Make training runs reproducible,Subtask,10295,1042,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Research model export and quantization path,Subtask,10296,1043,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Research model export and quantization path,Subtask,10297,1043,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run Python low-bit quantization experiment,Subtask,10298,1044,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run Python low-bit quantization experiment,Subtask,10299,1044,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Attempt GGUF conversion,Subtask,10300,1045,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Attempt GGUF conversion,Subtask,10301,1045,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run llama.cpp inference prototype,Subtask,10302,1046,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run llama.cpp inference prototype,Subtask,10303,1046,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Configure Jetson or edge hardware runtime,Subtask,10304,1047,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Configure Jetson or edge hardware runtime,Subtask,10305,1047,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Compare FP32 and quantized action stability,Subtask,10306,1048,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Compare FP32 and quantized action stability,Subtask,10307,1048,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Package runtime configuration for deployment,Subtask,10308,1049,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Package runtime configuration for deployment,Subtask,10309,1049,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create inference service API,Subtask,10310,1050,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create inference service API,Subtask,10311,1050,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement ROS inference client node,Subtask,10312,1051,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement ROS inference client node,Subtask,10313,1051,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add instruction management,Subtask,10314,1052,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add instruction management,Subtask,10315,1052,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Integrate model actions with safety and publisher,Subtask,10316,1053,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Integrate model actions with safety and publisher,Subtask,10317,1053,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement asynchronous inference loop,Subtask,10318,1054,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Implement asynchronous inference loop,Subtask,10319,1054,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add runtime health and diagnostics,Subtask,10320,1055,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Add runtime health and diagnostics,Subtask,10321,1055,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run full simulation integration demo,Subtask,10322,1056,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run full simulation integration demo,Subtask,10323,1056,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define evaluation metrics and benchmark plan,Subtask,10324,1057,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Define evaluation metrics and benchmark plan,Subtask,10325,1057,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create offline inference benchmark,Subtask,10326,1058,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create offline inference benchmark,Subtask,10327,1058,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create ROS end-to-end latency benchmark,Subtask,10328,1059,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create ROS end-to-end latency benchmark,Subtask,10329,1059,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create action validity benchmark,Subtask,10330,1060,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create action validity benchmark,Subtask,10331,1060,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run simulation task success evaluation,Subtask,10332,1061,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Run simulation task success evaluation,Subtask,10333,1061,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Analyze failure cases and dataset fixes,Subtask,10334,1062,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Analyze failure cases and dataset fixes,Subtask,10335,1062,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create results comparison table,Subtask,10336,1063,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create results comparison table,Subtask,10337,1063,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create final demo script,Subtask,10338,1064,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create final demo script,Subtask,10339,1064,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Write implementation README,Subtask,10340,1065,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Write implementation README,Subtask,10341,1065,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create architecture documentation,Subtask,10342,1066,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create architecture documentation,Subtask,10343,1066,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Write final project report,Subtask,10344,1067,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Write final project report,Subtask,10345,1067,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Prepare knowledge transfer session,Subtask,10346,1068,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Prepare knowledge transfer session,Subtask,10347,1068,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create Jira import and project setup notes,Subtask,10348,1069,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
+[LEARNING] Understand concepts for: Create Jira import and project setup notes,Subtask,10349,1069,"Objective — Learn key concepts required for this story.
+Success criteria — Can explain concepts and apply in implementation.
+Notes — Research docs, tutorials, and examples."
