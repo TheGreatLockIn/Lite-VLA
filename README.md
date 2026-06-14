@@ -33,7 +33,7 @@ Scripts and configs for packaging models for edge devices (e.g. quantization, GG
 
 ### `docs/`
 
-Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Prefer markdown files that link back to the relevant code folders.
+Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file (for humans in a browser). See `docs/AGENTS.md`.
 
 ### `scripts/`
 
@@ -47,7 +47,7 @@ Integration and smoke tests that span multiple areas (e.g. parser + ROS message 
 
 ### Python environment
 
-1. **Read the dependency guide** — [`docs/requirements.md`](docs/requirements.md) explains each package, which requirements file it belongs to, and how it maps to project areas (`ml/`, `data/`, `deployment/`, etc.).
+1. **Read the dependency guide** — [`docs/requirements.html`](docs/requirements.html) explains each package, which requirements file it belongs to, and how it maps to project areas (`ml/`, `data/`, `deployment/`, etc.).
 2. **Run the setup script** from the repo root:
 
 ```bash
@@ -83,7 +83,7 @@ Use a specific profile directly, e.g. `pip install -r requirements/train.txt`.
 
 **Notes**
 
-- PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/requirements.md`.
+- PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/requirements.html`.
 - ROS 2 dependencies are installed separately via apt and `ros_ws/` — not via pip.
 
 ### ROS 2 workspace

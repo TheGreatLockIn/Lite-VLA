@@ -10,6 +10,9 @@ Install profiles for Lite-VLA Python dependencies.
 | `deploy.txt` | Base + quantization / export |
 | `all.txt` | Dev + train |
 
-**Full breakdown of each package and its role in the project:** [`docs/requirements.md`](../docs/requirements.md)
+**Full breakdown of each package and its role in the project:**
+
+- Humans (browser): [`docs/requirements.html`](../docs/requirements.html)
+- Agents / tooling: [`docs/requirements.md`](../docs/requirements.md)
 
 **Recommended setup:** `./scripts/setup_python_env.sh` from the repo root.

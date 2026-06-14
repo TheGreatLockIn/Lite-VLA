@@ -2,6 +2,8 @@
 
 This document explains Lite-VLA Python dependencies: what each package does, where it is used in the project, and which requirements file installs it.
 
+**Human-readable version (browser):** [`requirements.html`](requirements.html)
+
 For install commands, see [Getting started](../README.md#getting-started) or run `./scripts/setup_python_env.sh`.
 
 ## Requirements file structure

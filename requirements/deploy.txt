@@ -1,7 +1,7 @@
 # Deployment and quantization experiments. Includes base dependencies.
 #
 # bitsandbytes requires a CUDA-capable Linux GPU in most setups; install may fail
-# on macOS or CPU-only machines. See docs/requirements.md before using this file.
+# on macOS or CPU-only machines. See docs/requirements.md or docs/requirements.html.
 -r base.txt
 
 bitsandbytes>=0.43.0
