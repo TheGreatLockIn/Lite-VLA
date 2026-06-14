@@ -81,6 +81,14 @@ pip install -r requirements.txt
 
 Use a specific profile directly, e.g. `pip install -r requirements/train.txt`.
 
+4. **Verify the environment** with Python smoke tests:
+
+```bash
+pytest tests/smoke -m "not optional" -v
+```
+
+This checks that base ML and utility packages import correctly and perform basic operations. Optional-profile packages (`train`, `deploy`) have separate tests — run `pytest tests/smoke -m optional -v` after installing those profiles.
+
 **Notes**
 
 - PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/requirements.html`.

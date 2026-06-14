@@ -134,3 +134,9 @@ echo
 if [[ "$PROFILE" == "deploy" ]]; then
   echo "Note: bitsandbytes usually requires Linux with CUDA. See docs/requirements.md or docs/requirements.html."
 fi
+
+if [[ "$PROFILE" == "dev" || "$PROFILE" == "all" ]]; then
+  echo
+  echo "==> Running Python smoke tests"
+  pytest tests/smoke -m "not optional" -q
+fi

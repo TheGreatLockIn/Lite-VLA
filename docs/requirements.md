@@ -63,6 +63,8 @@ Includes everything in **base**, plus:
 | Package | Used for | Project area |
 |---------|----------|--------------|
 | **pytest** | Unit tests, smoke tests, and CI test runs | `tests/`, package-level tests across the repo |
+
+Run base smoke tests after setup: `pytest tests/smoke -m "not optional" -v`
 | **ruff** | Fast Python linting and style checks | CI and pre-PR local checks |
 
 ---

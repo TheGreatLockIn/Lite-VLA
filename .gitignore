@@ -1,0 +1,114 @@
+# --- Python ---
+.venv/
+venv/
+env/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing and linting
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# --- ML / experiment outputs ---
+checkpoints/
+runs/
+outputs/
+wandb/
+mlruns/
+tensorboard/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.gguf
+*.onnx
+*.bin
+
+# Local model / Hugging Face caches (if stored in-repo)
+models/
+.cache/
+hf_cache/
+
+# --- Data (schemas and docs stay in git; large assets do not) ---
+data/raw/
+data/processed/
+data/downloads/
+data/cache/
+data/**/*.png
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.webp
+data/**/*.mp4
+data/**/*.bag
+data/**/*.mcap
+
+# --- Deployment artifacts ---
+deployment/artifacts/
+deployment/**/*.gguf
+deployment/**/*.onnx
+
+# --- ROS 2 workspace ---
+ros_ws/build/
+ros_ws/install/
+ros_ws/log/
+
+# --- Secrets and local config ---
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Logs ---
+*.log
+logs/
