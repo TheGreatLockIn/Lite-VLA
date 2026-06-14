@@ -1,0 +1,7 @@
+# Default install profile: development (base + testing + linting).
+# Equivalent to: pip install -r requirements/dev.txt
+#
+# See docs/requirements.md for the full dependency breakdown and other profiles
+# (base, train, deploy, all). Or run: ./scripts/setup_python_env.sh --help
+
+-r requirements/dev.txt

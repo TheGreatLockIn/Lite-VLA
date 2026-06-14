@@ -45,7 +45,50 @@ Integration and smoke tests that span multiple areas (e.g. parser + ROS message 
 
 ## Getting started
 
-Detailed setup instructions will be added as the development environment progressses. 
+### Python environment
+
+1. **Read the dependency guide** — [`docs/requirements.md`](docs/requirements.md) explains each package, which requirements file it belongs to, and how it maps to project areas (`ml/`, `data/`, `deployment/`, etc.).
+2. **Run the setup script** from the repo root:
+
+```bash
+./scripts/setup_python_env.sh
+```
+
+This creates `.venv` and installs the default **dev** profile (`requirements/dev.txt`: base ML stack + pytest + ruff).
+
+Other profiles:
+
+```bash
+./scripts/setup_python_env.sh --base    # inference and utilities only
+./scripts/setup_python_env.sh --train   # add LoRA fine-tuning stack
+./scripts/setup_python_env.sh --deploy  # add quantization / export tools
+./scripts/setup_python_env.sh --all     # dev + train (+ deploy if supported)
+```
+
+3. **Activate the environment** before working on Python code:
+
+```bash
+source .venv/bin/activate
+```
+
+Manual install (without the script):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Use a specific profile directly, e.g. `pip install -r requirements/train.txt`.
+
+**Notes**
+
+- PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/requirements.md`.
+- ROS 2 dependencies are installed separately via apt and `ros_ws/` — not via pip.
+
+### ROS 2 workspace
+
+ROS setup will be documented in `ros_ws/` as that workspace is built out.
 
 ## Contributing
 

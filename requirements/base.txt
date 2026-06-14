@@ -1,0 +1,21 @@
+# Lite-VLA base dependencies: ML inference, preprocessing, and project utilities.
+# See docs/requirements.md for what each package is used for.
+#
+# PyTorch: default wheels are CPU-only. For CUDA, follow https://pytorch.org/get-started/locally/
+# ROS 2 packages (rclpy, cv_bridge, etc.) are installed via apt, not pip.
+
+# ML core
+torch>=2.2.0
+torchvision>=0.17.0
+transformers>=4.40.0
+accelerate>=0.27.0
+huggingface-hub>=0.21.0
+pillow>=10.0.0
+numpy>=1.26.0
+opencv-python-headless>=4.9.0
+
+# Utilities
+pyyaml>=6.0.1
+jsonschema>=4.21.0
+tqdm>=4.66.0
+pandas>=2.2.0

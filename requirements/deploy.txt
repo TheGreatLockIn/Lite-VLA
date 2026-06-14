@@ -1,0 +1,8 @@
+# Deployment and quantization experiments. Includes base dependencies.
+#
+# bitsandbytes requires a CUDA-capable Linux GPU in most setups; install may fail
+# on macOS or CPU-only machines. See docs/requirements.md before using this file.
+-r base.txt
+
+bitsandbytes>=0.43.0
+onnxruntime>=1.17.0

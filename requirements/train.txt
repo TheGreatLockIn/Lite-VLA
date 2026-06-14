@@ -1,0 +1,6 @@
+# Supervised fine-tuning and evaluation. Includes base dependencies.
+-r base.txt
+
+peft>=0.10.0
+datasets>=2.18.0
+scikit-learn>=1.4.0
