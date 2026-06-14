@@ -45,7 +45,7 @@ Integration and smoke tests that span multiple areas (e.g. parser + ROS message 
 
 ## Getting started
 
-Detailed setup instructions will be added as the development environment epic (VLA-2) progresses. For now, clone the repo and explore the folders above to see where each subsystem will live.
+Detailed setup instructions will be added as the development environment progressses. 
 
 ## Contributing
 
