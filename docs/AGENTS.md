@@ -117,3 +117,4 @@ Interactive docs are encouraged when they help readers **explore** behavior. Kee
 - Agent instructions: `docs/AGENTS.md` (this file)
 - Shared styles: `docs/styles/doc.css`
 - Example pair: `docs/requirements.md` (agents) · `docs/requirements.html` (humans)
+- Experiment logging: `docs/experiment-logging.md` (agents) · `docs/experiment-logging.html` (humans)

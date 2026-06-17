@@ -33,7 +33,7 @@ Scripts and configs for packaging models for edge devices (e.g. quantization, GG
 
 ### `docs/`
 
-Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file (for humans in a browser). See `docs/AGENTS.md`.
+Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file (for humans in a browser). See `docs/AGENTS.md`. Start with [`docs/requirements.html`](docs/requirements.html) and [`docs/experiment-logging.html`](docs/experiment-logging.html).
 
 ### `scripts/`
 
@@ -88,6 +88,14 @@ pytest tests/smoke -m "not optional" -v
 ```
 
 This checks that base ML and utility packages import correctly and perform basic operations. Optional-profile packages (`train`, `deploy`) have separate tests — run `pytest tests/smoke -m optional -v` after installing those profiles.
+
+5. **Log an example experiment run** (optional):
+
+```bash
+python scripts/run_dummy_pipeline.py --log-run
+```
+
+See [`docs/experiment-logging.html`](docs/experiment-logging.html) for the full run directory layout and metrics convention.
 
 **Notes**
 
