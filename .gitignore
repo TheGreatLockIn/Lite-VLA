@@ -88,6 +88,9 @@ ros_ws/log/
 secrets/
 *.pem
 *.key
+config.local.yaml
+configs/local.yaml
+configs/*.local.yaml
 
 # --- Jupyter ---
 .ipynb_checkpoints/
