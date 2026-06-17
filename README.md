@@ -89,6 +89,14 @@ pytest tests/smoke -m "not optional" -v
 
 This checks that base ML and utility packages import correctly and perform basic operations. Optional-profile packages (`train`, `deploy`) have separate tests — run `pytest tests/smoke -m optional -v` after installing those profiles.
 
+5. **Run the full CI check suite** locally before opening a PR:
+
+```bash
+./scripts/run_ci_checks.sh
+```
+
+See [`docs/ci.html`](docs/ci.html) for what runs in GitHub Actions and how to fix failures.
+
 **Notes**
 
 - PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/requirements.html`.
@@ -101,3 +109,19 @@ ROS setup will be documented in `ros_ws/` as that workspace is built out.
 ## Contributing
 
 Match the folder boundaries above when adding new code. If you are unsure where something belongs, check `docs/` for conventions or open a discussion before introducing a new top-level directory.
+
+### CI checks
+
+Every pull request runs automated checks via [GitHub Actions](.github/workflows/ci.yml):
+
+- **Lint and format** — `ruff check` and `ruff format --check` (see [`pyproject.toml`](pyproject.toml))
+- **Tests** — `pytest tests -m "not optional"`
+- **Sanity** — dummy pipeline script with example config
+
+Run the same steps locally:
+
+```bash
+./scripts/run_ci_checks.sh
+```
+
+Details: [`docs/ci.html`](docs/ci.html) (humans) · [`docs/ci.md`](docs/ci.md) (agents).

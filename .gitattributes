@@ -1,0 +1,2 @@
+# Keep shell scripts executable with Unix line endings (required for CI on Linux).
+*.sh text eol=lf
