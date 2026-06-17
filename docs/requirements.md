@@ -67,6 +67,8 @@ Includes everything in **base**, plus:
 Run base smoke tests after setup: `pytest tests/smoke -m "not optional" -v`
 | **ruff** | Fast Python linting and style checks | CI and pre-PR local checks |
 
+See [`ci.md`](ci.md) for the full CI workflow and local commands.
+
 ---
 
 ## Training dependencies (`requirements/train.txt`)

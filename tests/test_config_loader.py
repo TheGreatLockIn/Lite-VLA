@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from litevla.config import ConfigError, example_config_path, load_config
 
 

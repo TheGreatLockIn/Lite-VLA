@@ -33,7 +33,12 @@ Scripts and configs for packaging models for edge devices (e.g. quantization, GG
 
 ### `docs/`
 
-Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file under `docs/html/` (for humans in a browser). See `docs/AGENTS.md`. Start with [`docs/html/requirements.html`](docs/html/requirements.html) and [`docs/html/experiment-logging.html`](docs/html/experiment-logging.html).
+Project documentation, architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file `docs/html/` (for humans in a browser). See [docs/AGENTS.md](docs/AGENTS.md).
+
+Available documentation:
+* **System Architecture**: [docs/architecture_summary.html](docs/architecture_summary.html)
+* **MVP Demo Task & Non-Goals**: [docs/mvp_definition.html](docs/mvp_definition.html)
+* **Dependency Guide**: [docs/requirements.html](docs/requirements.html)
 
 ### `scripts/`
 
@@ -96,6 +101,13 @@ python scripts/run_dummy_pipeline.py --log-run
 ```
 
 See [`docs/html/experiment-logging.html`](docs/html/experiment-logging.html) for the full run directory layout and metrics convention.
+6. **Run the full CI check suite** locally before opening a PR:
+
+```bash
+./scripts/run_ci_checks.sh
+```
+
+See [`docs/ci.html`](docs/ci.html) for what runs in GitHub Actions and how to fix failures.
 
 **Notes**
 
@@ -109,3 +121,19 @@ ROS setup will be documented in `ros_ws/` as that workspace is built out.
 ## Contributing
 
 Match the folder boundaries above when adding new code. If you are unsure where something belongs, check `docs/` for conventions or open a discussion before introducing a new top-level directory.
+
+### CI checks
+
+Every pull request runs automated checks via [GitHub Actions](.github/workflows/ci.yml):
+
+- **Lint and format** — `ruff check` and `ruff format --check` (see [`pyproject.toml`](pyproject.toml))
+- **Tests** — `pytest tests -m "not optional"`
+- **Sanity** — dummy pipeline script with example config
+
+Run the same steps locally:
+
+```bash
+./scripts/run_ci_checks.sh
+```
+
+Details: [`docs/ci.html`](docs/ci.html) (humans) · [`docs/ci.md`](docs/ci.md) (agents).

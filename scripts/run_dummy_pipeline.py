@@ -46,8 +46,7 @@ def run_dummy_pipeline(
 
     if runtime["mode"] != "dummy":
         print(
-            "Runtime mode is not 'dummy'. "
-            "Set runtime.mode: dummy in your config for this script.",
+            "Runtime mode is not 'dummy'. Set runtime.mode: dummy in your config for this script.",
             file=sys.stderr,
         )
         return 1
