@@ -8,7 +8,7 @@
 #   ./scripts/setup_python_env.sh --deploy     # base + deployment/quantization stack
 #   ./scripts/setup_python_env.sh --all        # dev + train (see requirements/all.txt)
 #
-# Read docs/requirements.md (agents) or docs/requirements.html (humans).
+# Read docs/requirements.md (agents) or docs/html/requirements.html (humans).
 
 set -euo pipefail
 
@@ -84,7 +84,7 @@ echo "    Python:      $($PYTHON --version)"
 echo "    Virtual env: $VENV_DIR"
 echo "    Profile:     $PROFILE ($REQ_FILE)"
 echo
-echo "    See docs/requirements.md (agents) or docs/requirements.html (humans)."
+echo "    See docs/requirements.md (agents) or docs/html/requirements.html (humans)."
 echo
 
 if [[ ! -d "$VENV_DIR" ]]; then
@@ -122,7 +122,7 @@ echo "  source $VENV_DIR/bin/activate"
 echo
 echo "Understand the dependency layout:"
 echo "  docs/requirements.md       (agents)"
-echo "  docs/requirements.html     (humans, browser)"
+echo "  docs/html/requirements.html (humans, browser)"
 echo
 echo "Requirements files:"
 echo "  requirements/base.txt   - ML inference and utilities"
@@ -132,7 +132,7 @@ echo "  requirements/deploy.txt - base + quantization / export"
 echo "  requirements/all.txt    - dev + train (+ optional deploy)"
 echo
 if [[ "$PROFILE" == "deploy" ]]; then
-  echo "Note: bitsandbytes usually requires Linux with CUDA. See docs/requirements.md or docs/requirements.html."
+  echo "Note: bitsandbytes usually requires Linux with CUDA. See docs/requirements.md or docs/html/requirements.html."
 fi
 
 if [[ "$PROFILE" == "dev" || "$PROFILE" == "all" ]]; then

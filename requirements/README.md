@@ -12,7 +12,7 @@ Install profiles for Lite-VLA Python dependencies.
 
 **Full breakdown of each package and its role in the project:**
 
-- Humans (browser): [`docs/requirements.html`](../docs/requirements.html)
+- Humans (browser): [`docs/html/requirements.html`](../docs/html/requirements.html)
 - Agents / tooling: [`docs/requirements.md`](../docs/requirements.md)
 
 **Recommended setup:** `./scripts/setup_python_env.sh` from the repo root.

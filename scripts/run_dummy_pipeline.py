@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from litevla.config import ConfigError, example_config_path, load_config
+from litevla.experiment import ExperimentRun
 
 DUMMY_ACTIONS = ("FORWARD", "STOP")
 
@@ -33,7 +34,13 @@ def _dummy_twist(action: str, config: dict) -> tuple[float, float]:
     return 0.0, _clamp(0.0, max_angular)
 
 
-def run_dummy_pipeline(config: dict) -> int:
+def run_dummy_pipeline(
+    config: dict,
+    *,
+    log_run: bool = False,
+    run_label: str | None = None,
+    config_path: Path | None = None,
+) -> int:
     runtime = config["runtime"]
     ros_cfg = config["ros"]
 
@@ -44,20 +51,49 @@ def run_dummy_pipeline(config: dict) -> int:
         )
         return 1
 
-    print("Lite-VLA dummy pipeline")
-    print(f"  instruction: {runtime['default_instruction']}")
-    print(f"  heartbeat:   {runtime['heartbeat_hz']} Hz")
-    print(f"  subscribe:   {ros_cfg['image_topic']}")
-    print(f"  publish:     {ros_cfg['cmd_vel_topic']}")
-    print()
+    def _execute(experiment: ExperimentRun | None) -> int:
+        if experiment is not None:
+            print(f"  run dir:     {experiment.directory}")
+            print()
 
-    for action in DUMMY_ACTIONS:
-        linear, angular = _dummy_twist(action, config)
-        print(f"action={action:7s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s")
+        print("Lite-VLA dummy pipeline")
+        print(f"  instruction: {runtime['default_instruction']}")
+        print(f"  heartbeat:   {runtime['heartbeat_hz']} Hz")
+        print(f"  subscribe:   {ros_cfg['image_topic']}")
+        print(f"  publish:     {ros_cfg['cmd_vel_topic']}")
+        print()
 
-    print()
-    print("Dummy pipeline completed successfully.")
-    return 0
+        actions: list[dict[str, float | str]] = []
+        for action in DUMMY_ACTIONS:
+            linear, angular = _dummy_twist(action, config)
+            actions.append({"action": action, "linear": linear, "angular": angular})
+            print(f"action={action:7s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s")
+
+        if experiment is not None:
+            experiment.write_metrics(
+                {
+                    "status": "success",
+                    "mode": runtime["mode"],
+                    "actions": actions,
+                    "action_count": len(actions),
+                }
+            )
+
+        print()
+        print("Dummy pipeline completed successfully.")
+        return 0
+
+    if not log_run:
+        return _execute(None)
+
+    with ExperimentRun(
+        "inference",
+        config,
+        label=run_label or "dummy-pipeline",
+        config_path=config_path,
+        repo_root=ROOT,
+    ) as experiment:
+        return _execute(experiment)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -68,6 +104,16 @@ def main(argv: list[str] | None = None) -> int:
         default=example_config_path(),
         help="Path to YAML or JSON config (default: configs/default.example.yaml)",
     )
+    parser.add_argument(
+        "--log-run",
+        action="store_true",
+        help="Save config, metadata, and metrics under runs/inference/",
+    )
+    parser.add_argument(
+        "--run-label",
+        default=None,
+        help="Optional label prefix for the run directory (used with --log-run)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -76,7 +122,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
 
-    return run_dummy_pipeline(config)
+    return run_dummy_pipeline(
+        config,
+        log_run=args.log_run,
+        run_label=args.run_label,
+        config_path=args.config,
+    )
 
 
 if __name__ == "__main__":

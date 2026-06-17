@@ -33,7 +33,7 @@ Scripts and configs for packaging models for edge devices (e.g. quantization, GG
 
 ### `docs/`
 
-Project documentation, architecture decisions, and setup guides. Each topic has a paired `.md` file (for agents) and `.html` file (for humans in a browser). See [docs/AGENTS.md](docs/AGENTS.md).
+Project documentation, architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file `docs/html/` (for humans in a browser). See [docs/AGENTS.md](docs/AGENTS.md).
 
 Available documentation:
 * **System Architecture**: [docs/architecture_summary.html](docs/architecture_summary.html)
@@ -52,7 +52,7 @@ Integration and smoke tests that span multiple areas (e.g. parser + ROS message 
 
 ### Python environment
 
-1. **Read the dependency guide** — [`docs/requirements.html`](docs/requirements.html) explains each package, which requirements file it belongs to, and how it maps to project areas (`ml/`, `data/`, `deployment/`, etc.).
+1. **Read the dependency guide** — [`docs/html/requirements.html`](docs/html/requirements.html) explains each package, which requirements file it belongs to, and how it maps to project areas (`ml/`, `data/`, `deployment/`, etc.).
 2. **Run the setup script** from the repo root:
 
 ```bash
@@ -94,7 +94,14 @@ pytest tests/smoke -m "not optional" -v
 
 This checks that base ML and utility packages import correctly and perform basic operations. Optional-profile packages (`train`, `deploy`) have separate tests — run `pytest tests/smoke -m optional -v` after installing those profiles.
 
-5. **Run the full CI check suite** locally before opening a PR:
+5. **Log an example experiment run** (optional):
+
+```bash
+python scripts/run_dummy_pipeline.py --log-run
+```
+
+See [`docs/html/experiment-logging.html`](docs/html/experiment-logging.html) for the full run directory layout and metrics convention.
+6. **Run the full CI check suite** locally before opening a PR:
 
 ```bash
 ./scripts/run_ci_checks.sh
@@ -104,7 +111,7 @@ See [`docs/ci.html`](docs/ci.html) for what runs in GitHub Actions and how to fi
 
 **Notes**
 
-- PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/requirements.html`.
+- PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/html/requirements.html`.
 - ROS 2 dependencies are installed separately via apt and `ros_ws/` — not via pip.
 
 ### ROS 2 workspace
