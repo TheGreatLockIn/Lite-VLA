@@ -1,6 +1,6 @@
 # Experiment logging convention
 
-**Human-readable version (browser):** [`experiment-logging.html`](experiment-logging.html)
+**Human-readable version (browser):** [`experiment-logging.html`](html/experiment-logging.html)
 
 This document defines how Lite-VLA saves training, inference, benchmark, and deployment experiment outputs so runs stay traceable and comparable.
 

@@ -4,12 +4,12 @@ When creating or updating project documentation in `docs/`, follow these rules.
 
 ## Do not read HTML files
 
-**Agents must never read `docs/*.html` files.**
+**Agents must never read HTML documentation files.**
 
-- Do **not** open, read, search, grep, or cite any file matching `docs/**/*.html`.
-- HTML docs are for **humans viewing in a browser only** — not for agent consumption.
+- Do **not** open, read, search, grep, or cite any file matching `docs/html/*.html` or `docs/**/*.html`.
+- HTML docs live under **`docs/html/`** and are for **humans viewing in a browser only** — not for agent consumption.
 - If you need documentation content, always use the paired **`docs/<topic>.md`** file instead.
-- When a human or the README points to `docs/foo.html`, resolve it to `docs/foo.md` for your own work.
+- When a human or the README points to `docs/html/foo.html` (or legacy `docs/foo.html`), resolve it to `docs/foo.md` for your own work.
 - When updating documentation, edit the `.md` file first (or in the same change as the `.html`); never treat `.html` as the source of truth.
 
 This applies to every agent (Cursor, CI bots, or any other tooling) regardless of how the file is referenced elsewhere in the repo.
@@ -21,11 +21,13 @@ Every documentation topic exists as **two paired files**:
 | Audience | File | Purpose |
 |----------|------|---------|
 | Agents | `docs/<topic>.md` | Compact, readable source for AI and tooling |
-| Humans | `docs/<topic>.html` | Rich, responsive browser docs (tables, CSS, SVG, interactions) |
+| Humans | `docs/html/<topic>.html` | Rich, responsive browser docs (tables, CSS, SVG, interactions) |
+
+**All human-facing HTML files belong in `docs/html/`.** Do not place `.html` topic pages directly under `docs/`.
 
 Rules:
 
-- Add new docs as **both** `docs/<topic>.md` and `docs/<topic>.html`.
+- Add new docs as **both** `docs/<topic>.md` and `docs/html/<topic>.html`.
 - Keep factual content in sync between the pair. The `.md` file is the **agent source of truth**.
 - The `.html` file may add presentation-only extras (layout, styling, interactive widgets) but must not drift in substance from the `.md` file.
 - Do **not** remove `.md` files when adding HTML counterparts.
@@ -34,15 +36,15 @@ Rules:
 At the top of each `.md` doc, include a line pointing humans to the HTML version, e.g.:
 
 ```markdown
-**Human-readable version (browser):** [`requirements.html`](requirements.html)
+**Human-readable version (browser):** [`requirements.html`](html/requirements.html)
 ```
 
 ## Responsive HTML (for human files only)
 
-When creating or updating the **`.html`** counterpart (without reading existing HTML as input — derive from the `.md` instead):
+When creating or updating the **`.html`** counterpart in `docs/html/` (without reading existing HTML as input — derive from the `.md` instead):
 
 - Include `<meta name="viewport" content="width=device-width, initial-scale=1">`.
-- Link the shared stylesheet: `<link rel="stylesheet" href="styles/doc.css">` (adjust path if the file is in a subdirectory).
+- Link the shared stylesheet: `<link rel="stylesheet" href="../styles/doc.css">`.
 - Wrap wide tables in `<div class="table-wrap">` so they scroll horizontally on small screens.
 - Use semantic structure: `<header>`, `<main>`, `<section>`, `<nav>`, `<footer>`.
 
@@ -84,7 +86,7 @@ Interactive docs are encouraged when they help readers **explore** behavior. Kee
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Topic — Lite-VLA</title>
-  <link rel="stylesheet" href="styles/doc.css">
+  <link rel="stylesheet" href="../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
@@ -105,16 +107,17 @@ Interactive docs are encouraged when they help readers **explore** behavior. Kee
 
 ## Cross-references
 
-**Agents:** link to other docs with `.md` paths only (`requirements.md`, not `requirements.html`).
+**Agents:** link to other docs with `.md` paths only (`requirements.md`, not `html/requirements.html`).
 
-**Humans (README, HTML footers):** link to `docs/*.html`.
+**Humans (README, HTML footers):** link to `docs/html/<topic>.html`.
 
-- Link to repo code with paths like `../ml/` or `` `ml/` `` in prose; use `<code>` in HTML.
-- Root `README.md` links to `docs/*.html` for human discoverability.
+- Link to repo code from HTML with paths like `../../ml/`; use `<code>` in HTML.
+- Root `README.md` links to `docs/html/*.html` for human discoverability.
 
 ## Existing assets
 
 - Agent instructions: `docs/AGENTS.md` (this file)
+- Human HTML docs: `docs/html/`
 - Shared styles: `docs/styles/doc.css`
-- Example pair: `docs/requirements.md` (agents) · `docs/requirements.html` (humans)
-- Experiment logging: `docs/experiment-logging.md` (agents) · `docs/experiment-logging.html` (humans)
+- Example pair: `docs/requirements.md` (agents) · `docs/html/requirements.html` (humans)
+- Experiment logging: `docs/experiment-logging.md` (agents) · `docs/html/experiment-logging.html` (humans)

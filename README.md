@@ -33,7 +33,7 @@ Scripts and configs for packaging models for edge devices (e.g. quantization, GG
 
 ### `docs/`
 
-Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file (for humans in a browser). See `docs/AGENTS.md`. Start with [`docs/requirements.html`](docs/requirements.html) and [`docs/experiment-logging.html`](docs/experiment-logging.html).
+Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file under `docs/html/` (for humans in a browser). See `docs/AGENTS.md`. Start with [`docs/html/requirements.html`](docs/html/requirements.html) and [`docs/html/experiment-logging.html`](docs/html/experiment-logging.html).
 
 ### `scripts/`
 
@@ -47,7 +47,7 @@ Integration and smoke tests that span multiple areas (e.g. parser + ROS message 
 
 ### Python environment
 
-1. **Read the dependency guide** — [`docs/requirements.html`](docs/requirements.html) explains each package, which requirements file it belongs to, and how it maps to project areas (`ml/`, `data/`, `deployment/`, etc.).
+1. **Read the dependency guide** — [`docs/html/requirements.html`](docs/html/requirements.html) explains each package, which requirements file it belongs to, and how it maps to project areas (`ml/`, `data/`, `deployment/`, etc.).
 2. **Run the setup script** from the repo root:
 
 ```bash
@@ -95,11 +95,11 @@ This checks that base ML and utility packages import correctly and perform basic
 python scripts/run_dummy_pipeline.py --log-run
 ```
 
-See [`docs/experiment-logging.html`](docs/experiment-logging.html) for the full run directory layout and metrics convention.
+See [`docs/html/experiment-logging.html`](docs/html/experiment-logging.html) for the full run directory layout and metrics convention.
 
 **Notes**
 
-- PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/requirements.html`.
+- PyTorch CUDA wheels are platform-specific; see [PyTorch install docs](https://pytorch.org/get-started/locally/) and `docs/html/requirements.html`.
 - ROS 2 dependencies are installed separately via apt and `ros_ws/` — not via pip.
 
 ### ROS 2 workspace

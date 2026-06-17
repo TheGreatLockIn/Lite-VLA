@@ -1,5 +1,5 @@
 # Lite-VLA base dependencies: ML inference, preprocessing, and project utilities.
-# See docs/requirements.md (agents) or docs/requirements.html (humans).
+# See docs/requirements.md (agents) or docs/html/requirements.html (humans).
 #
 # PyTorch: default wheels are CPU-only. For CUDA, follow https://pytorch.org/get-started/locally/
 # ROS 2 packages (rclpy, cv_bridge, etc.) are installed via apt, not pip.
