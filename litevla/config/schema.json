@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lite-vla.local/config/schema.json",
+  "title": "LiteVLAConfig",
+  "description": "Runtime, model, ROS, safety, benchmark, and training settings for Lite-VLA.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["runtime", "model", "ros", "safety", "benchmark"],
+  "properties": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "heartbeat_hz", "default_instruction"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["dummy", "model"],
+          "description": "dummy uses scripted actions; model runs VLM inference."
+        },
+        "heartbeat_hz": {
+          "type": "number",
+          "minimum": 0.1,
+          "description": "Command publish rate in Hz."
+        },
+        "default_instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Goal text sent with each frame when no override is provided."
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "device", "max_tokens", "context_length"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Local path or Hugging Face model id."
+        },
+        "device": {
+          "type": "string",
+          "enum": ["cpu", "cuda", "mps"],
+          "description": "Torch device for inference and training."
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum tokens generated per model call."
+        },
+        "context_length": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum context window for the runtime."
+        }
+      }
+    },
+    "ros": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_topic",
+        "cmd_vel_topic",
+        "diagnostics_topic",
+        "record_frames",
+        "frame_save_dir"
+      ],
+      "properties": {
+        "image_topic": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^/",
+          "description": "Camera image subscription topic."
+        },
+        "cmd_vel_topic": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^/",
+          "description": "Velocity command publication topic."
+        },
+        "diagnostics_topic": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^/",
+          "description": "Diagnostics and status publication topic."
+        },
+        "record_frames": {
+          "type": "boolean",
+          "description": "When true, save incoming frames to frame_save_dir."
+        },
+        "frame_save_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory for optional frame recording."
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_linear_vel", "max_angular_vel"],
+      "properties": {
+        "max_linear_vel": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum absolute linear velocity (m/s)."
+        },
+        "max_angular_vel": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum absolute angular velocity (rad/s)."
+        }
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["iterations", "warmup"],
+      "properties": {
+        "iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Timed inference iterations per benchmark run."
+        },
+        "warmup": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Untimed warm-up iterations before measurement."
+        }
+      }
+    },
+    "training": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Random seed for reproducible training runs."
+        },
+        "lora_rank": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "LoRA adapter rank."
+        },
+        "lora_alpha": {
+          "type": "number",
+          "minimum": 0,
+          "description": "LoRA scaling factor (alpha)."
+        },
+        "lora_dropout": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "LoRA dropout probability."
+        },
+        "dataset_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to training dataset."
+        },
+        "output_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory for checkpoints and run artifacts."
+        }
+      }
+    }
+  }
+}

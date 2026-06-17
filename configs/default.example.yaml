@@ -1,0 +1,40 @@
+# Lite-VLA example configuration (safe for local development).
+# Copy to configs/local.yaml or config.local.yaml and edit paths/topics for your machine.
+# Local overrides are gitignored; never commit secrets or personal model paths.
+
+runtime:
+  # dummy — scripted actions without a model; model — VLM inference (requires weights).
+  mode: dummy
+  heartbeat_hz: 10
+  default_instruction: explore the area
+
+model:
+  # Placeholder path for dummy mode; replace with a real model id or local path for inference.
+  path: models/demo
+  device: cpu
+  max_tokens: 32
+  context_length: 2048
+
+ros:
+  image_topic: /image_raw
+  cmd_vel_topic: /cmd_vel
+  diagnostics_topic: /litevla/diagnostics
+  record_frames: false
+  frame_save_dir: outputs/frames
+
+safety:
+  max_linear_vel: 0.5
+  max_angular_vel: 1.0
+
+benchmark:
+  iterations: 100
+  warmup: 5
+
+# Optional — used by fine-tuning scripts (Epic: supervised fine-tuning).
+training:
+  seed: 42
+  lora_rank: 8
+  lora_alpha: 16.0
+  lora_dropout: 0.05
+  dataset_path: data/processed/train.jsonl
+  output_dir: runs/finetune
