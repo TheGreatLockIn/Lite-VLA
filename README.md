@@ -33,7 +33,12 @@ Scripts and configs for packaging models for edge devices (e.g. quantization, GG
 
 ### `docs/`
 
-Project documentation: architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file (for humans in a browser). See `docs/AGENTS.md`.
+Project documentation, architecture decisions, and setup guides. Each topic has a paired `.md` file (for agents) and `.html` file (for humans in a browser). See [docs/AGENTS.md](docs/AGENTS.md).
+
+Available documentation:
+* **System Architecture**: [docs/architecture_summary.html](docs/architecture_summary.html)
+* **MVP Demo Task & Non-Goals**: [docs/mvp_definition.html](docs/mvp_definition.html)
+* **Dependency Guide**: [docs/requirements.html](docs/requirements.html)
 
 ### `scripts/`
 
