@@ -87,9 +87,7 @@ def _load_raw_config(path: Path) -> dict[str, Any]:
     elif suffix == ".json":
         data = json.loads(text)
     else:
-        raise ConfigError(
-            f"Unsupported config format '{path.suffix}'. Use .yaml, .yml, or .json."
-        )
+        raise ConfigError(f"Unsupported config format '{path.suffix}'. Use .yaml, .yml, or .json.")
 
     if data is None:
         return {}
