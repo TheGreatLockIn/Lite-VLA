@@ -116,7 +116,7 @@ See [`docs/ci.html`](docs/ci.html) for what runs in GitHub Actions and how to fi
 
 ### ROS 2 workspace
 
-ROS setup will be documented in `ros_ws/` as that workspace is built out.
+ROS setup is documented in [`ros_ws/README.md`](ros_ws/README.md). The workspace uses ROS 2 Jazzy on Ubuntu 24.04 and builds locally with `colcon`.
 
 ## Contributing
 
