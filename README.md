@@ -38,6 +38,7 @@ Project documentation, architecture decisions, setup guides, action schemas, API
 Available documentation:
 * **System Architecture**: [docs/architecture_summary.html](docs/architecture_summary.html)
 * **MVP Demo Task & Non-Goals**: [docs/mvp_definition.html](docs/mvp_definition.html)
+* **Discrete Action Schema**: [docs/html/action-schema.html](docs/html/action-schema.html)
 * **Dependency Guide**: [docs/requirements.html](docs/requirements.html)
 
 ### `scripts/`

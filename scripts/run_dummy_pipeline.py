@@ -15,23 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from litevla.actions import ACTION_NAMES, action_to_twist
 from litevla.config import ConfigError, example_config_path, load_config
 from litevla.experiment import ExperimentRun
-
-DUMMY_ACTIONS = ("FORWARD", "STOP")
-
-
-def _clamp(value: float, limit: float) -> float:
-    return max(-limit, min(limit, value))
-
-
-def _dummy_twist(action: str, config: dict) -> tuple[float, float]:
-    max_linear = config["safety"]["max_linear_vel"]
-    max_angular = config["safety"]["max_angular_vel"]
-
-    if action == "FORWARD":
-        return _clamp(0.2, max_linear), 0.0
-    return 0.0, _clamp(0.0, max_angular)
 
 
 def run_dummy_pipeline(
@@ -63,11 +49,16 @@ def run_dummy_pipeline(
         print(f"  publish:     {ros_cfg['cmd_vel_topic']}")
         print()
 
+        safety = config["safety"]
         actions: list[dict[str, float | str]] = []
-        for action in DUMMY_ACTIONS:
-            linear, angular = _dummy_twist(action, config)
+        for action in ACTION_NAMES:
+            linear, angular = action_to_twist(
+                action,
+                max_linear_vel=safety["max_linear_vel"],
+                max_angular_vel=safety["max_angular_vel"],
+            )
             actions.append({"action": action, "linear": linear, "angular": angular})
-            print(f"action={action:7s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s")
+            print(f"action={action:13s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s")
 
         if experiment is not None:
             experiment.write_metrics(
