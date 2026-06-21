@@ -97,6 +97,7 @@ configs/*.local.yaml
 *.ipynb_checkpoints
 
 # --- IDE / editor ---
+.cursor/
 .idea/
 .vscode/
 *.code-workspace

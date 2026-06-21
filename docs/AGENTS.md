@@ -2,6 +2,21 @@
 
 When creating or updating project documentation in `docs/`, follow these rules.
 
+## When to create documentation
+
+**Default: do not add new docs.** Follow the documentation scope section in the root [`AGENTS.md`](../AGENTS.md).
+
+Create or expand `docs/` content only for **durable project knowledge** — things a new teammate needs to build, run, train, deploy, or operate Lite-VLA without reading chat history.
+
+| Write docs | Skip docs (chat reply is enough) |
+|------------|----------------------------------|
+| Architecture, MVP scope, requirements | Cursor/MCP/Jira OAuth, IDE setup |
+| Dependencies, CI, experiment logging | PATH fixes, nvm, local troubleshooting |
+| ROS setup, action schemas, deployment | Conversation summaries |
+| Changes to an **existing** topic | One-off config for a single machine |
+
+If a topic is not in the table, prefer updating an existing page or answering in chat. Ask the user before creating a new topic pair (`.md` + `.html`).
+
 ## Do not read HTML files
 
 **Agents must never read HTML documentation files.**
