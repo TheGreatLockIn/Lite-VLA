@@ -90,3 +90,43 @@ For turtlesim:
 ```bash
 ros2 launch litevla_edge turtlesim_dummy.launch.py
 ```
+
+## Non-ML robot loop smoke test
+
+Use this path to prove the robot control loop before connecting a VLA model:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd ros_ws
+colcon build --packages-select litevla_edge
+source install/setup.bash
+ros2 launch litevla_edge sim_camera_dummy.launch.py
+```
+
+The launch starts a simulated camera and the dummy controller:
+
+- `image_tools/cam2image` publishes camera frames on `/image_raw` at about 10 Hz.
+- `litevla_dummy_controller` subscribes to `/image_raw` and publishes `geometry_msgs/Twist` on `/cmd_vel`.
+- The controller timer is the heartbeat for this non-ML loop. It defaults to `publish_hz:=6.6`, matching the project target for stable closed-loop command publishing.
+- The default dummy action is `MOVE_FORWARD`, which maps to `linear.x=0.15` and `angular.z=0.0`.
+
+In another terminal, verify the active topics:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros_ws/install/setup.bash
+ros2 topic hz /image_raw
+ros2 topic hz /cmd_vel
+ros2 topic echo /cmd_vel --once
+```
+
+Manual control is available through ROS parameters while the controller is running:
+
+```bash
+ros2 param set /litevla_dummy_controller dummy_action TURN_LEFT
+ros2 param set /litevla_dummy_controller dummy_action TURN_RIGHT
+ros2 param set /litevla_dummy_controller dummy_action STOP
+ros2 param set /litevla_dummy_controller estop true
+```
+
+Invalid actions safely fall back to `STOP`, and velocity outputs are clamped by `litevla_edge/action_schema.py`.
