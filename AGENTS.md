@@ -4,35 +4,58 @@ These instructions apply to all agents working in this repository.
 
 ## Documentation sources
 
-- For project documentation under `docs/`, follow `docs/AGENTS.md`.
-- For epic walkthrough format and style, follow `presentations/AGENTS.md`.
+- For cross-cutting project documentation under `docs/`, follow `docs/AGENTS.md`.
+- For epic walkthroughs and Jira task docs, follow `docs/epics/AGENTS.md`.
+- Epic and task files live under `docs/epics/<epic-slug>/` (see **Epic docs** below).
 
 ## Documentation scope (default: minimal)
 
 Not every chat or config change needs docs. Default to **no new documentation** unless the work clearly meets a threshold below.
 
-### Epic presentations (`presentations/<epic-slug>/index.html`)
+### Epic walkthroughs (`docs/epics/<epic-slug>/index.html`)
 
 Update **only** when you **implement or modify project code** tied to a Jira epic/story/task (from the import CSV or live Jira), in the **same change** as that code.
 
 Qualifying code paths: `ml/`, `ros_ws/`, `data/`, `deployment/`, `litevla/`, `scripts/` (runtime/CI), `tests/`, and versioned config that affects build, train, deploy, or robot runtime.
 
-**Do not** update presentations for:
+**Do not** update epic walkthroughs for:
 - IDE, editor, or MCP setup (`.cursor/`, Cursor settings, OAuth troubleshooting)
 - Questions, explanations, or reviews with no code change
 - Personal dev-environment fixes (PATH, nvm, local tooling)
 - One-off debugging that does not change committed project behavior
 
-When you do update a presentation:
+When you do update an epic walkthrough:
 - Infer the active epic from the task title, Jira key, branch name, changed paths, CSV parent mapping, and conversation context. Ask only when two or more epics remain equally plausible.
 - Add each story/task/subtask in source order. Do not append tasks randomly; preserve the epic sequence from the Jira CSV or current board.
 - For every worked task, record intent, files/modules touched, code walkthrough notes, data/control flow, validation evidence, and ADRs for meaningful technical decisions.
 - Prefer visual explanation: maintain Mermaid C4 diagrams for system/container views and Mermaid flowcharts or sequence diagrams for task-level flows.
-- Use the standard format in `presentations/AGENTS.md`. The presentation HTML is the source of truth for epic walkthroughs.
+- Use the standard format in `docs/epics/AGENTS.md`. The epic `index.html` is the source of truth for walkthroughs.
 
-### Project docs (`docs/`)
+### Epic task docs (`docs/epics/<epic-slug>/`)
 
-Create a **new** topic page only for durable knowledge a new teammate needs to build, run, train, deploy, or operate Lite-VLA (architecture, dependencies, CI, experiment logging, ROS setup, action schemas, etc.).
+When a **completed or in-progress Jira story/task** needs durable documentation (schemas, API notes, runbooks tied to that task), create and maintain it **inside the matching epic folder** under `docs/epics/`.
+
+| File | Purpose |
+|------|---------|
+| `docs/epics/<epic-slug>/<task-slug>.md` | Agent source of truth |
+| `docs/epics/<epic-slug>/<task-slug>.html` | Human-readable browser page |
+
+Rules:
+
+- Infer `<epic-slug>` from Jira parent epic, CSV mapping, branch name, or changed paths (same signals as walkthrough updates).
+- Use a kebab-case `<task-slug>` from the story title (example: `action-schema` for “Define discrete action schema”).
+- Add the epic and Jira key at the top of the `.md` file.
+- Link the human HTML from the epic `index.html` story section.
+- Update the epic walkthrough (`index.html`) in the **same change** as the task doc.
+- Reuse `docs/styles/doc.css` for task HTML; link with `../../styles/doc.css` from epic folders.
+
+**Do not** put Jira task deliverables in `docs/` root or `docs/html/`. Reserve those for cross-cutting project knowledge (architecture, dependencies, CI, experiment logging) that spans epics.
+
+### Project docs (`docs/` and `docs/html/`)
+
+Create a **new** topic page only for durable **cross-cutting** knowledge a new teammate needs to build, run, train, deploy, or operate Lite-VLA (architecture, dependencies, CI, experiment logging, ROS setup, etc.).
+
+**Do not** add Jira story/task deliverables to `docs/` root or `docs/html/` — those belong in `docs/epics/<epic-slug>/` (see above).
 
 **Do not** create new `docs/<topic>.md` / `docs/html/<topic>.html` for:
 - Cursor/MCP/Jira OAuth or local IDE wiring

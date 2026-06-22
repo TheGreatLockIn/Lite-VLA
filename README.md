@@ -33,12 +33,13 @@ Scripts and configs for packaging models for edge devices (e.g. quantization, GG
 
 ### `docs/`
 
-Project documentation, architecture decisions, setup guides, action schemas, API notes, and runbooks. Each topic has a paired `.md` file (for agents) and `.html` file `docs/html/` (for humans in a browser). See [docs/AGENTS.md](docs/AGENTS.md).
+Project documentation, architecture decisions, setup guides, API notes, and runbooks. Cross-cutting topics live at `docs/` root (`.md` for agents) and `docs/html/` (for humans). Epic walkthroughs and Jira task docs live under `docs/epics/`. See [docs/AGENTS.md](docs/AGENTS.md) and [docs/epics/AGENTS.md](docs/epics/AGENTS.md).
 
 Available documentation:
 * **System Architecture**: [docs/architecture_summary.html](docs/architecture_summary.html)
 * **MVP Demo Task & Non-Goals**: [docs/mvp_definition.html](docs/mvp_definition.html)
-* **Discrete Action Schema**: [docs/html/action-schema.html](docs/html/action-schema.html)
+* **Epic walkthroughs**: [docs/epics/index.html](docs/epics/index.html)
+* **Discrete Action Schema** (Epic 103): [docs/epics/action-interface-parser-and-safety-layer/action-schema.html](docs/epics/action-interface-parser-and-safety-layer/action-schema.html)
 * **Dependency Guide**: [docs/requirements.html](docs/requirements.html)
 
 ### `scripts/`

@@ -3,24 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lite-VLA Epic Presentations</title>
-  <link rel="stylesheet" href="styles/presentation.css">
+  <title>Lite-VLA Epic Walkthroughs</title>
+  <link rel="stylesheet" href="../styles/presentation.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <p class="eyebrow">Living architecture walkthroughs</p>
-      <h1>Lite-VLA Epic Presentations</h1>
-      <p class="doc-lead">Per-epic HTML walkthroughs for architecture intent, code flow, ADRs, and implementation decisions.</p>
-      <nav class="doc-nav" aria-label="Presentation documentation">
-        <a href="AGENTS.md">Agent update instructions</a>
+      <h1>Lite-VLA Epic Walkthroughs</h1>
+      <p class="doc-lead">Per-epic HTML walkthroughs for architecture intent, code flow, ADRs, and Jira task documentation.</p>
+      <nav class="doc-nav" aria-label="Documentation navigation">
+        <a href="AGENTS.md">Agent instructions</a>
+        ·
+        <a href="../AGENTS.md">Docs conventions</a>
       </nav>
     </header>
 
     <main>
       <section class="meta-card">
         <h2>How To Use These Pages</h2>
-        <p>Each epic has one HTML page that grows as teammates complete stories and subtasks. Agents should update the relevant page while doing implementation work so the team can later explain the code, architecture, data flow, and decisions without reconstructing history from commits.</p>
+        <p>Each epic has one HTML walkthrough page that grows as teammates complete stories and subtasks. Completed stories may also have paired task docs (<code>&lt;task-slug&gt;.md</code> + <code>.html</code>) in the same epic folder. Agents should update the relevant page while doing implementation work so the team can later explain the code, architecture, data flow, and decisions without reconstructing history from commits.</p>
         <p>The pages use Mermaid C4 diagrams for system and container views, task-level flow diagrams for implementation details, and short ADR entries for technical decisions.</p>
       </section>
 
@@ -87,7 +89,7 @@
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA presentations are seeded from <code>LiteVLA_Edge_Jira_TeamManaged_Kanban_IMPORT_READY.csv</code>.</p>
+      <p>Lite-VLA epic walkthroughs are seeded from <code>LiteVLA_Edge_Jira_TeamManaged_Kanban_IMPORT_READY.csv</code>.</p>
     </footer>
   </div>
 </body>

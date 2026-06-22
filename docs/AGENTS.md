@@ -12,8 +12,9 @@ Create or expand `docs/` content only for **durable project knowledge** — thin
 |------------|----------------------------------|
 | Architecture, MVP scope, requirements | Cursor/MCP/Jira OAuth, IDE setup |
 | Dependencies, CI, experiment logging | PATH fixes, nvm, local troubleshooting |
-| ROS setup, action schemas, deployment | Conversation summaries |
-| Changes to an **existing** topic | One-off config for a single machine |
+| ROS setup, deployment (cross-cutting) | Conversation summaries |
+| Changes to an **existing** `docs/` topic | One-off config for a single machine |
+| Jira epic walkthroughs and task deliverables | Use `docs/epics/<epic-slug>/` (see [`epics/AGENTS.md`](epics/AGENTS.md)) |
 
 If a topic is not in the table, prefer updating an existing page or answering in chat. Ask the user before creating a new topic pair (`.md` + `.html`).
 
@@ -21,29 +22,33 @@ If a topic is not in the table, prefer updating an existing page or answering in
 
 **Agents must never read HTML documentation files.**
 
-- Do **not** open, read, search, grep, or cite any file matching `docs/html/*.html` or `docs/**/*.html`.
-- HTML docs live under **`docs/html/`** and are for **humans viewing in a browser only** — not for agent consumption.
-- If you need documentation content, always use the paired **`docs/<topic>.md`** file instead.
-- When a human or the README points to `docs/html/foo.html` (or legacy `docs/foo.html`), resolve it to `docs/foo.md` for your own work.
+- Do **not** open, read, search, grep, or cite HTML under `docs/html/`, `docs/epics/`, or elsewhere in `docs/`.
+- HTML is for **humans viewing in a browser only** — not for agent consumption.
+- If you need documentation content, always use the paired **`.md`** file instead (`docs/<topic>.md` or `docs/epics/<epic-slug>/<task-slug>.md`).
+- When a human or the README points to an HTML path, resolve it to the matching `.md` for your own work.
 - When updating documentation, edit the `.md` file first (or in the same change as the `.html`); never treat `.html` as the source of truth.
 
 This applies to every agent (Cursor, CI bots, or any other tooling) regardless of how the file is referenced elsewhere in the repo.
 
 ## Dual format: Markdown for agents, HTML for humans
 
-Every documentation topic exists as **two paired files**:
+Documentation uses paired `.md` + `.html` files in three locations:
 
-| Audience | File | Purpose |
-|----------|------|---------|
-| Agents | `docs/<topic>.md` | Compact, readable source for AI and tooling |
-| Humans | `docs/html/<topic>.html` | Rich, responsive browser docs (tables, CSS, SVG, interactions) |
+| Scope | Agent source | Human browser |
+|-------|--------------|---------------|
+| Cross-cutting project topics | `docs/<topic>.md` | `docs/html/<topic>.html` |
+| Epic walkthrough | — (HTML only) | `docs/epics/<epic-slug>/index.html` |
+| Jira story/task deliverables | `docs/epics/<epic-slug>/<task-slug>.md` | `docs/epics/<epic-slug>/<task-slug>.html` |
 
-**All human-facing HTML files belong in `docs/html/`.** Do not place `.html` topic pages directly under `docs/`.
+Epic walkthrough pages are HTML-only; agents follow [`epics/AGENTS.md`](epics/AGENTS.md) for structure and update them alongside code changes.
+
+**Do not** place Jira task deliverables in `docs/` root or `docs/html/`. **Do not** place cross-cutting topics inside `docs/epics/`.
 
 Rules:
 
-- Add new docs as **both** `docs/<topic>.md` and `docs/html/<topic>.html`.
-- Keep factual content in sync between the pair. The `.md` file is the **agent source of truth**.
+- Add new **cross-cutting** docs as **both** `docs/<topic>.md` and `docs/html/<topic>.html`.
+- Add new **Jira task** docs as **both** `docs/epics/<epic-slug>/<task-slug>.md` and `.html` (see root `AGENTS.md` and `epics/AGENTS.md`).
+- Keep factual content in sync between each `.md` / `.html` pair. The `.md` file is the **agent source of truth**.
 - The `.html` file may add presentation-only extras (layout, styling, interactive widgets) but must not drift in substance from the `.md` file.
 - Do **not** remove `.md` files when adding HTML counterparts.
 - This file (`AGENTS.md`) is agent-only instructions and has no HTML pair.
@@ -56,10 +61,11 @@ At the top of each `.md` doc, include a line pointing humans to the HTML version
 
 ## Responsive HTML (for human files only)
 
-When creating or updating the **`.html`** counterpart in `docs/html/` (without reading existing HTML as input — derive from the `.md` instead):
+When creating or updating the **`.html`** counterpart in `docs/html/` or `docs/epics/` (without reading existing HTML as input — derive from the `.md` instead):
 
 - Include `<meta name="viewport" content="width=device-width, initial-scale=1">`.
-- Link the shared stylesheet: `<link rel="stylesheet" href="../styles/doc.css">`.
+- Link the shared stylesheet: `../styles/doc.css` (from `docs/html/`) or `../../styles/doc.css` (from `docs/epics/<epic-slug>/`).
+- Epic walkthroughs use `../../styles/presentation.css` (from `docs/epics/<epic-slug>/index.html`).
 - Wrap wide tables in `<div class="table-wrap">` so they scroll horizontally on small screens.
 - Use semantic structure: `<header>`, `<main>`, `<section>`, `<nav>`, `<footer>`.
 
@@ -122,17 +128,19 @@ Interactive docs are encouraged when they help readers **explore** behavior. Kee
 
 ## Cross-references
 
-**Agents:** link to other docs with `.md` paths only (`requirements.md`, not `html/requirements.html`).
+**Agents:** link to other docs with `.md` paths only (`requirements.md`, `epics/<epic-slug>/<task-slug>.md` — not HTML).
 
-**Humans (README, HTML footers):** link to `docs/html/<topic>.html`.
+**Humans (README, HTML footers):** link to `docs/html/<topic>.html` or `docs/epics/<epic-slug>/<task-slug>.html`.
 
-- Link to repo code from HTML with paths like `../../ml/`; use `<code>` in HTML.
-- Root `README.md` links to `docs/html/*.html` for human discoverability.
+- Link to repo code from HTML with paths like `../../../ml/` (from epic folders) or `../../ml/` (from `docs/html/`); use `<code>` in HTML.
+- Root `README.md` links to `docs/html/*.html` and `docs/epics/` for human discoverability.
 
 ## Existing assets
 
-- Agent instructions: `docs/AGENTS.md` (this file)
-- Human HTML docs: `docs/html/`
-- Shared styles: `docs/styles/doc.css`
-- Example pair: `docs/requirements.md` (agents) · `docs/html/requirements.html` (humans)
-- Experiment logging: `docs/experiment-logging.md` (agents) · `docs/html/experiment-logging.html` (humans)
+- Agent instructions: `docs/AGENTS.md` (this file) · `docs/epics/AGENTS.md` (epic walkthroughs and task docs)
+- Cross-cutting human HTML: `docs/html/`
+- Epic index and walkthroughs: `docs/epics/`
+- Shared styles: `docs/styles/doc.css` · `docs/styles/presentation.css`
+- Example cross-cutting pair: `docs/requirements.md` · `docs/html/requirements.html`
+- Experiment logging: `docs/experiment-logging.md` · `docs/html/experiment-logging.html`
+- Example task pair: `docs/epics/action-interface-parser-and-safety-layer/action-schema.md` · `action-schema.html`

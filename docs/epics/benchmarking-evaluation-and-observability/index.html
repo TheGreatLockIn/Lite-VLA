@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Repository, Development Environment, and Tooling - Lite-VLA Epic Walkthrough</title>
-  <link rel="stylesheet" href="../styles/presentation.css">
+  <title>Benchmarking, Evaluation, and Observability - Lite-VLA Epic Walkthrough</title>
+  <link rel="stylesheet" href="../../styles/presentation.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="../index.html">Back to epic index</a>
-      <p class="eyebrow">Epic 101</p>
-      <h1>Repository, Development Environment, and Tooling</h1>
-      <p class="doc-lead">Create a stable engineering foundation for Python, ROS 2, ML experiments, and deployment scripts.</p>
+      <p class="eyebrow">Epic 109</p>
+      <h1>Benchmarking, Evaluation, and Observability</h1>
+      <p class="doc-lead">Measure latency, output validity, task success, safety behavior, and system reliability.</p>
       <nav class="doc-nav" aria-label="Story navigation">
         <a href="#intent">Intent</a> | <a href="#c4-context">C4 context</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
       </nav>
@@ -21,9 +21,9 @@
     <main>
       <section id="intent" class="meta-card">
         <h2>Epic Intent</h2>
-        <p><strong>Context:</strong> The team needs a repeatable setup before building the model, ROS nodes, and benchmarks.</p>
-        <p><strong>Scope:</strong> Repo layout, dependency management, local dev setup, coding standards, CI basics, configuration, and run scripts.</p>
-        <p><strong>Success criteria:</strong> A new engineer can run setup from README; workspace builds locally; basic checks run in CI; configuration is versioned safely.</p>
+        <p><strong>Context:</strong> The paper emphasizes deployability and latency, so the project needs reproducible benchmarks and logs.</p>
+        <p><strong>Scope:</strong> Benchmark scripts, metric definitions, simulation episodes, failure analysis, logging dashboards, and comparison tables.</p>
+        <p><strong>Success criteria:</strong> Mean and p95 latency are reported; valid action rate is reported; simulation success rate is measured; failure cases are saved.</p>
         <p class="update-note">This page is seeded from the Jira import CSV. Future agents should update it as implementation work starts, changes, or completes.</p>
       </section>
 
@@ -31,7 +31,7 @@
         <h2>C4 System Context</h2>
         <pre class="mermaid">
 C4Context
-title Repository, Development Environment, and Tooling - System Context
+title Benchmarking, Evaluation, and Observability - System Context
 Person(team, "Lite-VLA Team", "Implements, reviews, and explains this epic")
 System(repo, "Lite-VLA Repository", "ROS 2, ML, data, deployment, docs, tests")
 System(presentation, "Epic Presentation", "Living ADR, code walkthrough, and visual explanation")
@@ -47,7 +47,7 @@ Rel(presentation, repo, "documents intent, flow, and decisions")
         <h2>C4 Container View</h2>
         <pre class="mermaid">
 C4Container
-title Repository, Development Environment, and Tooling - Container View Template
+title Benchmarking, Evaluation, and Observability - Container View Template
 Person(team, "Lite-VLA Team", "Builds and reviews the epic")
 System_Ext(presentation, "Epic Presentation", "Living walkthrough for this epic")
 System_Boundary(repo, "Lite-VLA Repository") {
@@ -65,20 +65,21 @@ Rel(validation, presentation, "summarized in")
       <section id="stories">
         <h2>Task Order</h2>
         <ol class="task-list">
-          <li><a href="#story-1005">Story 1005: Initialize repository structure</a></li>
-          <li><a href="#story-1006">Story 1006: Create Python environment setup</a></li>
-          <li><a href="#story-1007">Story 1007: Create ROS 2 workspace setup</a></li>
-          <li><a href="#story-1008">Story 1008: Add configuration management</a></li>
-          <li><a href="#story-1009">Story 1009: Set up basic CI checks</a></li>
-          <li><a href="#story-1010">Story 1010: Create experiment logging convention</a></li>
+          <li><a href="#story-1057">Story 1057: Define evaluation metrics and benchmark plan</a></li>
+          <li><a href="#story-1058">Story 1058: Create offline inference benchmark</a></li>
+          <li><a href="#story-1059">Story 1059: Create ROS end-to-end latency benchmark</a></li>
+          <li><a href="#story-1060">Story 1060: Create action validity benchmark</a></li>
+          <li><a href="#story-1061">Story 1061: Run simulation task success evaluation</a></li>
+          <li><a href="#story-1062">Story 1062: Analyze failure cases and dataset fixes</a></li>
+          <li><a href="#story-1063">Story 1063: Create results comparison table</a></li>
         </ol>
 
-      <article class="task-card" id="story-1005">
+      <article class="task-card" id="story-1057">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1005: Initialize repository structure</h3>
+        <h3>Story 1057: Define evaluation metrics and benchmark plan</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Create a clean repository layout for ML, ROS, deployment, data, and docs.</dd>
+          <dd>Create a focused benchmark plan aligned with the paper and MVP.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -89,12 +90,12 @@ Rel(validation, presentation, "summarized in")
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1006">
+      <article class="task-card" id="story-1058">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1006: Create Python environment setup</h3>
+        <h3>Story 1058: Create offline inference benchmark</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Make Python dependencies reproducible.</dd>
+          <dd>Measure image-to-action latency outside ROS.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -105,12 +106,12 @@ Rel(validation, presentation, "summarized in")
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1007">
+      <article class="task-card" id="story-1059">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1007: Create ROS 2 workspace setup</h3>
+        <h3>Story 1059: Create ROS end-to-end latency benchmark</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Make ROS workspace creation repeatable.</dd>
+          <dd>Measure frame ingestion to command publication latency.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -121,12 +122,12 @@ Rel(validation, presentation, "summarized in")
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1008">
+      <article class="task-card" id="story-1060">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1008: Add configuration management</h3>
+        <h3>Story 1060: Create action validity benchmark</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Centralize runtime and training settings.</dd>
+          <dd>Measure how often model outputs are parseable and safe.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -137,12 +138,12 @@ Rel(validation, presentation, "summarized in")
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1009">
+      <article class="task-card" id="story-1061">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1009: Set up basic CI checks</h3>
+        <h3>Story 1061: Run simulation task success evaluation</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Add lightweight automated checks for the project.</dd>
+          <dd>Measure whether the robot completes simple scenarios.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -153,12 +154,28 @@ Rel(validation, presentation, "summarized in")
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1010">
+      <article class="task-card" id="story-1062">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1010: Create experiment logging convention</h3>
+        <h3>Story 1062: Analyze failure cases and dataset fixes</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Standardize how training, inference, and benchmark outputs are saved.</dd>
+          <dd>Turn benchmark failures into actionable improvements.</dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dt>Data And Control Flow</dt>
+          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dt>ADR Notes</dt>
+          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dt>Validation</dt>
+          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1063">
+        <span class="status-pill">Seeded</span>
+        <h3>Story 1063: Create results comparison table</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Summarize project results against paper-inspired targets.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>

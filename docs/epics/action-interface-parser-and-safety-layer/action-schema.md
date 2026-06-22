@@ -1,6 +1,8 @@
 # Discrete action schema
 
-**Human-readable version (browser):** [`action-schema.html`](html/action-schema.html)
+**Epic:** Action Interface, Parser, and Safety Layer (103) · **Jira:** VLA-29 / Story 1017
+
+**Human-readable version (browser):** [`action-schema.html`](action-schema.html)
 
 This document defines the **discrete action vocabulary** for the Lite-VLA MVP. The VLA model outputs one of these uppercase tokens; downstream code maps each token to bounded `linear_x` and `angular_z` values for ROS `/cmd_vel`.
 
@@ -71,8 +73,9 @@ Safety ceilings come from config (`safety.max_linear_vel`, `safety.max_angular_v
 
 ## Related docs
 
-- MVP demo task and acceptance criteria: [`mvp_definition.md`](mvp_definition.md)
-- Architecture action-parser role: [`architecture_summary.md`](architecture_summary.md)
+- Epic walkthrough: [`index.html`](index.html)
+- MVP demo task and acceptance criteria: [`../../mvp_definition.md`](../../mvp_definition.md)
+- Architecture action-parser role: [`../../architecture_summary.md`](../../architecture_summary.md)
 
 ## Validation
 

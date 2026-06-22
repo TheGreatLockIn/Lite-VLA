@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Action Interface, Parser, and Safety Layer - Lite-VLA Epic Walkthrough</title>
-  <link rel="stylesheet" href="../styles/presentation.css">
+  <title>Supervised Fine-Tuning and Model Evaluation - Lite-VLA Epic Walkthrough</title>
+  <link rel="stylesheet" href="../../styles/presentation.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="../index.html">Back to epic index</a>
-      <p class="eyebrow">Epic 103</p>
-      <h1>Action Interface, Parser, and Safety Layer</h1>
-      <p class="doc-lead">Define safe structured actions and convert model text into bounded robot commands.</p>
+      <p class="eyebrow">Epic 106</p>
+      <h1>Supervised Fine-Tuning and Model Evaluation</h1>
+      <p class="doc-lead">Fine-tune a compact multimodal model to output robot actions.</p>
       <nav class="doc-nav" aria-label="Story navigation">
         <a href="#intent">Intent</a> | <a href="#c4-context">C4 context</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
       </nav>
@@ -21,9 +21,9 @@
     <main>
       <section id="intent" class="meta-card">
         <h2>Epic Intent</h2>
-        <p><strong>Context:</strong> The model must produce deterministic action commands that are safe to parse and execute in ROS 2.</p>
-        <p><strong>Scope:</strong> Discrete and continuous action schemas, parsers, validation, safety clamps, fallback STOP behavior, and command smoothing.</p>
-        <p><strong>Success criteria:</strong> Invalid model output maps to STOP; velocity limits are enforced; parser has unit tests; action schema is documented.</p>
+        <p><strong>Context:</strong> The paper uses supervised image-to-action learning with LoRA before quantization; this epic implements a beginner-scaled version.</p>
+        <p><strong>Scope:</strong> Training format, LoRA config, training loop, checkpoints, validation, manual inspection, and comparison against baseline.</p>
+        <p><strong>Success criteria:</strong> First adapter trains successfully; validation metrics are reported; model outputs valid actions; results are reproducible from config.</p>
         <p class="update-note">This page is seeded from the Jira import CSV. Future agents should update it as implementation work starts, changes, or completes.</p>
       </section>
 
@@ -31,7 +31,7 @@
         <h2>C4 System Context</h2>
         <pre class="mermaid">
 C4Context
-title Action Interface, Parser, and Safety Layer - System Context
+title Supervised Fine-Tuning and Model Evaluation - System Context
 Person(team, "Lite-VLA Team", "Implements, reviews, and explains this epic")
 System(repo, "Lite-VLA Repository", "ROS 2, ML, data, deployment, docs, tests")
 System(presentation, "Epic Presentation", "Living ADR, code walkthrough, and visual explanation")
@@ -47,7 +47,7 @@ Rel(presentation, repo, "documents intent, flow, and decisions")
         <h2>C4 Container View</h2>
         <pre class="mermaid">
 C4Container
-title Action Interface, Parser, and Safety Layer - Container View Template
+title Supervised Fine-Tuning and Model Evaluation - Container View Template
 Person(team, "Lite-VLA Team", "Builds and reviews the epic")
 System_Ext(presentation, "Epic Presentation", "Living walkthrough for this epic")
 System_Boundary(repo, "Lite-VLA Repository") {
@@ -65,64 +65,21 @@ Rel(validation, presentation, "summarized in")
       <section id="stories">
         <h2>Task Order</h2>
         <ol class="task-list">
-          <li><a href="#story-1017">Story 1017: Define discrete action schema</a></li>
-          <li><a href="#story-1018">Story 1018: Define continuous command schema</a></li>
-          <li><a href="#story-1019">Story 1019: Implement discrete action parser</a></li>
-          <li><a href="#story-1020">Story 1020: Implement JSON command parser</a></li>
-          <li><a href="#story-1021">Story 1021: Implement safety clamp and fallback behavior</a></li>
-          <li><a href="#story-1022">Story 1022: Add command smoothing</a></li>
+          <li><a href="#story-1036">Story 1036: Prepare model training format</a></li>
+          <li><a href="#story-1037">Story 1037: Configure LoRA fine-tuning</a></li>
+          <li><a href="#story-1038">Story 1038: Implement first training loop</a></li>
+          <li><a href="#story-1039">Story 1039: Add validation metrics</a></li>
+          <li><a href="#story-1040">Story 1040: Compare fine-tuned model against baseline</a></li>
+          <li><a href="#story-1041">Story 1041: Create manual model inspection workflow</a></li>
+          <li><a href="#story-1042">Story 1042: Make training runs reproducible</a></li>
         </ol>
 
-      <article class="task-card" id="story-1017">
-        <span class="status-pill">Complete</span>
-        <h3>Story 1017: Define discrete action schema</h3>
-        <dl>
-          <dt>Intent</dt>
-          <dd>Create the first safe action vocabulary: five uppercase tokens with nominal velocity mapping for the MVP navigate-to-cube demo.</dd>
-          <dt>Implementation Walkthrough</dt>
-          <dd>
-            <ul>
-              <li><code>litevla/actions/schema.py</code> — <code>DiscreteAction</code> enum, <code>ACTION_VELOCITIES</code>, <code>action_to_twist()</code>, <code>is_valid_action()</code></li>
-              <li><code>litevla/actions/__init__.py</code> — public exports for downstream parser and ROS code</li>
-              <li><code>docs/action-schema.md</code> + <code>docs/html/action-schema.html</code> — human and agent documentation with mapping table</li>
-              <li><code>scripts/run_dummy_pipeline.py</code> — iterates <code>ACTION_NAMES</code> instead of ad-hoc <code>FORWARD</code>/<code>STOP</code> placeholders</li>
-              <li><code>tests/test_action_schema.py</code> — enum order, mapping values, clamping, validation helpers</li>
-            </ul>
-          </dd>
-          <dt>Data And Control Flow</dt>
-          <dd>
-            <pre class="mermaid">
-flowchart LR
-  Token["DiscreteAction token\nMOVE_FORWARD … STOP"]
-  Map["ACTION_VELOCITIES\nnominal linear_x, angular_z"]
-  Clamp["action_to_twist\nconfig safety limits"]
-  Twist["Twist linear_x, angular_z"]
-  Token --> Map --> Clamp --> Twist
-            </pre>
-            <p>Inputs: action token (enum or exact string). Outputs: clamped <code>(linear_x, angular_z)</code> using <code>safety.max_linear_vel</code> and <code>safety.max_angular_vel</code> from config. Parser (Story 1019) and safety layer (Story 1021) consume the same module.</p>
-          </dd>
-          <dt>ADR Notes</dt>
-          <dd>
-            <p><strong>ADR: Five-token discrete vocabulary</strong></p>
-            <p><strong>Status:</strong> Accepted</p>
-            <p><strong>Context:</strong> MVP non-goals defer continuous VLM velocity output; beginners need a small label set.</p>
-            <p><strong>Decision:</strong> Standardize on <code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>SLOW_DOWN</code>, <code>STOP</code> with nominal 0.2/0.1 m/s forward and ±0.6 rad/s turns.</p>
-            <p><strong>Alternatives rejected:</strong> <code>FORWARD</code> alias (ambiguous); continuous JSON schema first (harder to train/parse for MVP).</p>
-            <p><strong>Consequences:</strong> Dataset labels and prompts must use exact tokens; parser story validates strings before calling <code>action_to_twist</code>.</p>
-          </dd>
-          <dt>Validation</dt>
-          <dd>
-            <pre><code>pytest tests/test_action_schema.py -q
-python scripts/run_dummy_pipeline.py</code></pre>
-          </dd>
-        </dl>
-      </article>
-      <article class="task-card" id="story-1018">
+      <article class="task-card" id="story-1036">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1018: Define continuous command schema</h3>
+        <h3>Story 1036: Prepare model training format</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Prepare an optional JSON schema for direct velocity output.</dd>
+          <dd>Convert labeled examples into the model-specific supervised fine-tuning format.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -133,12 +90,12 @@ python scripts/run_dummy_pipeline.py</code></pre>
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1019">
+      <article class="task-card" id="story-1037">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1019: Implement discrete action parser</h3>
+        <h3>Story 1037: Configure LoRA fine-tuning</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Extract a valid action from model text.</dd>
+          <dd>Set up parameter-efficient fine-tuning for the selected model.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -149,12 +106,12 @@ python scripts/run_dummy_pipeline.py</code></pre>
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1020">
+      <article class="task-card" id="story-1038">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1020: Implement JSON command parser</h3>
+        <h3>Story 1038: Implement first training loop</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Parse optional continuous command JSON safely.</dd>
+          <dd>Run supervised fine-tuning for at least one small experiment.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -165,12 +122,12 @@ python scripts/run_dummy_pipeline.py</code></pre>
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1021">
+      <article class="task-card" id="story-1039">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1021: Implement safety clamp and fallback behavior</h3>
+        <h3>Story 1039: Add validation metrics</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Guarantee unsafe actions cannot be published directly.</dd>
+          <dd>Evaluate action prediction quality on held-out data.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
@@ -181,12 +138,44 @@ python scripts/run_dummy_pipeline.py</code></pre>
           <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
         </dl>
       </article>
-      <article class="task-card" id="story-1022">
+      <article class="task-card" id="story-1040">
         <span class="status-pill">Seeded</span>
-        <h3>Story 1022: Add command smoothing</h3>
+        <h3>Story 1040: Compare fine-tuned model against baseline</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Reduce jerky command changes between model outputs.</dd>
+          <dd>Show whether training improved action outputs.</dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dt>Data And Control Flow</dt>
+          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dt>ADR Notes</dt>
+          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dt>Validation</dt>
+          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1041">
+        <span class="status-pill">Seeded</span>
+        <h3>Story 1041: Create manual model inspection workflow</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Review qualitative predictions to understand errors.</dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dt>Data And Control Flow</dt>
+          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dt>ADR Notes</dt>
+          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dt>Validation</dt>
+          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1042">
+        <span class="status-pill">Seeded</span>
+        <h3>Story 1042: Make training runs reproducible</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Ensure experiments can be rerun with the same settings.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
           <dt>Data And Control Flow</dt>
