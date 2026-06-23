@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulator selection — Epic 102</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 102 · VLA-115</p>
+      <h1>Simulator selection (MVP)</h1>
+      <p class="doc-lead"><strong>Webots selected.</strong> Isaac Sim rejected — insufficient GPU/VRAM on team hardware.</p>
+    </header>
+    <main>
+      <section id="decision">
+        <h2>Decision</h2>
+        <p><strong>MVP simulator:</strong> Webots + <code>webots_ros2</code> on Jazzy.</p>
+        <p><strong>Rejected:</strong> Isaac Sim (GPU load).</p>
+      </section>
+      <section id="matrix">
+        <h2>Comparison</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Simulator</th><th>Verdict</th><th>GPU</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Webots</strong></td><td><strong>Selected</strong></td><td>Low</td></tr>
+              <tr><td>Isaac Sim</td><td>Reject</td><td>Very high</td></tr>
+              <tr><td>Gazebo</td><td>Defer</td><td>Moderate</td></tr>
+              <tr><td>turtlesim</td><td>Dev-only</td><td>Minimal</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section id="follow-up">
+        <h2>Install &amp; run (VLA-23)</h2>
+        <ol>
+          <li><code>sudo apt install ros-jazzy-webots-ros2</code> (ROS bridge)</li>
+          <li><code>./ros_ws/scripts/install_webots.sh</code> (simulator app)</li>
+          <li><code>./ros_ws/scripts/run_webots_mvp.sh</code></li>
+        </ol>
+        <p><a href="webots-sim-environment.html">Full Webots environment doc</a></p>
+      </section>
+    </main>
+    <footer class="doc-footer"><p>Lite-VLA documentation</p></footer>
+  </div>
+</body>
+</html>

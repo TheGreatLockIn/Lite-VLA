@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ROS 2 workspace setup — Epic 101</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 101 · VLA-19 / Story 1007</p>
+      <h1>ROS 2 workspace setup</h1>
+      <p class="doc-lead">
+        Repeatable colcon workspace and <code>litevla_bridge</code> package for the Lite-VLA robot control loop.
+      </p>
+    </header>
+
+    <main>
+      <section id="intent">
+        <h2>Intent</h2>
+        <p>
+          Every teammate can clone the repo, install ROS 2 Jazzy, run <code>colcon build</code>, source the overlay,
+          and run a smoke node — without committing local <code>build/</code> or <code>install/</code> artifacts.
+        </p>
+      </section>
+
+      <section id="layout">
+        <h2>Layout</h2>
+        <pre><code>ros_ws/
+├── README.md
+├── scripts/build_ros_ws.sh
+└── src/litevla_bridge/
+    ├── package.xml
+    ├── setup.py
+    ├── config/bridge_params.yaml
+    ├── litevla_bridge/workspace_ping.py
+    └── test/</code></pre>
+      </section>
+
+      <section id="subtasks">
+        <h2>Jira subtasks</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">ID</th>
+                <th scope="col">Title</th>
+                <th scope="col">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>10021</td>
+                <td>Create ROS workspace skeleton</td>
+                <td><code>ros_ws/src/</code> documented in <code>ros_ws/README.md</code></td>
+              </tr>
+              <tr>
+                <td>10022</td>
+                <td>Create control bridge package</td>
+                <td><code>litevla_bridge</code> builds with colcon</td>
+              </tr>
+              <tr>
+                <td>10023</td>
+                <td>Document ROS environment sourcing</td>
+                <td>Build and <code>source</code> commands in README files</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="build">
+        <h2>Build and run</h2>
+        <pre><code>source /opt/ros/jazzy/setup.bash
+./ros_ws/scripts/build_ros_ws.sh
+source ros_ws/install/setup.bash
+ros2 run litevla_bridge workspace_ping</code></pre>
+      </section>
+
+      <section id="adr">
+        <h2>ADR: distribution and package name</h2>
+        <p><strong>Status:</strong> Accepted</p>
+        <p><strong>Decision:</strong> ROS 2 Jazzy; package name <code>litevla_bridge</code>.</p>
+        <p><strong>Consequences:</strong> Epic 102 nodes (camera, cmd_vel, dummy, heartbeat, teleop) ship inside this package.</p>
+      </section>
+
+      <section id="validation">
+        <h2>Validation</h2>
+        <pre><code>cd ros_ws &amp;&amp; ./scripts/build_ros_ws.sh &amp;&amp; source install/setup.bash
+colcon test --packages-select litevla_bridge
+ros2 run litevla_bridge workspace_ping</code></pre>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA documentation · <a href="../../../../ros_ws/README.md">ros_ws/README.md</a></p>
+    </footer>
+  </div>
+</body>
+</html>

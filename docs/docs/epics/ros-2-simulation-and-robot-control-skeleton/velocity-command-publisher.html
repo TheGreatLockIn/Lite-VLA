@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velocity command publisher — Epic 102</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 102 · VLA-25</p>
+      <h1>Velocity command publisher</h1>
+      <p class="doc-lead">Publish clamped <code>geometry_msgs/Twist</code> on <code>/cmd_vel</code>.</p>
+    </header>
+    <main>
+      <section id="run">
+        <h2>Sim test</h2>
+        <pre><code>./ros_ws/scripts/run_webots_mvp.sh
+ros2 launch litevla_bridge cmd_vel_test.launch.py</code></pre>
+      </section>
+      <section id="modules">
+        <h2>Modules</h2>
+        <ul>
+          <li><code>CmdVelPublisher</code> — reusable library for VLA-26/27/28</li>
+          <li><code>twist_utils.py</code> — <code>make_twist</code>, <code>clamp_velocity</code></li>
+          <li><code>cmd_vel_tester</code> — forward / left / right / stop cycle</li>
+        </ul>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p><a href="camera-frame-subscriber.html">Camera subscriber (VLA-24)</a></p>
+    </footer>
+  </div>
+</body>
+</html>
