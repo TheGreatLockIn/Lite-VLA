@@ -13,48 +13,64 @@
       <p class="eyebrow">Epic 103 · VLA-29 / Story 1017</p>
       <h1>Discrete action schema</h1>
       <p class="doc-lead">
-        The five allowed VLA output tokens, how each maps to bounded ROS velocities, and a walkthrough of the shared <code>litevla.actions</code> module.
+        Architectural walkthrough of <code>litevla.actions</code> — the discrete token contract
+        and token-to-velocity mapping for the MVP.
       </p>
       <nav class="doc-nav" aria-label="On this page">
-        <a href="#purpose">Purpose</a> ·
-        <a href="#reader-map">Reader map</a> ·
-        <a href="#actions">Actions</a> ·
-        <a href="#code">Code</a> ·
-        <a href="#flow">Flow</a> ·
-        <a href="#engineering">Engineering</a> ·
-        <a href="#validation">Validation</a>
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a>
       </nav>
     </header>
 
     <main>
-      <section id="purpose">
-        <h2>Purpose and fit</h2>
+      <section id="summary">
+        <h2>Executive summary</h2>
         <p>
-          Story 1017 defines the <strong>first shared contract</strong> between the VLA model and robot control.
-          The model outputs one of five uppercase discrete tokens; this story implements the vocabulary and
-          velocity mapping in <code>litevla.actions</code> so parsers, datasets, prompts, and ROS code stay aligned.
+          <code>litevla.actions</code> owns the <strong>discrete action contract</strong> for the MVP:
+          five exact uppercase tokens and their nominal velocity meanings. Parser, dataset labeling,
+          prompts, safety gate, and ROS publishers must not invent parallel vocabularies or ad-hoc speed tables.
         </p>
         <p>
-          In the epic pipeline, this story sits <strong>before</strong> the parser (Story 1019) and the dedicated
-          safety gate (Story 1021). It answers: given a <em>valid</em> token, what bounded
-          <code>(linear_x, angular_z)</code> should we request?
+          This module answers one bounded question: <strong>given a valid action token, what
+          <code>(linear_x, angular_z)</code> should downstream code request?</strong> It does not parse
+          noisy VLA text (Story 1019) and does not publish safe <code>STOP</code> fallbacks on failure
+          (Story 1021). Those boundaries are intentional.
         </p>
       </section>
 
-      <section id="reader-map">
-        <h2>Reader map</h2>
-        <ol>
-          <li><a href="../../html/mvp_definition.html">MVP definition</a> — why discrete actions exist.</li>
-          <li><code>litevla/actions/schema.py</code> — enum, velocity table, mapping helpers.</li>
-          <li><code>litevla/actions/__init__.py</code> — public exports.</li>
-          <li><code>tests/test_action_schema.py</code> — behavior locked by tests.</li>
-          <li><code>scripts/run_dummy_pipeline.py</code> — runnable demo with config safety limits.</li>
-          <li><code>configs/default.example.yaml</code> — <code>safety.max_linear_vel</code> / <code>max_angular_vel</code>.</li>
-        </ol>
-      </section>
+      <section id="contract">
+        <h2>API contract and data flow</h2>
 
-      <section id="actions">
-        <h2>Allowed actions</h2>
+        <h3>Task-local flow</h3>
+        <pre><code class="language-text">DiscreteAction | exact str token
+        │
+        ├──&gt; ACTION_VELOCITIES lookup (nominal m/s, rad/s)
+        │
+        ├──&gt; clamp_velocity per axis (config safety limits)
+        │
+        └──&gt; (linear_x, angular_z)  ──&gt; parser / safety / ROS consumers</code></pre>
+
+        <h3>Contract</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Input</strong></td><td><code>DiscreteAction</code> or exact string matching an enum value</td></tr>
+              <tr><td><strong>Config</strong></td><td><code>max_linear_vel</code>, <code>max_angular_vel</code> from <code>safety</code> (SI units)</td></tr>
+              <tr><td><strong>Output</strong></td><td><code>(linear_x, angular_z)</code> for <code>Twist.linear.x</code> / <code>Twist.angular.z</code></td></tr>
+              <tr><td><strong>Invariant</strong></td><td>Every enum member has exactly one nominal velocity pair</td></tr>
+              <tr><td><strong>Validation</strong></td><td><code>is_valid_action(name)</code> — exact token only; no aliases</td></tr>
+              <tr><td><strong>Errors</strong></td><td>Unknown strings in <code>action_to_twist</code> raise <code>ValueError</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Vocabulary</h3>
         <div class="table-wrap">
           <table>
             <thead>
@@ -66,155 +82,170 @@
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td><code>MOVE_FORWARD</code></td>
-                <td>Drive toward the goal</td>
-                <td>0.2</td>
-                <td>0.0</td>
-              </tr>
-              <tr>
-                <td><code>TURN_LEFT</code></td>
-                <td>Rotate left in place</td>
-                <td>0.0</td>
-                <td>0.6</td>
-              </tr>
-              <tr>
-                <td><code>TURN_RIGHT</code></td>
-                <td>Rotate right in place</td>
-                <td>0.0</td>
-                <td>−0.6</td>
-              </tr>
-              <tr>
-                <td><code>SLOW_DOWN</code></td>
-                <td>Reduce forward speed near target</td>
-                <td>0.1</td>
-                <td>0.0</td>
-              </tr>
-              <tr>
-                <td><code>STOP</code></td>
-                <td>Halt immediately</td>
-                <td>0.0</td>
-                <td>0.0</td>
-              </tr>
+              <tr><td><code>MOVE_FORWARD</code></td><td>Drive toward the goal</td><td>0.2</td><td>0.0</td></tr>
+              <tr><td><code>TURN_LEFT</code></td><td>Rotate left in place</td><td>0.0</td><td>0.6</td></tr>
+              <tr><td><code>TURN_RIGHT</code></td><td>Rotate right in place</td><td>0.0</td><td>−0.6</td></tr>
+              <tr><td><code>SLOW_DOWN</code></td><td>Reduce forward speed near target</td><td>0.1</td><td>0.0</td></tr>
+              <tr><td><code>STOP</code></td><td>Halt immediately</td><td>0.0</td><td>0.0</td></tr>
             </tbody>
           </table>
         </div>
-        <p>
-          Names are uppercase and underscore-separated. Aliases like <code>FORWARD</code> are intentionally rejected.
-        </p>
-      </section>
 
-      <section id="code">
-        <h2>Code walkthrough</h2>
-
-        <h3><code>litevla/actions/schema.py</code></h3>
-        <p>
-          <strong>Design-point constants</strong> (<code>DEFAULT_LINEAR_FORWARD</code>, <code>DEFAULT_LINEAR_SLOW</code>,
-          <code>DEFAULT_ANGULAR_TURN</code>) mirror MVP speeds from the requirements doc so tests and implementation share one source of truth.
-        </p>
-        <p>
-          <strong><code>DiscreteAction</code></strong> is a <code>str</code> enum: each member’s value is the exact token the model must emit.
-          <strong><code>ACTION_NAMES</code></strong> exposes stable iteration order for scripts and tests.
-          <strong><code>ACTION_VELOCITIES</code></strong> maps each action to nominal <code>(linear_x, angular_z)</code> before config clamping.
-        </p>
-        <p>
-          <strong><code>is_valid_action(name)</code></strong> returns whether a string is an exact enum value — the parser story will use this class of check before mapping.
-          <strong><code>clamp_velocity</code></strong> clamps a scalar to <code>[-limit, limit]</code>.
-          <strong><code>action_to_twist(...)</code></strong> looks up nominal velocities, clamps with config limits, and returns floats for ROS <code>Twist</code>.
-          Invalid strings raise <code>ValueError</code>; safe fallback to <code>STOP</code> is deferred to Story 1021.
-        </p>
-
-        <h3>Supporting files</h3>
+        <h3>Trade-offs</h3>
         <ul>
-          <li><code>litevla/actions/__init__.py</code> — re-exports the public API; import <code>litevla.actions</code> in app code.</li>
-          <li><code>scripts/run_dummy_pipeline.py</code> — loads config, iterates <code>ACTION_NAMES</code>, prints clamped velocities.</li>
-          <li><code>tests/test_action_schema.py</code> — naming rules, mappings, clamping, validation, and error cases.</li>
+          <li><strong><code>str, Enum</code></strong> — serializable tokens with type-checked call sites; parser may still emit strings.</li>
+          <li><strong>Nominal table + config clamp</strong> — stable labeling semantics; deployment can tighten limits without retraining.</li>
+          <li><strong>Strict tokens</strong> — <code>FORWARD</code>/<code>GO</code> rejected for deterministic parser and dataset QA.</li>
+          <li><strong>Fail-fast mapping</strong> — <code>ValueError</code> here; Story 1021 owns fail-safe <code>STOP</code> at ROS boundary.</li>
         </ul>
-
-        <pre><code>from litevla.actions import DiscreteAction, action_to_twist
-
-linear, angular = action_to_twist(
-    DiscreteAction.MOVE_FORWARD,
-    max_linear_vel=0.2,
-    max_angular_vel=0.6,
-)
-# (0.2, 0.0)</code></pre>
       </section>
 
-      <section id="flow" class="visual-card">
-        <h2>Data and control flow</h2>
-        <p>Full epic pipeline (parser and safety gate are future stories):</p>
-        <pre class="mermaid">
-sequenceDiagram
-  participant VLA as VLA model
-  participant Parser as Parser (Story 1019)
-  participant Schema as action_to_twist
-  participant Safety as Safety gate (Story 1021)
-  participant ROS as ROS /cmd_vel
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
 
-  VLA->>Parser: raw text e.g. MOVE_FORWARD
-  Parser->>Schema: valid DiscreteAction token
-  Schema->>Schema: ACTION_VELOCITIES lookup
-  Schema->>Schema: clamp_velocity per config limits
-  Schema->>Safety: linear_x, angular_z
-  Safety->>ROS: bounded Twist
-        </pre>
-        <p>This story’s scope ends at <code>action_to_twist</code>:</p>
-        <pre class="mermaid">
-flowchart LR
-  Token["Action token"]
-  Map["ACTION_VELOCITIES"]
-  Clamp["clamp_velocity"]
-  Out["linear_x, angular_z"]
-  Token --> Map --> Clamp --> Out
-        </pre>
-        <p>
-          <strong>Inputs:</strong> token + <code>safety.max_linear_vel</code> / <code>max_angular_vel</code> from config.<br>
-          <strong>Outputs:</strong> clamped velocities for <code>/cmd_vel</code> <code>Twist</code> fields.
-        </p>
+        <h3>Vocabulary and nominal motion profile</h3>
+        <pre><code class="language-python">DEFAULT_LINEAR_FORWARD: Final[float] = 0.2  # m/s
+DEFAULT_LINEAR_SLOW: Final[float] = 0.1  # m/s
+DEFAULT_ANGULAR_TURN: Final[float] = 0.6  # rad/s
+
+class DiscreteAction(str, Enum):
+    MOVE_FORWARD = "MOVE_FORWARD"
+    TURN_LEFT = "TURN_LEFT"
+    TURN_RIGHT = "TURN_RIGHT"
+    SLOW_DOWN = "SLOW_DOWN"
+    STOP = "STOP"
+
+ACTION_VELOCITIES: Final[dict[DiscreteAction, tuple[float, float]]] = {
+    DiscreteAction.MOVE_FORWARD: (DEFAULT_LINEAR_FORWARD, 0.0),
+    DiscreteAction.TURN_LEFT: (0.0, DEFAULT_ANGULAR_TURN),
+    DiscreteAction.TURN_RIGHT: (0.0, -DEFAULT_ANGULAR_TURN),
+    DiscreteAction.SLOW_DOWN: (DEFAULT_LINEAR_SLOW, 0.0),
+    DiscreteAction.STOP: (0.0, 0.0),
+}</code></pre>
+        <p><strong>Design notes:</strong> Constants mirror MVP design points. <code>ACTION_NAMES</code> gives scripts stable iteration order.</p>
+        <p><strong>Risks:</strong> Enum renames break datasets and prompts. <code>TURN_RIGHT</code> is negative angular — do not assume unsigned magnitudes.</p>
+
+        <h3>Validation and clamping primitives</h3>
+        <pre><code class="language-python">def is_valid_action(name: str) -&gt; bool:
+    try:
+        DiscreteAction(name)
+    except ValueError:
+        return False
+    return True
+
+def clamp_velocity(value: float, limit: float) -&gt; float:
+    return max(-limit, min(limit, value))</code></pre>
+        <p><strong>Design notes:</strong> Non-throwing probe for parser pre-checks. Sign-preserving clamp reused by Story 1021.</p>
+        <p><strong>Risks:</strong> Exact spelling only — whitespace normalization is Story 1019. No NaN/Inf guard.</p>
+
+        <h3>Token-to-velocity mapping</h3>
+        <pre><code class="language-python">def action_to_twist(
+    action: DiscreteAction | str,
+    *,
+    max_linear_vel: float,
+    max_angular_vel: float,
+) -&gt; tuple[float, float]:
+    if isinstance(action, str):
+        action = DiscreteAction(action)
+
+    linear, angular = ACTION_VELOCITIES[action]
+    return (
+        clamp_velocity(linear, max_linear_vel),
+        clamp_velocity(angular, max_angular_vel),
+    )</code></pre>
+        <p><strong>Design notes:</strong> Required config limits prevent accidental uncapped output.</p>
+        <p><strong>Risks:</strong> <code>ValueError</code> on bad tokens must not reach <code>/cmd_vel</code> without Story 1021 fallback.</p>
+
+        <pre><code class="language-diff-python diff-highlight">- for action in ("FORWARD", "STOP"):
+-     print(action)
++ for action in ACTION_NAMES:
++     linear, angular = action_to_twist(
++         action,
++         max_linear_vel=safety["max_linear_vel"],
++         max_angular_vel=safety["max_angular_vel"],
++     )</code></pre>
+
+        <h3>Runtime integration</h3>
+        <pre><code class="language-yaml">safety:
+  max_linear_vel: 0.5
+  max_angular_vel: 1.0</code></pre>
+        <pre><code class="language-python">safety = config["safety"]
+for action in ACTION_NAMES:
+    linear, angular = action_to_twist(
+        action,
+        max_linear_vel=safety["max_linear_vel"],
+        max_angular_vel=safety["max_angular_vel"],
+    )
+    print(f"action={action:13s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s")</code></pre>
+        <p><strong>Design notes:</strong> Dummy pipeline validates schema + config without ROS.</p>
+        <p><strong>Risks:</strong> Example config allows 0.5 m/s — above MVP operational target; deployment must set appropriate limits.</p>
       </section>
 
-      <section id="engineering">
-        <h2>Engineering notes</h2>
-        <ul>
-          <li><strong>Discrete first</strong> — easier labeling, evaluation, and deterministic parsing than continuous VLM velocities.</li>
-          <li><strong>Nominal + clamp</strong> — motion meaning stays in <code>ACTION_VELOCITIES</code>; deployment limits stay in config.</li>
-          <li><strong>No aliases</strong> — strict tokens keep parser tests and dataset QA simple.</li>
-          <li><strong>Story 1021</strong> will add invalid-output <code>STOP</code> fallback and ROS-side enforcement beyond this module’s clamping.</li>
-        </ul>
-
-        <h3>ADR: Five-token discrete vocabulary</h3>
-        <p><strong>Status:</strong> Accepted</p>
-        <p><strong>Decision:</strong> Standardize on five uppercase tokens with nominal 0.2/0.1 m/s forward and ±0.6 rad/s turns.</p>
-        <p><strong>Alternatives rejected:</strong> <code>FORWARD</code> alias; JSON velocity schema as the primary MVP path.</p>
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <pre><code class="language-text">ADR: Five-token discrete vocabulary
+Status: Accepted
+Context: MVP defers continuous VLM velocity output; team needs a small, label-friendly action set.
+Decision: MOVE_FORWARD, TURN_LEFT, TURN_RIGHT, SLOW_DOWN, STOP with nominal 0.2/0.1 m/s forward and ±0.6 rad/s turns.
+Alternatives Rejected: FORWARD alias (ambiguous); JSON velocity schema as primary MVP path.
+Consequences: Dataset labels and prompts must use exact tokens; parser validates before calling action_to_twist.</code></pre>
       </section>
 
-      <section id="validation">
-        <h2>Validation</h2>
-        <pre><code>pytest tests/test_action_schema.py -q
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Contract defended</th><th scope="col">Where</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Token names uppercase, unique, stable order</td><td><code>test_action_names_are_uppercase_and_unique</code></td></tr>
+              <tr><td>Every action has velocity mapping</td><td><code>test_all_actions_have_velocity_mapping</code></td></tr>
+              <tr><td>Nominal values match MVP design points</td><td><code>test_nominal_velocities_match_mvp_design_points</code></td></tr>
+              <tr><td>Mapping at MVP limits (0.2 / 0.6)</td><td><code>test_action_to_twist_at_mvp_limits</code></td></tr>
+              <tr><td>Config clamp when limits &lt; nominal</td><td><code>test_action_to_twist_clamps_to_config_limits</code></td></tr>
+              <tr><td>Aliases rejected</td><td><code>test_is_valid_action</code>, <code>test_invalid_action_string_raises</code></td></tr>
+              <tr><td>Config integration</td><td><code>scripts/run_dummy_pipeline.py</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <pre><code class="language-python">def test_action_to_twist_clamps_to_config_limits() -&gt; None:
+    linear, angular = action_to_twist(
+        DiscreteAction.MOVE_FORWARD,
+        max_linear_vel=0.1,
+        max_angular_vel=0.3,
+    )
+    assert linear == pytest.approx(0.1)
+    assert angular == pytest.approx(0.0)
+
+def test_invalid_action_string_raises() -&gt; None:
+    with pytest.raises(ValueError):
+        action_to_twist("FORWARD", max_linear_vel=0.2, max_angular_vel=0.6)</code></pre>
+
+        <pre><code class="language-bash">pytest tests/test_action_schema.py -q
 python scripts/run_dummy_pipeline.py</code></pre>
-        <p>All schema tests pass; dummy pipeline prints five action rows with config-clamped velocities.</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li>Should <code>action_to_twist</code> accept only <code>DiscreteAction</code> once Story 1019 owns string coercion?</li>
+          <li>How will optional JSON velocities (Story 1018) merge with discrete tokens at the safety gate?</li>
+        </ul>
       </section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 103 task documentation · <code>action-schema.md</code> is the agent source of truth.</p>
+      <p>Lite-VLA · Epic 103 · <code>action-schema.md</code> is the agent source of truth.</p>
     </footer>
   </div>
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: "base",
-      themeVariables: {
-        background: "#FAF8F5",
-        primaryColor: "#F0EDE8",
-        primaryBorderColor: "#D4CFC7",
-        primaryTextColor: "#2C2825",
-        lineColor: "#B8602A",
-        textColor: "#2C2825"
-      }
-    });
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

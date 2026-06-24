@@ -8,7 +8,9 @@ When creating or updating project documentation in `docs/`, follow these rules.
 
 Create or expand `docs/` content only for **durable project knowledge** — things a new teammate needs to build, run, train, deploy, or operate Lite-VLA without reading chat history.
 
-When documentation is required, write it as asynchronous engineering communication. It should teach the project and the code: what the feature is for, where to start reading, how the important symbols work, how data/control moves through the system, how to validate behavior, and which trade-offs or risks matter.
+When documentation is required, write it as asynchronous engineering communication. It should teach architectural intent and system contracts: what the feature is for, how data enters and exits, which trade-offs were chosen, what risks or deferred logic remain, and how tests defend behavior.
+
+For Jira epic/task docs, follow the **architectural walkthrough framework** in [`epics/AGENTS.md`](epics/AGENTS.md). Cross-cutting docs with substantial code should use the same grouped-snippet, design-notes, and verification-pattern style where applicable.
 
 | Write docs | Skip docs (chat reply is enough) |
 |------------|----------------------------------|
@@ -42,7 +44,7 @@ Documentation uses paired `.md` + `.html` files in three locations:
 | Epic walkthrough | — (HTML only) | `docs/epics/<epic-slug>/index.html` |
 | Jira story/task deliverables | `docs/epics/<epic-slug>/<task-slug>.md` | `docs/epics/<epic-slug>/<task-slug>.html` |
 
-Epic walkthrough pages are HTML-only; agents follow [`epics/AGENTS.md`](epics/AGENTS.md) for structure, the **Agent contract**, and task-doc depth standards. Update them alongside code changes.
+Epic walkthrough pages are HTML-only; agents follow [`epics/AGENTS.md`](epics/AGENTS.md) for structure, the **Agent contract**, the **architectural walkthrough framework**, and task-doc depth standards. Update them alongside code changes.
 
 **Do not** place Jira task deliverables in `docs/` root or `docs/html/`. **Do not** place cross-cutting topics inside `docs/epics/`.
 
@@ -70,6 +72,21 @@ When creating or updating the **`.html`** counterpart in `docs/html/` or `docs/e
 - Epic walkthroughs use `../../styles/presentation.css` (from `docs/epics/<epic-slug>/index.html`).
 - Wrap wide tables in `<div class="table-wrap">` so they scroll horizontally on small screens.
 - Use semantic structure: `<header>`, `<main>`, `<section>`, `<nav>`, `<footer>`.
+- Render code, CLI, config, and diff examples as Prism-ready blocks: `<pre><code class="language-python">...</code></pre>`, `<pre><code class="language-bash">...</code></pre>`, `<pre><code class="language-yaml">...</code></pre>`, or the closest language. Use `<pre><code class="language-diff-python diff-highlight">...</code></pre>` for Python before/after diffs.
+- Escape HTML special characters inside `<code>` blocks (`<` → `&lt;`, `>` → `&gt;`, `&` → `&amp;`). Keep snippets focused and close to the prose that explains them.
+- Load Prism and the shared code-panel initializer on every human HTML page that contains highlighted snippets. `doc.css` already imports `prism-litevla.css` (editor chrome + token colors). Add these scripts before `</body>` (adjust paths for `docs/html/` vs `docs/epics/<epic-slug>/`):
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+<script src="../../scripts/doc-code.js"></script>
+```
+
+Include only the Prism language components the page actually uses. `doc-code.js` wraps each block in an editor-style panel (traffic-light dots, language label, copy button) and runs `Prism.highlightAll()`.
 
 ## Color palette: Warm Neutral
 
@@ -93,7 +110,7 @@ In the `.html` counterpart, prefer HTML features over plain prose when they help
 | `<table>` | Tabular data (dependencies, configs, comparisons) |
 | CSS (`doc.css` + scoped `<style>`) | Layout, callouts, responsive design |
 | SVG | Diagrams, workflows, architecture sketches |
-| `<pre><code>` | Code snippets |
+| `<pre><code class="language-...">` | Prism-ready code, CLI, config, and diff snippets |
 | `<img>` | Screenshots and figures |
 | `<canvas>` | Spatial or animated visuals |
 | JavaScript + form controls | Sliders, toggles, knobs to explore parameters (e.g. algorithm tuning, design previews) |
@@ -142,7 +159,7 @@ Interactive docs are encouraged when they help readers **explore** behavior. Use
 - Agent instructions: `docs/AGENTS.md` (this file) · `docs/epics/AGENTS.md` (epic walkthroughs and task docs)
 - Cross-cutting human HTML: `docs/html/`
 - Epic index and walkthroughs: `docs/epics/`
-- Shared styles: `docs/styles/doc.css` · `docs/styles/presentation.css`
+- Shared styles: `docs/styles/doc.css` · `docs/styles/presentation.css` · `docs/styles/prism-litevla.css` · `docs/scripts/doc-code.js`
 - Example cross-cutting pair: `docs/requirements.md` · `docs/html/requirements.html`
 - Experiment logging: `docs/experiment-logging.md` · `docs/html/experiment-logging.html`
 - Example task pair: `docs/epics/action-interface-parser-and-safety-layer/action-schema.md` · `action-schema.html`

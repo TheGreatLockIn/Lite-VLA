@@ -14,7 +14,7 @@
       <h1>Action Interface, Parser, and Safety Layer</h1>
       <p class="doc-lead">Define safe structured actions and convert model text into bounded robot commands.</p>
       <nav class="doc-nav" aria-label="Story navigation">
-        <a href="#intent">Intent</a> | <a href="#c4-context">C4 context</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
+        <a href="#intent">Intent</a> | <a href="#epic-pipeline">Epic pipeline</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
       </nav>
     </header>
 
@@ -27,60 +27,22 @@
         <p><strong>Current progress:</strong> Story 1017 (discrete action schema) is <strong>complete</strong>. Stories 1018–1022 are planned and seeded from Jira — see each task card for intended upstream/downstream connections.</p>
       </section>
 
-      <section id="c4-context" class="visual-card">
-        <h2>C4 System Context</h2>
-        <pre class="mermaid">
-C4Context
-title Action Interface, Parser, and Safety Layer - System Context
-Person(team, "Lite-VLA Team", "Implements, reviews, and explains this epic")
-System(repo, "Lite-VLA Repository", "ROS 2, ML, data, deployment, docs, tests")
-System(presentation, "Epic Presentation", "Living ADR, code walkthrough, and visual explanation")
-System_Ext(jira, "Jira Epic/Stories", "Source ordering and planning context")
-Rel(team, repo, "changes code and tests")
-Rel(team, presentation, "uses for walkthroughs")
-Rel(jira, presentation, "defines task order")
-Rel(presentation, repo, "documents intent, flow, and decisions")
-        </pre>
-      </section>
-
-      <section class="visual-card">
-        <h2>C4 Container View</h2>
-        <pre class="mermaid">
-C4Container
-title Epic 103 — Action interface containers
-Person(team, "Lite-VLA Team", "Implements parser and safety")
-System_Boundary(epic, "Action Interface Epic") {
-  Container(schema, "litevla.actions", "Python", "DiscreteAction, ACTION_VELOCITIES, action_to_twist — Story 1017")
-  Container(parser, "Action parser", "Python", "Extract token from model text — Story 1019")
-  Container(json, "JSON command parser", "Python", "Optional continuous schema — Stories 1018/1020")
-  Container(safety, "Safety gate", "Python / ROS", "Clamp, STOP fallback, logging — Story 1021")
-  Container(smooth, "Command smoother", "Python / ROS", "Interpolate between VLA steps — Story 1022")
-  Container(ros, "ROS cmd_vel publisher", "ROS 2", "Publishes geometry_msgs/Twist")
-}
-Rel(team, schema, "maintains")
-Rel(parser, schema, "validates then maps")
-Rel(json, safety, "feeds velocities")
-Rel(schema, safety, "feeds velocities")
-Rel(safety, smooth, "optional")
-Rel(smooth, ros, "publishes")
-Rel(safety, ros, "publishes when no smoother")
-        </pre>
-      </section>
-
-      <section class="visual-card">
+      <section id="epic-pipeline" class="visual-card">
         <h2>Epic pipeline (target state)</h2>
+        <pre><code class="language-text">VLA raw text ──> parser (1019) ──> DiscreteAction ──> action_to_twist (1017)
+        ──> safety gate (1021) ──> smoother (1022, optional) ──> /cmd_vel Twist</code></pre>
         <pre class="mermaid">
 flowchart TD
   VLA["VLA raw text"]
   P["Parser 1019"]
-  S["Schema action_to_twist 1017"]
+  S["action_to_twist 1017"]
   G["Safety gate 1021"]
   M["Smoother 1022 optional"]
   CV["/cmd_vel Twist"]
   VLA --> P --> S --> G --> M --> CV
   G --> CV
         </pre>
-        <p>Story 1017 is implemented today. Parser, JSON path, full safety gate, and smoothing are planned downstream stories.</p>
+        <p><strong>Implemented today:</strong> Story 1017 (<code>litevla.actions</code>). <strong>Planned:</strong> parser, JSON path, safety gate, smoothing.</p>
       </section>
 
       <section id="stories">
@@ -100,71 +62,58 @@ flowchart TD
         <dl>
           <dt>Intent</dt>
           <dd>
-            Create the first safe action vocabulary for the navigate-to-cube MVP: five uppercase tokens with a shared
-            nominal velocity table and a single Python module (<code>litevla.actions</code>) that downstream parser,
-            safety, dataset, and ROS code can import.
+            Owns the <strong>discrete action contract</strong>: five exact tokens and nominal
+            <code>(linear_x, angular_z)</code> mapping via <code>litevla.actions</code>. Downstream
+            parser, safety, dataset, and ROS code import this module — they do not define parallel vocabularies.
           </dd>
           <dt>Implementation Walkthrough</dt>
           <dd>
-            <p><strong>Start here:</strong> <a href="action-schema.html">Discrete action schema task doc</a> (<code>action-schema.md</code> for agents).</p>
-            <p><strong><code>litevla/actions/schema.py</code></strong> — core module. Defines design-point constants
-            (<code>DEFAULT_LINEAR_FORWARD</code>, etc.), the <code>DiscreteAction</code> <code>str</code> enum,
-            <code>ACTION_VELOCITIES</code> lookup table, <code>is_valid_action()</code>, <code>clamp_velocity()</code>,
-            and <code>action_to_twist()</code>. The latter is the main runtime API: accept enum or exact string,
-            look up nominal <code>(linear_x, angular_z)</code>, clamp with config limits, return floats.</p>
-            <p><strong><code>litevla/actions/__init__.py</code></strong> — re-exports the public API so callers use
-            <code>from litevla.actions import ...</code> instead of reaching into <code>schema.py</code> directly.</p>
-            <p><strong><code>scripts/run_dummy_pipeline.py</code></strong> — integration demo without ROS. Loads config,
-            iterates <code>ACTION_NAMES</code>, calls <code>action_to_twist</code> with <code>safety</code> limits,
-            prints results. Replaced earlier ad-hoc <code>FORWARD</code>/<code>STOP</code> placeholders.</p>
-            <p><strong><code>tests/test_action_schema.py</code></strong> — locks token naming, velocity table completeness,
-            MVP design-point values, config clamping, <code>is_valid_action</code>, and <code>ValueError</code> on bad tokens.</p>
+            <p>Full walkthrough: <a href="action-schema.html">Discrete action schema</a> (<code>action-schema.md</code> for agents).</p>
+
+            <p><strong>Vocabulary + nominal profile</strong> — <code>DiscreteAction</code> enum and
+            <code>ACTION_VELOCITIES</code> in <code>litevla/actions/schema.py</code>.
+            <em>Design:</em> single source of truth for labeling and runtime.
+            <em>Risk:</em> enum renames break datasets.</p>
+
+            <p><strong>Validation + clamp primitives</strong> — <code>is_valid_action</code>,
+            <code>clamp_velocity</code>.
+            <em>Design:</em> non-throwing probe + reusable axis clamp for Story 1021.
+            <em>Risk:</em> whitespace normalization deferred to Story 1019.</p>
+
+            <p><strong>Mapping API</strong> — <code>action_to_twist(action, *, max_linear_vel, max_angular_vel)</code>.
+            <em>Design:</em> required config limits; fail-fast on unknown tokens.
+            <em>Risk:</em> <code>ValueError</code> must not reach <code>/cmd_vel</code> without Story 1021.</p>
+
+            <p><strong>Integration</strong> — <code>scripts/run_dummy_pipeline.py</code> iterates
+            <code>ACTION_NAMES</code> with config <code>safety</code> limits; replaced ad-hoc
+            <code>FORWARD</code>/<code>STOP</code> placeholders.</p>
           </dd>
           <dt>Data And Control Flow</dt>
           <dd>
-            <pre class="mermaid">
-sequenceDiagram
-  participant Caller as Caller e.g. dummy pipeline
-  participant API as action_to_twist
-  participant Table as ACTION_VELOCITIES
-  participant Clamp as clamp_velocity
-
-  Caller->>API: action token + max_linear_vel, max_angular_vel
-  API->>Table: lookup nominal velocities
-  Table-->>API: linear_x, angular_z
-  API->>Clamp: clamp each axis
-  Clamp-->>API: bounded values
-  API-->>Caller: linear_x, angular_z
-            </pre>
+            <pre><code class="language-text">token ──> ACTION_VELOCITIES ──> clamp_velocity ──> (linear_x, angular_z)</code></pre>
             <p>
-              <strong>Inputs:</strong> <code>DiscreteAction</code> or exact string; safety limits from
-              <code>configs/default.example.yaml</code> (<code>safety.max_linear_vel</code>, <code>safety.max_angular_vel</code>).<br>
-              <strong>Outputs:</strong> clamped <code>(linear_x, angular_z)</code> for ROS <code>Twist</code> or logging.<br>
-              <strong>Future consumers:</strong> Story 1019 parser validates text then calls this module; Story 1021 adds STOP fallback and ROS-side enforcement.
+              <strong>Contract:</strong> exact token in; clamped SI velocities out.
+              <strong>Invariant:</strong> every enum member has one nominal pair.
+              <strong>Trade-off:</strong> nominal semantics stable for training; config tightens deployment limits.
             </p>
           </dd>
           <dt>ADR Notes</dt>
           <dd>
-            <p><strong>ADR: Five-token discrete vocabulary</strong></p>
-            <p><strong>Status:</strong> Accepted</p>
-            <p><strong>Context:</strong> MVP non-goals defer continuous VLM velocity output; beginners need a small label set.</p>
-            <p><strong>Decision:</strong> Standardize on <code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>SLOW_DOWN</code>, <code>STOP</code> with nominal 0.2/0.1 m/s forward and ±0.6 rad/s turns.</p>
-            <p><strong>Alternatives rejected:</strong> <code>FORWARD</code> alias (ambiguous); continuous JSON schema first (harder to train/parse for MVP).</p>
-            <p><strong>Consequences:</strong> Dataset labels and prompts must use exact tokens; parser story validates strings before calling <code>action_to_twist</code>.</p>
+            <p><strong>ADR: Five-token discrete vocabulary</strong> — Accepted. Discrete-first for MVP;
+            JSON velocity path secondary. Rejected <code>FORWARD</code> alias and continuous schema as primary path.</p>
           </dd>
-          <dt>Task documentation</dt>
-          <dd><a href="action-schema.html">Discrete action schema</a> — full code walkthrough, reader map, engineering notes, and validation commands.</dd>
-          <dt>Validation</dt>
+          <dt>Verification Patterns</dt>
           <dd>
-            <pre><code>pytest tests/test_action_schema.py -q
+            <p>Contracts defended: stable token order, complete velocity table, MVP design-point values,
+            config clamping, alias rejection, fail-fast on invalid tokens, config integration via dummy pipeline.</p>
+            <pre><code class="language-bash">pytest tests/test_action_schema.py -q
 python scripts/run_dummy_pipeline.py</code></pre>
-            <p>Verified: schema unit tests pass; dummy pipeline prints all five actions with config-clamped velocities.</p>
           </dd>
           <dt>Open Questions</dt>
           <dd>
             <ul>
-              <li>Should <code>action_to_twist</code> accept only <code>DiscreteAction</code> once Story 1019 owns all string parsing?</li>
-              <li>How will optional JSON velocities (Story 1018) merge with discrete tokens at the safety gate?</li>
+              <li>Narrow <code>action_to_twist</code> to <code>DiscreteAction</code> only once Story 1019 owns string coercion?</li>
+              <li>How do discrete tokens and optional JSON velocities coexist at the safety gate?</li>
             </ul>
           </dd>
         </dl>
@@ -183,7 +132,7 @@ python scripts/run_dummy_pipeline.py</code></pre>
           </dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not started. Populate when schema constants and example fixtures land in the repo.</dd>
-          <dt>Validation</dt>
+          <dt>Verification Patterns</dt>
           <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
@@ -201,7 +150,7 @@ python scripts/run_dummy_pipeline.py</code></pre>
           </dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not started. See <a href="action-schema.html">action schema doc</a> for the vocabulary this parser must recognize.</dd>
-          <dt>Validation</dt>
+          <dt>Verification Patterns</dt>
           <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
@@ -218,7 +167,7 @@ python scripts/run_dummy_pipeline.py</code></pre>
           </dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not started.</dd>
-          <dt>Validation</dt>
+          <dt>Verification Patterns</dt>
           <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
@@ -236,7 +185,7 @@ python scripts/run_dummy_pipeline.py</code></pre>
           </dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not started. Foundation: <code>clamp_velocity</code> and <code>action_to_twist</code> in <code>litevla/actions/schema.py</code>.</dd>
-          <dt>Validation</dt>
+          <dt>Verification Patterns</dt>
           <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
@@ -252,7 +201,7 @@ python scripts/run_dummy_pipeline.py</code></pre>
           </dd>
           <dt>Implementation Walkthrough</dt>
           <dd class="update-note">Not started.</dd>
-          <dt>Validation</dt>
+          <dt>Verification Patterns</dt>
           <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
@@ -276,6 +225,11 @@ python scripts/run_dummy_pipeline.py</code></pre>
       <p>Lite-VLA epic presentation. Update this file as the epic evolves.</p>
     </footer>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
   <script type="module">
     import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
     mermaid.initialize({

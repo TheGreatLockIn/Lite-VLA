@@ -11,9 +11,10 @@ When implementing, modifying, reviewing, or explaining project code, keep the ma
 - Use `LiteVLA_Edge_Jira_TeamManaged_Kanban_IMPORT_READY.csv`, branch names, task titles, Jira IDs, changed paths, and conversation context to infer the active epic. Ask only when two or more epics remain equally plausible.
 - Update the paired epic/task docs in source order. Do not append tasks randomly; preserve the epic sequence from Jira or the current board.
 - Treat task docs as teaching artifacts for asynchronous review. A reader should understand the task purpose, how it fits the codebase, what modules/classes/functions changed, how data/control flows through them, how to run or validate the work, and what trade-offs were accepted.
+- Write architectural walkthroughs, not code narration. Focus on system contracts, data integrity, trade-offs, and operational risks. Do not explain trivial syntax (for example, "here we define a function") or walk a file line-by-line.
 - Explain named modules, classes, functions, commands, topics, schemas, and config keys when they are mentioned. Prefer a short walkthrough of the call path or runtime lifecycle over a bare inventory of names.
 - Write like a senior engineer mentoring a junior engineer: concrete, accurate, and approachable. Define project-specific concepts the first time they appear, and connect code details back to engineering intent.
-- Prefer visual explanation: maintain Mermaid C4 diagrams for system/container views, Mermaid flowcharts or sequence diagrams for task-level flows, and HTML/SVG/interactive visuals when they improve the human `.html` counterpart.
+- Prefer visual explanation: maintain task-specific Mermaid flowcharts or sequence diagrams, plus HTML/SVG/interactive visuals when they improve the human `.html` counterpart. Do not default to C4 context/container diagrams unless the user explicitly asks for architecture modeling.
 - Record validation evidence, open risks, and ADRs for meaningful technical decisions. Never invent completed work; mark unverified work as Planned, Seeded, or explicitly unvalidated.
 - For file placement, `.md`/`.html` pairing, and HTML generation rules, also follow [`docs/AGENTS.md`](../AGENTS.md).
 
@@ -80,30 +81,89 @@ Rules:
 
 Task docs must be more than a summary or inventory. When a page names a module, class, function, ROS topic, schema, config key, script, launch file, or command, explain it in the capacity that helps a junior engineer read and maintain the code.
 
+Follow the **architectural walkthrough framework** below. Section titles may vary, but the substance should be present.
+
+### Architectural walkthrough framework
+
+#### 1. Executive summary
+
+Open with 2–3 sentences on the module's **architectural responsibility**: what problem it solves, what system contract it owns, and how upstream/downstream modules depend on it. This replaces a generic task blurb when code is involved.
+
+#### 2. Reader map (optional, keep brief)
+
+List the files to read first and why. One line per file is enough when the implementation breakdown below already teaches the code. Skip or shorten this section when it would only repeat later content.
+
+#### 3. API contract and data flow
+
+Show how data enters the module, is validated or transformed, and exits. Prefer a compact flow map using Mermaid or ASCII arrows (`──>`), for example:
+
+```text
+VLA text ──> parser ──> DiscreteAction ──> action_to_twist ──> (linear_x, angular_z) ──> safety gate ──> /cmd_vel
+```
+
+State the **contract** explicitly: accepted input types, output shape/units, invariants, and error behavior. Explain the main **trade-offs** behind structural choices (enum vs string, nominal table vs config clamp, strict tokens vs aliases, where fallback logic is intentionally deferred).
+
+Keep task docs **task-local**. Do not repeat an epic-level pipeline diagram unless this task adds new detail.
+
+#### 4. Implementation breakdown
+
+Group code by **logical concern** (vocabulary, mapping, validation, integration), not by file order. For each group include:
+
+- **Snippet:** a focused real excerpt from the repo (see Code snippet standard).
+- **Design notes:** the engineering principle or implicit standard being applied (shared contract, single source of truth, fail-fast vs fail-safe boundary, reusable helper, etc.).
+- **Risks and gotchas:** edge cases, unhandled exceptions, assumptions, missing fallbacks, or follow-up stories that own deferred behavior.
+
+Do not paste entire files. Teach what matters for maintenance and safe extension.
+
+#### 5. Engineering decisions
+
+Record meaningful ADRs or design notes: alternatives rejected, consequences, and what future work must preserve. Use the ADR standard when a decision is durable.
+
+#### 6. Verification patterns
+
+Explain how tests, smoke scripts, or pipeline commands act as **executable documentation**. Name the **behavioral contracts** being defended (boundary clamping, strict validation, stable token order, invalid input rejection, config integration, etc.) and give exact commands to run.
+
+#### 7. Visual explanation (when needed)
+
+Add a diagram or visual aid when the task has multiple components, runtime steps, or a non-obvious data path.
+
+### Minimum checklist
+
 Each task doc should usually include:
 
-- **Purpose and fit:** what the task adds to Lite-VLA, why the epic needs it, and what behavior would be missing without it.
-- **Reader map:** the files to read first, the entry points, and the order in which a human should inspect the code.
-- **Code walkthrough:** the responsibilities of each important symbol, how methods call each other, what state is stored, and which boundaries are intentionally kept small or reusable.
-- **Data and control flow:** inputs, outputs, message types, ROS topics, model tensors, file artifacts, command-line flags, error paths, and stop/cleanup behavior.
-- **Engineering notes:** why the implementation is shaped this way, what alternatives were avoided, what assumptions are encoded, and what future work should preserve.
-- **Validation:** exact tests, launch commands, smoke checks, manual observations, or a clear statement that validation was not run.
-- **Visual explanation:** at least one diagram or visual aid when the task has multiple components, runtime steps, or a non-obvious data flow.
+- **Executive summary** — architectural responsibility and system fit.
+- **API contract and data flow** — inputs, outputs, invariants, errors, trade-offs.
+- **Implementation breakdown** — grouped snippets with design notes and risks/gotchas.
+- **Verification patterns** — tests/commands and the contracts they defend.
+- **Open questions** — unresolved decisions or follow-up ownership when relevant.
 
 Prefer concise teaching paragraphs over terse bullets when explaining code. Bullets are fine for scanability, but do not leave named code elements unexplained.
+
+## Code snippet standard
+
+Docs should feel like a modern editor or GitHub page when they show code.
+
+- In Markdown sources, use fenced code blocks with language tags: `python`, `bash`, `yaml`, `json`, `diff`, `html`, `text`, `mermaid`, etc.
+- In human `.html` docs, render every code, CLI, config, Mermaid, and diff example as `<pre><code class="language-...">...</code></pre>` or `<pre class="mermaid">...</pre>` when Mermaid requires that form.
+- Use `language-bash` for plain shell commands, `language-yaml` for YAML config, `language-python` for Python, `language-json` for JSON, and the closest Prism language for other snippets.
+- Escape HTML special characters inside `<code>` blocks: `<` as `&lt;`, `>` as `&gt;`, and `&` as `&amp;`.
+- For before/after code examples, use Prism diff-highlight compatible blocks such as `<pre><code class="language-diff-python diff-highlight">...</code></pre>`.
+- Human `.html` pages must load Prism plus `docs/scripts/doc-code.js` so snippets render as editor-style highlighted blocks (see [`docs/AGENTS.md`](../AGENTS.md)).
+- Prefer short, real snippets from the repo over invented pseudocode. Show enough surrounding lines for a junior engineer to understand the symbol in context.
+- Do not replace prose with giant code dumps. Pair each snippet with a focused explanation of what to notice.
 
 ## Required walkthrough format
 
 Each epic `index.html` keeps stories/tasks in source order. For the active story/task, update or add:
 
 - **Status:** Planned, In Progress, Blocked, Complete, or Superseded.
-- **Intent:** What the task is trying to accomplish for the epic.
-- **Implementation Walkthrough:** The important modules, functions, classes, configs, commands, and tests, with enough explanation to understand each named item. Use repo-relative paths in `<code>` tags.
-- **Data And Control Flow:** Inputs, outputs, state transitions, ROS topics/messages, model inputs/outputs, files written, or benchmark artifacts.
-- **Visuals:** Prefer Mermaid C4 diagrams for system/container views, Mermaid flowcharts/sequence diagrams for task-level behavior, and HTML/SVG/interactive visuals when they teach the concept better than prose.
-- **ADR Notes:** For each meaningful decision, record context, decision, alternatives rejected, consequences, and status.
-- **Validation:** Tests, smoke commands, manual checks, benchmark results, or why validation was not run.
-- **Open Questions:** Anything future teammates must resolve.
+- **Intent:** Architectural responsibility in 1–2 sentences — what contract this story owns in the epic.
+- **Implementation Walkthrough:** Grouped snippets with design notes and risks/gotchas; avoid line-by-line narration. Use repo-relative paths in `<code>` tags.
+- **Data And Control Flow:** Contract, inputs/outputs, invariants, error paths, and trade-offs. Task-local diagram or ASCII map when helpful.
+- **Visuals:** Mermaid flowcharts/sequence diagrams or HTML/SVG when they teach behavior better than prose. Avoid duplicated diagrams across epic and task pages.
+- **ADR Notes:** Context, decision, alternatives rejected, consequences, and status.
+- **Verification Patterns:** Tests, smoke commands, or pipeline evidence — and which behavioral contracts they defend.
+- **Open Questions:** Deferred logic, assumptions, or ownership gaps future teammates must resolve.
 
 ## ADR standard
 
@@ -120,23 +180,19 @@ Consequences: <trade-offs, follow-up work, impact>
 
 ## Visual standard
 
-Use Mermaid blocks embedded in HTML:
+Use Mermaid blocks embedded in HTML for task-local flows:
 
 ```html
 <pre class="mermaid">
-C4Container
-title Epic Container View
-Person(team, "Team", "Builds and reviews the feature")
-System_Boundary(repo, "Lite-VLA") {
-  Container(code, "Changed Module", "Python/ROS/config", "What this task changed")
-  Container(test, "Validation", "pytest/manual benchmark", "Evidence gathered")
-}
-Rel(team, code, "implements")
-Rel(code, test, "validated by")
+flowchart TD
+  Input["Input"]
+  Module["Changed module"]
+  Output["Output"]
+  Input --> Module --> Output
 </pre>
 ```
 
-For task internals, use `flowchart TD` or `sequenceDiagram` when C4 is too high-level. Use diagrams to teach the runtime lifecycle or data path, not just to decorate the page.
+Use diagrams to teach the runtime lifecycle or data path, not just to decorate the page. Do not duplicate an epic-level pipeline diagram inside a task doc unless the task adds new detail.
 
 ## Style rules
 

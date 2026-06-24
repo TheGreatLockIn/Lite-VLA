@@ -5,7 +5,7 @@ These instructions apply to all agents working in this repository.
 ## Documentation sources
 
 - For cross-cutting project documentation under `docs/`, follow `docs/AGENTS.md`.
-- For epic walkthroughs and Jira task docs, follow `docs/epics/AGENTS.md` (canonical source for the agent contract and task-doc depth standard).
+- For epic walkthroughs and Jira task docs, follow `docs/epics/AGENTS.md` (canonical source for the agent contract, architectural walkthrough framework, and task-doc depth standard).
 - Epic and task files live under `docs/epics/<epic-slug>/` (see **Epic docs** below).
 
 ## Documentation scope (default: minimal)
@@ -28,8 +28,8 @@ When you do update an epic walkthrough:
 - Infer the active epic from the task title, Jira key, branch name, changed paths, CSV parent mapping, and conversation context. Ask only when two or more epics remain equally plausible.
 - Add each story/task/subtask in source order. Do not append tasks randomly; preserve the epic sequence from the Jira CSV or current board.
 - For every worked task, record intent, files/modules touched, code walkthrough notes, data/control flow, validation evidence, and ADRs for meaningful technical decisions.
-- Treat these pages as senior-to-junior engineering walkthroughs for asynchronous review: explain what each mentioned module/class/function/topic/config does, why it exists, and how it participates in the runtime flow.
-- Prefer visual explanation: maintain Mermaid C4 diagrams for system/container views, Mermaid flowcharts or sequence diagrams for task-level flows, and human-friendly HTML/SVG/interactive visuals when they clarify the code.
+- Treat these pages as senior-to-junior architectural walkthroughs: explain contracts, data flow, trade-offs, and operational risks — not trivial syntax or line-by-line narration.
+- Prefer visual explanation: maintain Mermaid flowcharts or sequence diagrams for task-level flows, plus human-friendly HTML/SVG/interactive visuals when they clarify the code. Do not default to C4 context/container views unless explicitly requested.
 - Use the standard format in `docs/epics/AGENTS.md`. The epic `index.html` is the source of truth for walkthroughs.
 
 ### Epic task docs (`docs/epics/<epic-slug>/`)
@@ -46,7 +46,7 @@ Rules:
 - Infer `<epic-slug>` from Jira parent epic, CSV mapping, branch name, or changed paths (same signals as walkthrough updates).
 - Use a kebab-case `<task-slug>` from the story title (example: `action-schema` for “Define discrete action schema”).
 - Add the epic and Jira key at the top of the `.md` file.
-- Include enough explanation for a reader to understand the task without chat history: purpose, code entry points, important symbols, data/control flow, commands, validation, decisions, and remaining risks.
+- Include enough explanation for a reader to understand the task without chat history: executive summary, API contract and data flow, grouped implementation breakdown with risks/gotchas, verification patterns, decisions, and remaining open questions.
 - Link the human HTML from the epic `index.html` story section.
 - Update the epic walkthrough (`index.html`) in the **same change** as the task doc.
 - Reuse `docs/styles/doc.css` for task HTML; link with `../../styles/doc.css` from epic folders.
