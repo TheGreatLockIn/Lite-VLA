@@ -1,0 +1,23 @@
+# Webots MVP environment (VLA-23). Topics match configs/default.example.yaml.
+webots_sim:
+  ros_distro: jazzy
+  world_file: mvp_arena.wbt
+  robot_name: litevla_robot
+
+  image_topic: /image_raw
+  cmd_vel_topic: /cmd_vel
+  camera_frame_id: camera
+
+  robot:
+    wheel_separation: 0.06
+    wheel_radius: 0.02
+    spawn_xyz: [0.0, 0.0, 0.02]
+
+  arena:
+    floor_size: [5.0, 5.0]
+    cube_position: [2.0, 0.0, 0.1]
+    cube_size: 0.2
+
+  runtime:
+    mode: realtime
+    ros2_supervisor: true

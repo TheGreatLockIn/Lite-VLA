@@ -121,4 +121,4 @@ def test_dummy_pipeline_log_run_writes_artifacts(tmp_path: Path, monkeypatch: py
     assert (run_dir / METADATA_FILENAME).is_file()
     metrics = json.loads((run_dir / METRICS_FILENAME).read_text(encoding="utf-8"))
     assert metrics["status"] == "success"
-    assert metrics["action_count"] == 2
+    assert metrics["action_count"] == 4
