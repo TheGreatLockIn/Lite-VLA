@@ -5,7 +5,7 @@ These instructions apply to all agents working in this repository.
 ## Documentation sources
 
 - For cross-cutting project documentation under `docs/`, follow `docs/AGENTS.md`.
-- For epic walkthroughs and Jira task docs, follow `docs/epics/AGENTS.md`.
+- For epic walkthroughs and Jira task docs, follow `docs/epics/AGENTS.md` (canonical source for the agent contract and task-doc depth standard).
 - Epic and task files live under `docs/epics/<epic-slug>/` (see **Epic docs** below).
 
 ## Documentation scope (default: minimal)
@@ -28,7 +28,8 @@ When you do update an epic walkthrough:
 - Infer the active epic from the task title, Jira key, branch name, changed paths, CSV parent mapping, and conversation context. Ask only when two or more epics remain equally plausible.
 - Add each story/task/subtask in source order. Do not append tasks randomly; preserve the epic sequence from the Jira CSV or current board.
 - For every worked task, record intent, files/modules touched, code walkthrough notes, data/control flow, validation evidence, and ADRs for meaningful technical decisions.
-- Prefer visual explanation: maintain Mermaid C4 diagrams for system/container views and Mermaid flowcharts or sequence diagrams for task-level flows.
+- Treat these pages as senior-to-junior engineering walkthroughs for asynchronous review: explain what each mentioned module/class/function/topic/config does, why it exists, and how it participates in the runtime flow.
+- Prefer visual explanation: maintain Mermaid C4 diagrams for system/container views, Mermaid flowcharts or sequence diagrams for task-level flows, and human-friendly HTML/SVG/interactive visuals when they clarify the code.
 - Use the standard format in `docs/epics/AGENTS.md`. The epic `index.html` is the source of truth for walkthroughs.
 
 ### Epic task docs (`docs/epics/<epic-slug>/`)
@@ -45,6 +46,7 @@ Rules:
 - Infer `<epic-slug>` from Jira parent epic, CSV mapping, branch name, or changed paths (same signals as walkthrough updates).
 - Use a kebab-case `<task-slug>` from the story title (example: `action-schema` for “Define discrete action schema”).
 - Add the epic and Jira key at the top of the `.md` file.
+- Include enough explanation for a reader to understand the task without chat history: purpose, code entry points, important symbols, data/control flow, commands, validation, decisions, and remaining risks.
 - Link the human HTML from the epic `index.html` story section.
 - Update the epic walkthrough (`index.html`) in the **same change** as the task doc.
 - Reuse `docs/styles/doc.css` for task HTML; link with `../../styles/doc.css` from epic folders.

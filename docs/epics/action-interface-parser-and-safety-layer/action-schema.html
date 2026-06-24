@@ -13,25 +13,44 @@
       <p class="eyebrow">Epic 103 · VLA-29 / Story 1017</p>
       <h1>Discrete action schema</h1>
       <p class="doc-lead">
-        The five allowed VLA output tokens and how each maps to bounded ROS velocity commands.
+        The five allowed VLA output tokens, how each maps to bounded ROS velocities, and a walkthrough of the shared <code>litevla.actions</code> module.
       </p>
-      <nav class="doc-nav" aria-label="Related links">
-        <a href="../../../README.md">Getting started</a>
-        ·
-        <a href="../../html/mvp_definition.html">MVP definition</a>
-        ·
-        <a href="../../html/architecture_summary.html">Architecture</a>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#purpose">Purpose</a> ·
+        <a href="#reader-map">Reader map</a> ·
+        <a href="#actions">Actions</a> ·
+        <a href="#code">Code</a> ·
+        <a href="#flow">Flow</a> ·
+        <a href="#engineering">Engineering</a> ·
+        <a href="#validation">Validation</a>
       </nav>
     </header>
 
     <main>
-      <section id="goals">
-        <h2>Design goals</h2>
-        <ul>
-          <li><strong>Beginner-friendly</strong> — fixed tokens are easier to label, parse, and evaluate than continuous velocities.</li>
-          <li><strong>Safe by default</strong> — nominal speeds match MVP limits; config safety ceilings further clamp output.</li>
-          <li><strong>Shared contract</strong> — parser, dummy controller, dataset labels, and prompts use the same names from <code>litevla.actions</code>.</li>
-        </ul>
+      <section id="purpose">
+        <h2>Purpose and fit</h2>
+        <p>
+          Story 1017 defines the <strong>first shared contract</strong> between the VLA model and robot control.
+          The model outputs one of five uppercase discrete tokens; this story implements the vocabulary and
+          velocity mapping in <code>litevla.actions</code> so parsers, datasets, prompts, and ROS code stay aligned.
+        </p>
+        <p>
+          In the epic pipeline, this story sits <strong>before</strong> the parser (Story 1019) and the dedicated
+          safety gate (Story 1021). It answers: given a <em>valid</em> token, what bounded
+          <code>(linear_x, angular_z)</code> should we request?
+        </p>
+      </section>
+
+      <section id="reader-map">
+        <h2>Reader map</h2>
+        <ol>
+          <li><a href="../../html/mvp_definition.html">MVP definition</a> — why discrete actions exist.</li>
+          <li><code>litevla/actions/schema.py</code> — enum, velocity table, mapping helpers.</li>
+          <li><code>litevla/actions/__init__.py</code> — public exports.</li>
+          <li><code>tests/test_action_schema.py</code> — behavior locked by tests.</li>
+          <li><code>scripts/run_dummy_pipeline.py</code> — runnable demo with config safety limits.</li>
+          <li><code>configs/default.example.yaml</code> — <code>safety.max_linear_vel</code> / <code>max_angular_vel</code>.</li>
+        </ol>
       </section>
 
       <section id="actions">
@@ -81,46 +100,37 @@
           </table>
         </div>
         <p>
-          Action names are <strong>uppercase</strong>, <strong>underscore-separated</strong>, and
-          <strong>unambiguous</strong>. Do not use aliases such as <code>FORWARD</code> or <code>GO</code>.
+          Names are uppercase and underscore-separated. Aliases like <code>FORWARD</code> are intentionally rejected.
         </p>
       </section>
 
-      <section id="api">
-        <h2>Code API</h2>
-        <p>Shared constants and helpers live in <code>litevla/actions/schema.py</code>:</p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Symbol</th>
-                <th scope="col">Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>DiscreteAction</code></td>
-                <td><code>str</code> enum of the five allowed tokens</td>
-              </tr>
-              <tr>
-                <td><code>ACTION_NAMES</code></td>
-                <td>Tuple of token strings (stable iteration order)</td>
-              </tr>
-              <tr>
-                <td><code>ACTION_VELOCITIES</code></td>
-                <td>Nominal <code>(linear_x, angular_z)</code> per action</td>
-              </tr>
-              <tr>
-                <td><code>is_valid_action(name)</code></td>
-                <td>Returns whether a string is a known token</td>
-              </tr>
-              <tr>
-                <td><code>action_to_twist(...)</code></td>
-                <td>Maps token → clamped velocities</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <section id="code">
+        <h2>Code walkthrough</h2>
+
+        <h3><code>litevla/actions/schema.py</code></h3>
+        <p>
+          <strong>Design-point constants</strong> (<code>DEFAULT_LINEAR_FORWARD</code>, <code>DEFAULT_LINEAR_SLOW</code>,
+          <code>DEFAULT_ANGULAR_TURN</code>) mirror MVP speeds from the requirements doc so tests and implementation share one source of truth.
+        </p>
+        <p>
+          <strong><code>DiscreteAction</code></strong> is a <code>str</code> enum: each member’s value is the exact token the model must emit.
+          <strong><code>ACTION_NAMES</code></strong> exposes stable iteration order for scripts and tests.
+          <strong><code>ACTION_VELOCITIES</code></strong> maps each action to nominal <code>(linear_x, angular_z)</code> before config clamping.
+        </p>
+        <p>
+          <strong><code>is_valid_action(name)</code></strong> returns whether a string is an exact enum value — the parser story will use this class of check before mapping.
+          <strong><code>clamp_velocity</code></strong> clamps a scalar to <code>[-limit, limit]</code>.
+          <strong><code>action_to_twist(...)</code></strong> looks up nominal velocities, clamps with config limits, and returns floats for ROS <code>Twist</code>.
+          Invalid strings raise <code>ValueError</code>; safe fallback to <code>STOP</code> is deferred to Story 1021.
+        </p>
+
+        <h3>Supporting files</h3>
+        <ul>
+          <li><code>litevla/actions/__init__.py</code> — re-exports the public API; import <code>litevla.actions</code> in app code.</li>
+          <li><code>scripts/run_dummy_pipeline.py</code> — loads config, iterates <code>ACTION_NAMES</code>, prints clamped velocities.</li>
+          <li><code>tests/test_action_schema.py</code> — naming rules, mappings, clamping, validation, and error cases.</li>
+        </ul>
+
         <pre><code>from litevla.actions import DiscreteAction, action_to_twist
 
 linear, angular = action_to_twist(
@@ -131,34 +141,80 @@ linear, angular = action_to_twist(
 # (0.2, 0.0)</code></pre>
       </section>
 
-      <section id="flow">
-        <h2>Control flow</h2>
-        <pre><code>VLA text output (e.g. "MOVE_FORWARD")
-        │
-        ▼
-  [Parser — Story 1019]  ← validates / normalizes token
-        │
-        ▼
-  action_to_twist()      ← this schema
-        │
-        ▼
-  [Safety clamp — Story 1021]
-        │
-        ▼
-  ROS /cmd_vel Twist</code></pre>
+      <section id="flow" class="visual-card">
+        <h2>Data and control flow</h2>
+        <p>Full epic pipeline (parser and safety gate are future stories):</p>
+        <pre class="mermaid">
+sequenceDiagram
+  participant VLA as VLA model
+  participant Parser as Parser (Story 1019)
+  participant Schema as action_to_twist
+  participant Safety as Safety gate (Story 1021)
+  participant ROS as ROS /cmd_vel
+
+  VLA->>Parser: raw text e.g. MOVE_FORWARD
+  Parser->>Schema: valid DiscreteAction token
+  Schema->>Schema: ACTION_VELOCITIES lookup
+  Schema->>Schema: clamp_velocity per config limits
+  Schema->>Safety: linear_x, angular_z
+  Safety->>ROS: bounded Twist
+        </pre>
+        <p>This story’s scope ends at <code>action_to_twist</code>:</p>
+        <pre class="mermaid">
+flowchart LR
+  Token["Action token"]
+  Map["ACTION_VELOCITIES"]
+  Clamp["clamp_velocity"]
+  Out["linear_x, angular_z"]
+  Token --> Map --> Clamp --> Out
+        </pre>
+        <p>
+          <strong>Inputs:</strong> token + <code>safety.max_linear_vel</code> / <code>max_angular_vel</code> from config.<br>
+          <strong>Outputs:</strong> clamped velocities for <code>/cmd_vel</code> <code>Twist</code> fields.
+        </p>
+      </section>
+
+      <section id="engineering">
+        <h2>Engineering notes</h2>
+        <ul>
+          <li><strong>Discrete first</strong> — easier labeling, evaluation, and deterministic parsing than continuous VLM velocities.</li>
+          <li><strong>Nominal + clamp</strong> — motion meaning stays in <code>ACTION_VELOCITIES</code>; deployment limits stay in config.</li>
+          <li><strong>No aliases</strong> — strict tokens keep parser tests and dataset QA simple.</li>
+          <li><strong>Story 1021</strong> will add invalid-output <code>STOP</code> fallback and ROS-side enforcement beyond this module’s clamping.</li>
+        </ul>
+
+        <h3>ADR: Five-token discrete vocabulary</h3>
+        <p><strong>Status:</strong> Accepted</p>
+        <p><strong>Decision:</strong> Standardize on five uppercase tokens with nominal 0.2/0.1 m/s forward and ±0.6 rad/s turns.</p>
+        <p><strong>Alternatives rejected:</strong> <code>FORWARD</code> alias; JSON velocity schema as the primary MVP path.</p>
       </section>
 
       <section id="validation">
         <h2>Validation</h2>
         <pre><code>pytest tests/test_action_schema.py -q
 python scripts/run_dummy_pipeline.py</code></pre>
-        <p>The dummy pipeline prints all five mapped actions using the shared schema.</p>
+        <p>All schema tests pass; dummy pipeline prints five action rows with config-clamped velocities.</p>
       </section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 103 task documentation</p>
+      <p>Lite-VLA · Epic 103 task documentation · <code>action-schema.md</code> is the agent source of truth.</p>
     </footer>
   </div>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
 </body>
 </html>

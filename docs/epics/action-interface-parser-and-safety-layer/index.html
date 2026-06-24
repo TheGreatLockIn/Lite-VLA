@@ -21,10 +21,10 @@
     <main>
       <section id="intent" class="meta-card">
         <h2>Epic Intent</h2>
-        <p><strong>Context:</strong> The model must produce deterministic action commands that are safe to parse and execute in ROS 2.</p>
-        <p><strong>Scope:</strong> Discrete and continuous action schemas, parsers, validation, safety clamps, fallback STOP behavior, and command smoothing.</p>
-        <p><strong>Success criteria:</strong> Invalid model output maps to STOP; velocity limits are enforced; parser has unit tests; action schema is documented.</p>
-        <p class="update-note">This page is seeded from the Jira import CSV. Future agents should update it as implementation work starts, changes, or completes.</p>
+        <p><strong>Context:</strong> The VLA model emits text. The robot needs bounded, repeatable velocity commands on ROS <code>/cmd_vel</code>. This epic owns everything between raw model output and a safe <code>geometry_msgs/Twist</code>.</p>
+        <p><strong>Scope:</strong> Discrete and optional continuous action schemas, parsers that normalize noisy text, velocity clamps, fallback <code>STOP</code> on invalid output, and command smoothing between inference steps.</p>
+        <p><strong>Success criteria:</strong> Invalid model output maps to <code>STOP</code>; velocity limits are enforced; parser has unit tests; the discrete action schema is documented and shared via <code>litevla.actions</code>.</p>
+        <p><strong>Current progress:</strong> Story 1017 (discrete action schema) is <strong>complete</strong>. Stories 1018–1022 are planned and seeded from Jira — see each task card for intended upstream/downstream connections.</p>
       </section>
 
       <section id="c4-context" class="visual-card">
@@ -47,19 +47,40 @@ Rel(presentation, repo, "documents intent, flow, and decisions")
         <h2>C4 Container View</h2>
         <pre class="mermaid">
 C4Container
-title Action Interface, Parser, and Safety Layer - Container View Template
-Person(team, "Lite-VLA Team", "Builds and reviews the epic")
-System_Ext(presentation, "Epic Presentation", "Living walkthrough for this epic")
-System_Boundary(repo, "Lite-VLA Repository") {
-  Container(code, "Changed Code", "Python / ROS 2 / config / docs", "Modules and files touched by this epic")
-  Container(interfaces, "Interfaces And Data", "Schemas / ROS topics / model IO / artifacts", "Contracts that connect modules")
-  Container(validation, "Validation Evidence", "pytest / smoke tests / benchmarks / demo checks", "Proof that the implementation works")
+title Epic 103 — Action interface containers
+Person(team, "Lite-VLA Team", "Implements parser and safety")
+System_Boundary(epic, "Action Interface Epic") {
+  Container(schema, "litevla.actions", "Python", "DiscreteAction, ACTION_VELOCITIES, action_to_twist — Story 1017")
+  Container(parser, "Action parser", "Python", "Extract token from model text — Story 1019")
+  Container(json, "JSON command parser", "Python", "Optional continuous schema — Stories 1018/1020")
+  Container(safety, "Safety gate", "Python / ROS", "Clamp, STOP fallback, logging — Story 1021")
+  Container(smooth, "Command smoother", "Python / ROS", "Interpolate between VLA steps — Story 1022")
+  Container(ros, "ROS cmd_vel publisher", "ROS 2", "Publishes geometry_msgs/Twist")
 }
-Rel(team, code, "implements")
-Rel(code, interfaces, "reads and writes")
-Rel(code, validation, "validated by")
-Rel(validation, presentation, "summarized in")
+Rel(team, schema, "maintains")
+Rel(parser, schema, "validates then maps")
+Rel(json, safety, "feeds velocities")
+Rel(schema, safety, "feeds velocities")
+Rel(safety, smooth, "optional")
+Rel(smooth, ros, "publishes")
+Rel(safety, ros, "publishes when no smoother")
         </pre>
+      </section>
+
+      <section class="visual-card">
+        <h2>Epic pipeline (target state)</h2>
+        <pre class="mermaid">
+flowchart TD
+  VLA["VLA raw text"]
+  P["Parser 1019"]
+  S["Schema action_to_twist 1017"]
+  G["Safety gate 1021"]
+  M["Smoother 1022 optional"]
+  CV["/cmd_vel Twist"]
+  VLA --> P --> S --> G --> M --> CV
+  G --> CV
+        </pre>
+        <p>Story 1017 is implemented today. Parser, JSON path, full safety gate, and smoothing are planned downstream stories.</p>
       </section>
 
       <section id="stories">
@@ -78,28 +99,49 @@ Rel(validation, presentation, "summarized in")
         <h3>Story 1017: Define discrete action schema</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Create the first safe action vocabulary: five uppercase tokens with nominal velocity mapping for the MVP navigate-to-cube demo.</dd>
+          <dd>
+            Create the first safe action vocabulary for the navigate-to-cube MVP: five uppercase tokens with a shared
+            nominal velocity table and a single Python module (<code>litevla.actions</code>) that downstream parser,
+            safety, dataset, and ROS code can import.
+          </dd>
           <dt>Implementation Walkthrough</dt>
           <dd>
-            <ul>
-              <li><code>litevla/actions/schema.py</code> — <code>DiscreteAction</code> enum, <code>ACTION_VELOCITIES</code>, <code>action_to_twist()</code>, <code>is_valid_action()</code></li>
-              <li><code>litevla/actions/__init__.py</code> — public exports for downstream parser and ROS code</li>
-              <li><code>docs/epics/action-interface-parser-and-safety-layer/action-schema.md</code> + <code>action-schema.html</code> — task documentation (agent + human pair, epic folder)</li>
-              <li><code>scripts/run_dummy_pipeline.py</code> — iterates <code>ACTION_NAMES</code> instead of ad-hoc <code>FORWARD</code>/<code>STOP</code> placeholders</li>
-              <li><code>tests/test_action_schema.py</code> — enum order, mapping values, clamping, validation helpers</li>
-            </ul>
+            <p><strong>Start here:</strong> <a href="action-schema.html">Discrete action schema task doc</a> (<code>action-schema.md</code> for agents).</p>
+            <p><strong><code>litevla/actions/schema.py</code></strong> — core module. Defines design-point constants
+            (<code>DEFAULT_LINEAR_FORWARD</code>, etc.), the <code>DiscreteAction</code> <code>str</code> enum,
+            <code>ACTION_VELOCITIES</code> lookup table, <code>is_valid_action()</code>, <code>clamp_velocity()</code>,
+            and <code>action_to_twist()</code>. The latter is the main runtime API: accept enum or exact string,
+            look up nominal <code>(linear_x, angular_z)</code>, clamp with config limits, return floats.</p>
+            <p><strong><code>litevla/actions/__init__.py</code></strong> — re-exports the public API so callers use
+            <code>from litevla.actions import ...</code> instead of reaching into <code>schema.py</code> directly.</p>
+            <p><strong><code>scripts/run_dummy_pipeline.py</code></strong> — integration demo without ROS. Loads config,
+            iterates <code>ACTION_NAMES</code>, calls <code>action_to_twist</code> with <code>safety</code> limits,
+            prints results. Replaced earlier ad-hoc <code>FORWARD</code>/<code>STOP</code> placeholders.</p>
+            <p><strong><code>tests/test_action_schema.py</code></strong> — locks token naming, velocity table completeness,
+            MVP design-point values, config clamping, <code>is_valid_action</code>, and <code>ValueError</code> on bad tokens.</p>
           </dd>
           <dt>Data And Control Flow</dt>
           <dd>
             <pre class="mermaid">
-flowchart LR
-  Token["DiscreteAction token\nMOVE_FORWARD … STOP"]
-  Map["ACTION_VELOCITIES\nnominal linear_x, angular_z"]
-  Clamp["action_to_twist\nconfig safety limits"]
-  Twist["Twist linear_x, angular_z"]
-  Token --> Map --> Clamp --> Twist
+sequenceDiagram
+  participant Caller as Caller e.g. dummy pipeline
+  participant API as action_to_twist
+  participant Table as ACTION_VELOCITIES
+  participant Clamp as clamp_velocity
+
+  Caller->>API: action token + max_linear_vel, max_angular_vel
+  API->>Table: lookup nominal velocities
+  Table-->>API: linear_x, angular_z
+  API->>Clamp: clamp each axis
+  Clamp-->>API: bounded values
+  API-->>Caller: linear_x, angular_z
             </pre>
-            <p>Inputs: action token (enum or exact string). Outputs: clamped <code>(linear_x, angular_z)</code> using <code>safety.max_linear_vel</code> and <code>safety.max_angular_vel</code> from config. Parser (Story 1019) and safety layer (Story 1021) consume the same module.</p>
+            <p>
+              <strong>Inputs:</strong> <code>DiscreteAction</code> or exact string; safety limits from
+              <code>configs/default.example.yaml</code> (<code>safety.max_linear_vel</code>, <code>safety.max_angular_vel</code>).<br>
+              <strong>Outputs:</strong> clamped <code>(linear_x, angular_z)</code> for ROS <code>Twist</code> or logging.<br>
+              <strong>Future consumers:</strong> Story 1019 parser validates text then calls this module; Story 1021 adds STOP fallback and ROS-side enforcement.
+            </p>
           </dd>
           <dt>ADR Notes</dt>
           <dd>
@@ -111,107 +153,120 @@ flowchart LR
             <p><strong>Consequences:</strong> Dataset labels and prompts must use exact tokens; parser story validates strings before calling <code>action_to_twist</code>.</p>
           </dd>
           <dt>Task documentation</dt>
-          <dd><a href="action-schema.html">Discrete action schema</a> (<code>action-schema.md</code> for agents)</dd>
+          <dd><a href="action-schema.html">Discrete action schema</a> — full code walkthrough, reader map, engineering notes, and validation commands.</dd>
           <dt>Validation</dt>
           <dd>
             <pre><code>pytest tests/test_action_schema.py -q
 python scripts/run_dummy_pipeline.py</code></pre>
+            <p>Verified: schema unit tests pass; dummy pipeline prints all five actions with config-clamped velocities.</p>
+          </dd>
+          <dt>Open Questions</dt>
+          <dd>
+            <ul>
+              <li>Should <code>action_to_twist</code> accept only <code>DiscreteAction</code> once Story 1019 owns all string parsing?</li>
+              <li>How will optional JSON velocities (Story 1018) merge with discrete tokens at the safety gate?</li>
+            </ul>
           </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1018">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Planned</span>
         <h3>Story 1018: Define continuous command schema</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Prepare an optional JSON schema for direct velocity output.</dd>
+          <dd>Prepare an optional JSON schema for direct <code>linear_x</code> / <code>angular_z</code> velocity output — a future path if the team experiments beyond discrete tokens. Not required for the MVP demo, which uses Story 1017’s discrete vocabulary.</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>Define JSON fields (<code>linear_x</code>, <code>angular_z</code>, optional <code>stop</code>), numeric bounds, and valid/invalid examples for parser tests. Expected location: new module under <code>litevla/actions/</code> or adjacent parser package, documented in a paired task doc in this epic folder.</p>
+            <p><strong>Upstream:</strong> MVP non-goals keep discrete actions primary; this schema is optional infrastructure.</p>
+            <p><strong>Downstream:</strong> Story 1020 (JSON parser) and Story 1021 (safety gate) will consume validated JSON commands.</p>
+          </dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
-          <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
-          <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd class="update-note">Not started. Populate when schema constants and example fixtures land in the repo.</dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
       <article class="task-card" id="story-1019">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Planned</span>
         <h3>Story 1019: Implement discrete action parser</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Extract a valid action from model text.</dd>
+          <dd>Extract a valid <code>DiscreteAction</code> token from noisy VLA text (whitespace, punctuation, lowercase variants) before calling <code>action_to_twist</code>.</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>Implement <code>parse_discrete_action(text) -&gt; DiscreteAction | None</code> (exact name TBD) with normalization rules and unit tests for valid, invalid, and noisy outputs. On failure, return <code>None</code> or raise — Story 1021 will map failures to <code>STOP</code> at the safety gate.</p>
+            <p><strong>Upstream:</strong> raw model string from inference node.</p>
+            <p><strong>Downstream:</strong> <code>litevla.actions.action_to_twist</code> (Story 1017), then safety gate (Story 1021).</p>
+          </dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
-          <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
-          <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd class="update-note">Not started. See <a href="action-schema.html">action schema doc</a> for the vocabulary this parser must recognize.</dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
       <article class="task-card" id="story-1020">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Planned</span>
         <h3>Story 1020: Implement JSON command parser</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Parse optional continuous command JSON safely.</dd>
+          <dd>Parse optional continuous command JSON safely when the model (or a future prompt format) emits structured velocity objects instead of discrete tokens.</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>JSON extraction utility, required-field validation, malformed-output tests. Depends on Story 1018 schema definition.</p>
+            <p><strong>Downstream:</strong> safety gate (Story 1021) clamps parsed velocities.</p>
+          </dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
-          <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
-          <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd class="update-note">Not started.</dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
       <article class="task-card" id="story-1021">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Planned</span>
         <h3>Story 1021: Implement safety clamp and fallback behavior</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Guarantee unsafe actions cannot be published directly.</dd>
+          <dd>Guarantee unsafe or unparseable commands cannot reach <code>/cmd_vel</code>. MVP acceptance: malformed VLA output becomes zero velocity <code>STOP</code>; velocities stay within 0.2 m/s / 0.6 rad/s operational limits.</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>Central safety gate that composes parser output, applies clamps (may reuse <code>clamp_velocity</code> from Story 1017), converts parser failures to <code>STOP</code>, and logs safety events. <code>action_to_twist</code> already clamps per-axis values but does not handle invalid tokens or ROS publish policy — this story owns end-to-end safe publishing.</p>
+            <p><strong>Upstream:</strong> parser (1019) or JSON parser (1020).</p>
+            <p><strong>Downstream:</strong> ROS <code>/cmd_vel</code> publisher; optional smoother (1022).</p>
+          </dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
-          <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
-          <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd class="update-note">Not started. Foundation: <code>clamp_velocity</code> and <code>action_to_twist</code> in <code>litevla/actions/schema.py</code>.</dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
       <article class="task-card" id="story-1022">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Planned</span>
         <h3>Story 1022: Add command smoothing</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Reduce jerky command changes between model outputs.</dd>
+          <dd>Reduce jerky command changes when VLA inference runs at ~5 Hz while the low-level controller expects smoother motion (see MVP risk RSK-05).</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>Interpolator between successive velocity targets at a higher rate (e.g. 100 Hz timer) before publishing <code>Twist</code>. Sits after the safety gate so smoothed values remain bounded.</p>
+          </dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
-          <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
-          <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd class="update-note">Not started.</dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd class="update-note">Not run — story not implemented.</dd>
         </dl>
       </article>
       </section>
 
       <section id="adr-log" class="adr-card">
         <h2>Epic ADR Log</h2>
-        <p class="update-note">Add one short ADR entry here for each cross-task decision that affects the epic architecture. Keep detailed task-specific ADRs inside the relevant story section above.</p>
         <div class="adr-grid">
           <article>
-            <h3>ADR Template</h3>
-            <p><strong>Status:</strong> Proposed | Accepted | Superseded</p>
-            <p><strong>Context:</strong> Why this decision mattered.</p>
-            <p><strong>Decision:</strong> What the team chose.</p>
-            <p><strong>Alternatives rejected:</strong> What was considered and why it was not used.</p>
-            <p><strong>Consequences:</strong> Trade-offs, follow-up work, and impact on other modules.</p>
+            <h3>ADR: Discrete-first action interface</h3>
+            <p><strong>Status:</strong> Accepted (Story 1017)</p>
+            <p><strong>Context:</strong> MVP must stay beginner-friendly; continuous VLM velocities are explicitly deferred.</p>
+            <p><strong>Decision:</strong> Ship <code>litevla.actions</code> as the shared discrete contract; optional JSON path (1018/1020) is secondary.</p>
+            <p><strong>Consequences:</strong> Training data, prompts, and parser tests target five exact tokens; safety gate enforces bounds on mapped velocities.</p>
           </article>
         </div>
       </section>

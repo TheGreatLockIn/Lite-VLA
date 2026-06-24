@@ -8,6 +8,8 @@ When creating or updating project documentation in `docs/`, follow these rules.
 
 Create or expand `docs/` content only for **durable project knowledge** — things a new teammate needs to build, run, train, deploy, or operate Lite-VLA without reading chat history.
 
+When documentation is required, write it as asynchronous engineering communication. It should teach the project and the code: what the feature is for, where to start reading, how the important symbols work, how data/control moves through the system, how to validate behavior, and which trade-offs or risks matter.
+
 | Write docs | Skip docs (chat reply is enough) |
 |------------|----------------------------------|
 | Architecture, MVP scope, requirements | Cursor/MCP/Jira OAuth, IDE setup |
@@ -40,7 +42,7 @@ Documentation uses paired `.md` + `.html` files in three locations:
 | Epic walkthrough | — (HTML only) | `docs/epics/<epic-slug>/index.html` |
 | Jira story/task deliverables | `docs/epics/<epic-slug>/<task-slug>.md` | `docs/epics/<epic-slug>/<task-slug>.html` |
 
-Epic walkthrough pages are HTML-only; agents follow [`epics/AGENTS.md`](epics/AGENTS.md) for structure and update them alongside code changes.
+Epic walkthrough pages are HTML-only; agents follow [`epics/AGENTS.md`](epics/AGENTS.md) for structure, the **Agent contract**, and task-doc depth standards. Update them alongside code changes.
 
 **Do not** place Jira task deliverables in `docs/` root or `docs/html/`. **Do not** place cross-cutting topics inside `docs/epics/`.
 
@@ -96,7 +98,7 @@ In the `.html` counterpart, prefer HTML features over plain prose when they help
 | `<canvas>` | Spatial or animated visuals |
 | JavaScript + form controls | Sliders, toggles, knobs to explore parameters (e.g. algorithm tuning, design previews) |
 
-Interactive docs are encouraged when they help readers **explore** behavior. Keep scripts small, inline or in a sibling `.js` file under `docs/`, and avoid external CDN dependencies unless necessary.
+Interactive docs are encouraged when they help readers **explore** behavior. Use diagrams, SVG, small interactive widgets, or progressive visual explanations when they make runtime flow, state changes, schemas, ROS topics, or model/data transformations easier to understand. Keep scripts small, inline or in a sibling `.js` file under `docs/`, and avoid external CDN dependencies unless necessary.
 
 ## Document skeleton (HTML human counterpart)
 
