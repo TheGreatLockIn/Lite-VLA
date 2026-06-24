@@ -1,70 +1,65 @@
 # Camera frame subscriber
 
-**Epic:** ROS 2 Simulation and Robot Control Skeleton (102) · **Jira:** VLA-24 / Story 1012 · **Subtasks:** 10036 (subscriber), 10037 (image conversion), 10038 (frame save)
+**Epic:** ROS 2 Simulation and Robot Control Skeleton (102) · **Jira epic:** VLA-3 · **Story:** VLA-24 / 1012 · **Subtasks:** 10036 (subscriber), 10037 (conversion), 10038 (frame save)
 
 **Human-readable version (browser):** [`camera-frame-subscriber.html`](camera-frame-subscriber.html)
 
-Subscribe to the simulation camera topic, convert frames to RGB numpy arrays, and optionally save debug frames for dataset work.
+## Executive summary
 
-## Intent
+`camera_subscriber` is the **perception ingress** for Epic 102: it subscribes to `sensor_msgs/Image` (default `/image_raw`), converts each message to an RGB `numpy` ndarray, and keeps the latest frame in node state for future VLA inference (Epic 108). Optional rate-limited PNG recording supports dataset debugging without flooding disk.
 
-Receive camera frames from Webots (or a physical camera) and keep the latest frame in node state for future VLA inference (Epic 108).
-
-## Artifacts
-
-| Path | Purpose |
-|------|---------|
-| `litevla_bridge/camera_subscriber.py` | ROS node — subscribes, logs first frame, holds `latest_frame` |
-| `litevla_bridge/image_utils.py` | `ros_image_to_rgb()` via `cv_bridge` |
-| `launch/camera_subscriber.launch.py` | Launch with topic + recording params |
-| `config/bridge_params.yaml` | Default `image_topic`, `record_frames`, `frame_save_dir` |
-| `test/test_image_utils.py` | Unit tests for RGB/BGR conversion |
-
-## Parameters
-
-| Param | Default | Maps to `configs/default.example.yaml` |
-|-------|---------|----------------------------------------|
-| `image_topic` | `/image_raw` | `ros.image_topic` |
-| `record_frames` | `false` | `ros.record_frames` |
-| `frame_save_dir` | `outputs/frames` | `ros.frame_save_dir` |
-| `record_interval_sec` | `1.0` | (save at most 1 Hz when recording) |
-
-## Run
-
-With Webots sim running (`./ros_ws/scripts/run_webots_mvp.sh`):
-
-```bash
-source /opt/ros/jazzy/setup.bash
-source ros_ws/install/setup.bash
-
-# Option A — launch file
-ros2 launch litevla_bridge camera_subscriber.launch.py
-
-# Option B — direct run with recording
-ros2 run litevla_bridge camera_subscriber --ros-args \
-  -p image_topic:=/image_raw \
-  -p record_frames:=true \
-  -p frame_save_dir:=outputs/frames
-```
-
-**Pass:** Logs first frame `WxH encoding=...`; `latest_frame` updates each callback; PNG files appear under `outputs/frames/` when recording is enabled.
-
-## Data flow
+## API contract and data flow
 
 ```text
 /image_raw (sensor_msgs/Image)
-    → camera_subscriber._on_image
-    → ros_image_to_rgb() → latest_frame (HxWx3 uint8)
-    → optional PNG save (record_interval_sec)
+    ──> camera_subscriber._on_image
+    ──> ros_image_to_rgb()  [cv_bridge]
+    ──> latest_frame (H×W×3 uint8), latest_stamp
+    ──> optional PNG → outputs/frames/  (record_interval_sec gate)
 ```
 
-## Validation
+| Parameter | Default | Config mirror |
+|-----------|---------|---------------|
+| `image_topic` | `/image_raw` | `ros.image_topic` |
+| `record_frames` | `false` | `ros.record_frames` |
+| `frame_save_dir` | `outputs/frames` | `ros.frame_save_dir` |
+| `record_interval_sec` | `1.0` | Max save rate when recording |
+
+**Invariant:** `latest_frame` is always the most recent successfully decoded image; decode failures log and skip update.
+
+## Implementation breakdown
+
+### Image conversion (`image_utils.py`)
+
+```python
+def ros_image_to_rgb(msg: Image) -> np.ndarray:
+    # Supports rgb8 and bgr8 via cv_bridge
+```
+
+- **Design note:** Centralizing conversion avoids duplicating `cv_bridge` encoding logic in inference nodes later.
+- **Gotcha:** Webots may publish on `/image_raw/image_color`; `webots_sim.launch.py` remaps to `/image_raw`.
+
+### Subscriber node (`camera_subscriber.py`)
+
+- Logs first frame geometry and encoding once (operator confidence).
+- Exposes `latest_frame` / `latest_stamp` for synchronous reads from future orchestration code.
+
+### Heartbeat coupling
+
+`heartbeat_controller` optionally requires fresh frames (`require_frame`, `frame_timeout_sec`). Teleop sets `require_frame:=false` so driving works before camera warmup.
+
+## Verification patterns
 
 ```bash
 colcon test --packages-select litevla_bridge   # test_image_utils.py
-ros2 launch litevla_bridge webots_sim.launch.py   # terminal 1
-ros2 launch litevla_bridge camera_subscriber.launch.py record_frames:=true  # terminal 2
+./ros_ws/scripts/run_webots_mvp.sh             # terminal 1
+ros2 launch litevla_bridge camera_subscriber.launch.py record_frames:=true
 ```
+
+| Test | Contract defended |
+|------|-------------------|
+| `test_image_utils.py` | rgb8/bgr8 → consistent RGB ndarray shape |
+| Live launch | First-frame log; PNG files at ≤ 1 Hz when recording |
 
 ## Related
 

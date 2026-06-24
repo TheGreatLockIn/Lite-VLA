@@ -1,82 +1,88 @@
 # Low-level control heartbeat
 
-**Epic:** ROS 2 Simulation and Robot Control Skeleton (102) · **Jira:** VLA-27 / Story 1015 · **Subtasks:** 10045 (timer), 10046 (timeouts), 10047 (diagnostics)
+**Epic:** ROS 2 Simulation and Robot Control Skeleton (102) · **Jira epic:** VLA-3 · **Story:** VLA-27 / 1015 · **Subtasks:** 10045 (timer), 10046 (timeouts), 10047 (diagnostics)
 
 **Human-readable version (browser):** [`control-heartbeat.html`](control-heartbeat.html)
 
-Publish `/cmd_vel` at a fixed rate from the latest desired command, with safety timeouts and diagnostics.
+## Executive summary
 
-## Intent
+`heartbeat_controller` is the **safety and timing layer** between slow action sources and the diff-drive controller. It republishes the latest desired twist on `/cmd_vel` at a fixed rate, enforces action and camera freshness timeouts, clamps velocities, and emits JSON diagnostics. Every Epic 102 command source (dummy, teleop, future model) converges here before actuation.
 
-Decouple slow action sources (dummy actions, future VLA model) from the steady command rate the diff-drive controller expects.
-
-## Architecture
+## API contract and data flow
 
 ```text
-dummy_action_generator → /litevla/desired_twist + /litevla/current_action
-camera (/image_raw)    → heartbeat (frame freshness)
-heartbeat_controller   → /cmd_vel + /litevla/diagnostics
+/litevla/desired_twist  ──┐
+/litevla/current_action ──┼──> heartbeat_controller (timer @ heartbeat_hz)
+/image_raw (optional)   ──┘         │
+                                      ├──> clamp + timeout gate
+                                      ├──> /cmd_vel
+                                      └──> /litevla/diagnostics (JSON)
 ```
 
-## Artifacts
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `heartbeat_hz` | `10.0` | Teleop stack uses `25.0` for lower latency |
+| `action_timeout_sec` | `0.5` | Teleop uses `0.2` |
+| `frame_timeout_sec` | `2.0` | Stale camera → STOP |
+| `require_frame` | `true` | `false` for teleop / cmd-only benches |
+| `control_mode` | `dummy` | `dummy` \| `teleop` \| `model` |
+| `teleop_startup_grace_sec` | `0.0` | `20.0` in teleop script — avoids immediate STOP before keys |
 
-| Path | Purpose |
-|------|---------|
-| `litevla_bridge/heartbeat_controller.py` | Fixed-rate publisher + timeouts |
-| `litevla_bridge/heartbeat_utils.py` | Pure timeout/diagnostics helpers |
-| `launch/heartbeat.launch.py` | Standalone heartbeat node |
-| `launch/dummy_sim.launch.py` | Webots + heartbeat + dummy (updated) |
-| `test/test_heartbeat_utils.py` | Unit tests |
+**Invariant:** On timeout or mode mismatch, published twist is zero (`STOP`).
 
-## Parameters
+## Implementation breakdown
 
-| Param | Default | Notes |
-|-------|---------|-------|
-| `heartbeat_hz` | `10.0` | Publish frequency (`runtime.heartbeat_hz`) |
-| `cmd_vel_topic` | `/cmd_vel` | Output velocity commands topic |
-| `desired_twist_topic` | `/litevla/desired_twist` | Input desired velocity commands topic |
-| `current_action_topic` | `/litevla/current_action` | Input action name topic |
-| `image_topic` | `/image_raw` | Input camera frames topic |
-| `action_timeout_sec` | `0.5` | No fresh action command → STOP |
-| `frame_timeout_sec` | `2.0` | No camera frame → STOP |
-| `require_frame` | `true` | Set `false` for cmd-only bench tests |
-| `max_linear_vel` | `0.2` | Maximum linear velocity limit |
-| `max_angular_vel` | `0.6` | Maximum angular velocity limit |
-| `control_mode` | `dummy` | Control mode (`dummy`, `teleop`, or `model`) |
-| `diagnostics_topic` | `/litevla/diagnostics` | JSON string diagnostic telemetry topic |
+### Pure helpers (`heartbeat_utils.py`)
 
-## Diagnostics JSON
+```python
+def is_timed_out(age_sec, timeout_sec) -> bool: ...
+def select_velocities(desired, *, timed_out, ...) -> tuple[float, float]: ...
+def build_diagnostics(...) -> dict: ...
+```
+
+Unit-tested without ROS — documents timeout math explicitly.
+
+### Controller node (`heartbeat_controller.py`)
+
+- Uses `CmdVelPublisher` (VLA-25) for all `/cmd_vel` output.
+- Subscribes desired twist, action label, and optionally camera with sensor QoS.
+- `control_mode` gate: ignores sources not matching active mode.
+
+### Diagnostics JSON
 
 ```json
 {
-  "heartbeat_hz": 10.0,
+  "heartbeat_hz": 25.0,
   "last_cmd": "MOVE_FORWARD",
-  "last_publish_stamp": "123.456789000",
   "action_age_ms": 12.3,
   "frame_age_ms": 45.0,
   "timed_out": false,
-  "control_mode": "dummy"
+  "control_mode": "teleop"
 }
 ```
 
-## Run
+## Engineering decisions
+
+**ADR: Fixed-rate cmd_vel publisher**
+
+- **Status:** Accepted
+- **Context:** Model and keyboard inputs are event-driven; `ros2_control` expects continuous commands.
+- **Decision:** Timer-driven republish of last safe command.
+- **Alternatives rejected:** Direct publish from each source (jerky motion, race conditions).
+- **Consequences:** Tune `heartbeat_hz` and `action_timeout_sec` per mode (teleop vs dummy).
+
+## Verification patterns
 
 ```bash
-source ros_ws/install/setup.bash
+colcon test --packages-select litevla_bridge   # test_heartbeat_utils.py
 ros2 launch litevla_bridge dummy_sim.launch.py
-ros2 topic echo /litevla/diagnostics --once
 ros2 topic hz /cmd_vel
+ros2 topic echo /litevla/diagnostics --once
 ```
 
-## Validation
-
-```bash
-colcon test --packages-select litevla_bridge
-ros2 topic hz /cmd_vel                    # ~10 Hz
-# Stop camera or dummy → timed_out true → cmd_vel zero
-```
+Stop dummy node or camera → `timed_out: true` → zero `/cmd_vel`.
 
 ## Related
 
 - [dummy-action-generator.md](dummy-action-generator.md) (VLA-26)
-- [velocity-command-publisher.md](velocity-command-publisher.md) (VLA-25)
+- [manual-teleoperation.md](manual-teleoperation.md) (VLA-28)

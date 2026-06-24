@@ -3,74 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ROS 2 Simulation and Robot Control Skeleton - Lite-VLA Epic Walkthrough</title>
+  <title>ROS 2 Simulation and Robot Control Skeleton — Lite-VLA Epic Walkthrough</title>
   <link rel="stylesheet" href="../../styles/presentation.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="../index.html">Back to epic index</a>
-      <p class="eyebrow">Epic 102</p>
+      <p class="eyebrow">Epic 102 · Jira VLA-3</p>
       <h1>ROS 2 Simulation and Robot Control Skeleton</h1>
       <p class="doc-lead">Build the non-ML robot loop that receives camera frames and publishes movement commands.</p>
       <nav class="doc-nav" aria-label="Story navigation">
-        <a href="#intent">Intent</a> | <a href="#c4-context">C4 context</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
+        <a href="#intent">Intent</a> | <a href="#epic-flow">Epic flow</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
       </nav>
     </header>
 
     <main>
       <section id="intent" class="meta-card">
         <h2>Epic Intent</h2>
-        <p><strong>Context:</strong> The paper routes model outputs through a ROS 2 bridge using velocity commands; this skeleton proves the robot path before adding ML.</p>
-        <p><strong>Scope:</strong> Simulation environment, camera subscription, velocity publishing, dummy controller, heartbeat, and manual control.</p>
-        <p><strong>Success criteria:</strong> Simulation runs; robot moves from dummy actions; camera frames are available; control loop remains stable without ML.</p>
-        <p class="update-note">Epic 102 complete through VLA-28 — full robot skeleton ready for Epic 108 model integration.</p>
+        <p><strong>Context:</strong> Model outputs route through a ROS 2 bridge as velocity commands; this skeleton proves the robot path before ML.</p>
+        <p><strong>Scope:</strong> Simulation environment, camera subscription, velocity publishing, dummy controller, heartbeat safety layer, manual teleop.</p>
+        <p><strong>Success criteria:</strong> Simulation runs; robot moves from dummy and keyboard commands; camera frames available; control loop stable without ML.</p>
+        <p class="update-note"><strong>Status:</strong> Complete through VLA-28 — skeleton ready for Epic 108 model integration.</p>
       </section>
 
-      <section id="c4-context" class="visual-card">
-        <h2>C4 System Context</h2>
+      <section id="epic-flow" class="visual-card">
+        <h2>Epic 102 control loop</h2>
         <pre class="mermaid">
-C4Context
-title ROS 2 Simulation and Robot Control Skeleton - System Context
-Person(team, "Lite-VLA Team", "Implements, reviews, and explains this epic")
-System(repo, "Lite-VLA Repository", "ROS 2, ML, data, deployment, docs, tests")
-System(presentation, "Epic Presentation", "Living ADR, code walkthrough, and visual explanation")
-System_Ext(jira, "Jira Epic/Stories", "Source ordering and planning context")
-Rel(team, repo, "changes code and tests")
-Rel(team, presentation, "uses for walkthroughs")
-Rel(jira, presentation, "defines task order")
-Rel(presentation, repo, "documents intent, flow, and decisions")
-        </pre>
-      </section>
-
-      <section class="visual-card">
-        <h2>C4 Container View</h2>
-        <pre class="mermaid">
-C4Container
-title ROS 2 Simulation and Robot Control Skeleton - Container View Template
-Person(team, "Lite-VLA Team", "Builds and reviews the epic")
-System_Ext(presentation, "Epic Presentation", "Living walkthrough for this epic")
-System_Boundary(repo, "Lite-VLA Repository") {
-  Container(code, "Changed Code", "Python / ROS 2 / config / docs", "Modules and files touched by this epic")
-  Container(interfaces, "Interfaces And Data", "Schemas / ROS topics / model IO / artifacts", "Contracts that connect modules")
-  Container(validation, "Validation Evidence", "pytest / smoke tests / benchmarks / demo checks", "Proof that the implementation works")
-}
-Rel(team, code, "implements")
-Rel(code, interfaces, "reads and writes")
-Rel(code, validation, "validated by")
-Rel(validation, presentation, "summarized in")
+flowchart LR
+  subgraph sim [VLA-23 Webots]
+    CAM[/image_raw/]
+    WEBOTS[diffdrive_controller]
+  end
+  subgraph sources [Command sources]
+    DUMMY[dummy_action_generator VLA-26]
+    TELEOP[teleop_keyboard VLA-28]
+  end
+  SUB[camera_subscriber VLA-24]
+  HB[heartbeat_controller VLA-27]
+  PUB[CmdVelPublisher VLA-25]
+  DUMMY --> DES[/litevla/desired_twist/]
+  TELEOP --> DES
+  CAM --> SUB
+  CAM --> HB
+  DES --> HB
+  HB --> PUB
+  PUB --> CMD[/cmd_vel/]
+  CMD --> WEBOTS
         </pre>
       </section>
 
       <section id="stories">
-        <h2>Task Order</h2>
+        <h2>Task order (Jira VLA-3)</h2>
         <ol class="task-list">
-          <li><a href="#story-1011">Story 1011: Select and set up simulation environment</a> — <a href="webots-sim-environment.html">VLA-23</a></li>
-          <li><a href="#story-1012">Story 1012: Implement camera frame subscriber</a> — <a href="camera-frame-subscriber.html">VLA-24</a></li>
-          <li><a href="#story-1013">Story 1013: Implement velocity command publisher</a> — <a href="velocity-command-publisher.html">VLA-25</a></li>
-          <li><a href="#story-1014">Story 1014: Build dummy action generator</a> — <a href="dummy-action-generator.html">VLA-26</a></li>
-          <li><a href="#story-1015">Story 1015: Add low-level control heartbeat</a> — <a href="control-heartbeat.html">VLA-27</a></li>
-          <li><a href="#story-1016">Story 1016: Add manual teleoperation mode</a> — <a href="manual-teleoperation.html">VLA-28</a></li>
+          <li><a href="#story-1011">Story 1011: Simulation environment</a> — <a href="simulator-selection.html">VLA-115</a> · <a href="webots-sim-environment.html">VLA-23</a> · VLA-117</li>
+          <li><a href="#story-1012">Story 1012: Camera frame subscriber</a> — <a href="camera-frame-subscriber.html">VLA-24</a></li>
+          <li><a href="#story-1013">Story 1013: Velocity command publisher</a> — <a href="velocity-command-publisher.html">VLA-25</a></li>
+          <li><a href="#story-1014">Story 1014: Dummy action generator</a> — <a href="dummy-action-generator.html">VLA-26</a></li>
+          <li><a href="#story-1015">Story 1015: Control heartbeat</a> — <a href="control-heartbeat.html">VLA-27</a></li>
+          <li><a href="#story-1016">Story 1016: Manual teleoperation</a> — <a href="manual-teleoperation.html">VLA-28</a></li>
         </ol>
 
       <article class="task-card" id="story-1011">
@@ -82,253 +73,109 @@ Rel(validation, presentation, "summarized in")
         </p>
         <dl>
           <dt>Intent</dt>
-          <dd>Configure Webots MVP: arena, diff-drive robot with camera, ROS 2 topics (GPU-friendly vs Isaac Sim).</dd>
+          <dd>Own the simulation contract: Webots arena, diff-drive robot with camera, stable <code>/image_raw</code> and <code>/cmd_vel</code> topics.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd>
             <ul>
-              <li><code>worlds/mvp_arena.wbt</code> — arena, red cube, <code>litevla_robot</code> + camera</li>
-              <li><code>resource/litevla_robot.urdf</code>, <code>resource/ros2_control.yml</code> — webots_ros2 driver</li>
-              <li><code>config/webots_sim.yaml</code> — topics match <code>configs/default.example.yaml</code></li>
-              <li><code>launch/webots_sim.launch.py</code>, <code>scripts/run_webots_mvp.sh</code></li>
-              <li><code>scripts/install_webots.sh</code>, <code>scripts/find_webots.sh</code> — Webots app install + discovery</li>
-              <li><code>litevla_bridge/spawn_verifier.py</code> — VLA-117</li>
+              <li><code>worlds/mvp_arena.wbt</code> — arena, red cube, <code>litevla_robot</code></li>
+              <li><code>launch/webots_sim.launch.py</code> — driver, spawners, Jazzy remaps, <code>interactive:=true</code> for teleop</li>
+              <li><code>scripts/run_webots_mvp.sh</code>, <code>install_webots.sh</code>, <code>find_webots.sh</code></li>
+              <li><code>spawn_verifier.py</code> — VLA-117 spawn/motion check</li>
             </ul>
           </dd>
           <dt>Data And Control Flow</dt>
+          <dd>World file → <code>webots_ros2_driver</code> → remapped <code>/image_raw</code> + <code>/cmd_vel</code>. Two-part install: ROS bridge apt + Webots app deb.</dd>
+          <dt>Verification Patterns</dt>
           <dd>
-            <pre class="mermaid">
-flowchart LR
-  WBT[mvp_arena.wbt] --> Webots[Webots]
-  Webots --> Driver[webots_ros2_driver]
-  Driver --> IMG[/image_raw]
-  Driver --> VEL[/cmd_vel]
-  Verifier[spawn_verifier] --> IMG
-  Verifier --> VEL
-            </pre>
-          </dd>
-          <dt>ADR Notes</dt>
-          <dd>
-            <p><strong>Platform:</strong> Webots (VLA-115 revision) — Isaac Sim rejected on team GPU.</p>
-            <p><strong>Robot:</strong> Custom <code>litevla_robot</code> diff-drive + RGB camera in world file.</p>
-          </dd>
-          <dt>Validation</dt>
-          <dd>
-            <p>Automated: <code>colcon test --packages-select litevla_bridge</code> (<code>test_webots_config.py</code>).</p>
-            <p>Install check: <code>./ros_ws/scripts/find_webots.sh</code> (Webots app) + <code>ros2 pkg list | grep webots_ros2</code> (ROS bridge).</p>
-            <pre><code>./ros_ws/scripts/install_webots.sh   # if webots not found
+            <pre><code class="language-bash">colcon test --packages-select litevla_bridge
 ./ros_ws/scripts/run_webots_mvp.sh
 ros2 launch litevla_bridge verify_spawn.launch.py</code></pre>
           </dd>
         </dl>
       </article>
+
       <article class="task-card" id="story-1012">
         <span class="status-pill">Complete</span>
         <h3>Story 1012: Implement camera frame subscriber</h3>
         <p><a href="camera-frame-subscriber.html">VLA-24 — task doc</a></p>
         <dl>
           <dt>Intent</dt>
-          <dd>Receive camera frames from simulation or a physical camera; expose latest RGB array for downstream inference.</dd>
+          <dd>Perception ingress — latest RGB ndarray for future VLA inference; optional debug PNG capture.</dd>
           <dt>Implementation Walkthrough</dt>
-          <dd>
-            <ul>
-              <li><code>litevla_bridge/camera_subscriber.py</code> — subscribes to <code>image_topic</code>, logs first frame, maintains <code>latest_frame</code> + <code>latest_stamp</code></li>
-              <li><code>litevla_bridge/image_utils.py</code> — <code>ros_image_to_rgb()</code> via <code>cv_bridge</code></li>
-              <li><code>launch/camera_subscriber.launch.py</code> — topic + <code>record_frames</code> params</li>
-              <li><code>config/bridge_params.yaml</code> — defaults mirror <code>configs/default.example.yaml</code></li>
-              <li><code>test/test_image_utils.py</code> — rgb8/bgr8 conversion tests</li>
-            </ul>
-          </dd>
-          <dt>Data And Control Flow</dt>
-          <dd>
-            <pre class="mermaid">
-flowchart LR
-  CAM[/image_raw/] --> SUB[camera_subscriber]
-  SUB --> UTIL[ros_image_to_rgb]
-  UTIL --> STATE[latest_frame ndarray]
-  SUB -->|record_frames| DISK[outputs/frames/*.png]
-            </pre>
-          </dd>
-          <dt>ADR Notes</dt>
-          <dd>
-            <p><strong>cv_bridge:</strong> Standard ROS path for Image → numpy; supports rgb8 and bgr8 encodings.</p>
-            <p><strong>Recording:</strong> Rate-limited by <code>record_interval_sec</code> (default 1 Hz) to avoid disk flood.</p>
-          </dd>
-          <dt>Validation</dt>
-          <dd>
-            <p>Automated: <code>colcon test --packages-select litevla_bridge</code> (<code>test_image_utils.py</code>).</p>
-            <pre><code>ros2 launch litevla_bridge webots_sim.launch.py
-ros2 launch litevla_bridge camera_subscriber.launch.py record_frames:=true</code></pre>
-          </dd>
+          <dd><code>camera_subscriber.py</code> + <code>image_utils.ros_image_to_rgb()</code> via <code>cv_bridge</code>; params mirror <code>configs/default.example.yaml</code>.</dd>
+          <dt>Verification Patterns</dt>
+          <dd><code>test_image_utils.py</code>; live test with Webots + <code>record_frames:=true</code>.</dd>
         </dl>
       </article>
+
       <article class="task-card" id="story-1013">
         <span class="status-pill">Complete</span>
         <h3>Story 1013: Implement velocity command publisher</h3>
         <p><a href="velocity-command-publisher.html">VLA-25 — task doc</a></p>
         <dl>
           <dt>Intent</dt>
-          <dd>Publish robot movement commands through ROS 2 with safety clamping for diff-drive.</dd>
+          <dd>Shared actuation sink with <code>clamp_velocity()</code> before <code>/cmd_vel</code>.</dd>
           <dt>Implementation Walkthrough</dt>
-          <dd>
-            <ul>
-              <li><code>litevla_bridge/cmd_vel_publisher.py</code> — <code>CmdVelPublisher</code> with <code>publish_twist()</code> / <code>publish_stop()</code></li>
-              <li><code>litevla_bridge/twist_utils.py</code> — <code>make_twist()</code>, <code>clamp_velocity()</code></li>
-              <li><code>litevla_bridge/cmd_vel_tester.py</code> — cycles forward / left / right / stop (subtask 10041)</li>
-              <li><code>launch/cmd_vel_test.launch.py</code></li>
-              <li><code>test/test_twist_utils.py</code></li>
-            </ul>
-          </dd>
-          <dt>Data And Control Flow</dt>
-          <dd>
-            <pre class="mermaid">
-flowchart LR
-  SRC[dummy / tester / teleop] --> PUB[CmdVelPublisher]
-  PUB --> CLAMP[clamp_velocity]
-  CLAMP --> TWIST[geometry_msgs/Twist]
-  TWIST --> CMD[/cmd_vel/]
-  CMD --> WEBOTS[diff_drive_controller]
-            </pre>
-          </dd>
-          <dt>ADR Notes</dt>
-          <dd>
-            <p><strong>Library class:</strong> <code>CmdVelPublisher</code> takes a <code>Node</code> so VLA-26/27/28 reuse one publisher without duplicating logic.</p>
-            <p><strong>Limits:</strong> Default 0.2 m/s / 0.6 rad/s match <code>ros2_control.yml</code> Webots limits.</p>
-          </dd>
-          <dt>Validation</dt>
-          <dd>
-            <p>Automated: <code>colcon test --packages-select litevla_bridge</code> (<code>test_twist_utils.py</code>).</p>
-            <pre><code>./ros_ws/scripts/run_webots_mvp.sh
-ros2 launch litevla_bridge cmd_vel_test.launch.py
-ros2 topic echo /cmd_vel</code></pre>
-          </dd>
+          <dd><code>CmdVelPublisher</code>, <code>twist_utils.py</code>, <code>cmd_vel_tester.py</code> sim cycle.</dd>
+          <dt>Verification Patterns</dt>
+          <dd><code>test_twist_utils.py</code>; <code>cmd_vel_test.launch.py</code> with Webots.</dd>
         </dl>
       </article>
+
       <article class="task-card" id="story-1014">
         <span class="status-pill">Complete</span>
         <h3>Story 1014: Build dummy action generator</h3>
         <p><a href="dummy-action-generator.html">VLA-26 — task doc</a></p>
         <dl>
           <dt>Intent</dt>
-          <dd>Hardcoded/scripted discrete actions before ML; same tokens as Epic 103 schema.</dd>
-          <dt>Implementation Walkthrough</dt>
-          <dd>
-            <ul>
-              <li><code>litevla/actions/schema.py</code> — <code>DiscreteAction</code>, <code>action_to_twist()</code></li>
-              <li><code>litevla_bridge/dummy_action_generator.py</code> — sequence + heartbeat republish</li>
-              <li><code>litevla_bridge/action_schema.py</code> — monorepo import bridge</li>
-              <li><code>launch/dummy_sim.launch.py</code> — Webots + dummy node</li>
-              <li><code>scripts/run_dummy_pipeline.py</code> — offline sequence print (aligned)</li>
-              <li><code>tests/test_action_schema.py</code>, <code>test/test_action_mapping.py</code></li>
-            </ul>
-          </dd>
-          <dt>Data And Control Flow</dt>
-          <dd>
-            <pre class="mermaid">
-flowchart LR
-  SEQ[action_sequence] --> GEN[dummy_action_generator]
-  GEN --> MAP[action_to_twist]
-  MAP --> DES[/litevla/desired_twist/]
-  DES --> HB[heartbeat_controller]
-  HB --> CMD[/cmd_vel/]
-            </pre>
-          </dd>
-          <dt>ADR Notes</dt>
-          <dd>
-            <p><strong>Shared schema:</strong> One action vocabulary for ROS dummy, offline pipeline, and future parser (Epic 103).</p>
-            <p><strong>Dummy mode gate:</strong> Node idles when <code>runtime_mode != dummy</code>.</p>
-          </dd>
-          <dt>Validation</dt>
-          <dd>
-            <pre><code>pytest tests/test_action_schema.py -q
-python scripts/run_dummy_pipeline.py
-ros2 launch litevla_bridge dummy_sim.launch.py</code></pre>
-          </dd>
+          <dd>Pre-ML command source using Epic 103 discrete actions → <code>/litevla/desired_twist</code>.</dd>
+          <dt>Verification Patterns</dt>
+          <dd><code>pytest tests/test_action_schema.py</code>; <code>dummy_sim.launch.py</code>.</dd>
         </dl>
       </article>
+
       <article class="task-card" id="story-1015">
         <span class="status-pill">Complete</span>
         <h3>Story 1015: Add low-level control heartbeat</h3>
         <p><a href="control-heartbeat.html">VLA-27 — task doc</a></p>
         <dl>
           <dt>Intent</dt>
-          <dd>Stable <code>/cmd_vel</code> publish rate independent of dummy/model update speed; safety timeouts.</dd>
-          <dt>Implementation Walkthrough</dt>
-          <dd>
-            <ul>
-              <li><code>heartbeat_controller.py</code> — timer, subscribes desired twist + action + camera</li>
-              <li><code>heartbeat_utils.py</code> — timeout and diagnostics helpers</li>
-              <li><code>dummy_action_generator.py</code> — refactored to publish <code>/litevla/desired_twist</code> only</li>
-              <li><code>launch/heartbeat.launch.py</code>, updated <code>dummy_sim.launch.py</code></li>
-              <li><code>test/test_heartbeat_utils.py</code></li>
-            </ul>
-          </dd>
-          <dt>Data And Control Flow</dt>
-          <dd>
-            <pre class="mermaid">
-flowchart LR
-  DUMMY[dummy_action_generator] --> DES[/litevla/desired_twist/]
-  CAM[/image_raw/] --> HB[heartbeat_controller]
-  DES --> HB
-  HB --> CMD[/cmd_vel/]
-  HB --> DIAG[/litevla/diagnostics/]
-            </pre>
-          </dd>
-          <dt>ADR Notes</dt>
-          <dd>
-            <p><strong>Decoupled rates:</strong> Action sources update asynchronously; heartbeat owns <code>/cmd_vel</code>.</p>
-            <p><strong>STOP on timeout:</strong> Stale action or missing frames force zero velocity.</p>
-          </dd>
-          <dt>Validation</dt>
-          <dd>
-            <pre><code>ros2 launch litevla_bridge dummy_sim.launch.py
-ros2 topic hz /cmd_vel
-ros2 topic echo /litevla/diagnostics --once</code></pre>
-          </dd>
+          <dd>Fixed-rate <code>/cmd_vel</code> with timeouts, mode gating, JSON diagnostics.</dd>
+          <dt>Verification Patterns</dt>
+          <dd><code>test_heartbeat_utils.py</code>; <code>ros2 topic hz /cmd_vel</code>; timeout → STOP.</dd>
         </dl>
       </article>
+
       <article class="task-card" id="story-1016">
         <span class="status-pill">Complete</span>
         <h3>Story 1016: Add manual teleoperation mode</h3>
         <p><a href="manual-teleoperation.html">VLA-28 — task doc</a></p>
         <dl>
           <dt>Intent</dt>
-          <dd>Human keyboard control for testing and dataset capture; overrides dummy when <code>control_mode:=teleop</code>.</dd>
+          <dd>Keyboard override for testing and dataset capture; integrates with heartbeat and JSONL recorder.</dd>
           <dt>Implementation Walkthrough</dt>
           <dd>
             <ul>
-              <li><code>teleop_keyboard.py</code> — TTY keyboard → <code>/litevla/desired_twist</code></li>
-              <li><code>teleop_utils.py</code> — key → discrete action map</li>
-              <li><code>command_recorder.py</code> — JSONL under <code>outputs/teleop/</code></li>
-              <li><code>scripts/run_teleop_sim.sh</code>, <code>scripts/stop_teleop_sim.sh</code> — robust teleop lifecycle</li>
-              <li><code>launch/teleop_sim.launch.py</code>, <code>launch/webots_sim.launch.py</code> (interactive GUI)</li>
-              <li><code>litevla_bridge/webots_launcher.py</code> — drops <code>--batch</code> for teleop</li>
-              <li><code>test/test_teleop_utils.py</code></li>
+              <li><code>teleop_utils.py</code> — game-style holds, key combos, <code>MOVE_BACKWARD</code> label</li>
+              <li><code>teleop_keyboard.py</code> — TTY cbreak, 50 Hz poll → <code>/litevla/desired_twist</code></li>
+              <li><code>run_teleop_sim.sh</code> / <code>stop_teleop_sim.sh</code> — canonical lifecycle (not launch stdin)</li>
+              <li><code>InteractiveWebotsLauncher</code> — GUI camera for teleop</li>
+              <li><code>command_recorder.py</code> — <code>outputs/teleop/*.jsonl</code></li>
             </ul>
-          </dd>
-          <dt>Data And Control Flow</dt>
-          <dd>
-            <pre class="mermaid">
-flowchart LR
-  KB[keyboard] --> TELEOP[teleop_keyboard]
-  TELEOP --> DES[/litevla/desired_twist/]
-  DES --> HB[heartbeat_controller]
-  TELEOP --> REC[command_recorder]
-  REC --> JSONL[outputs/teleop/*.jsonl]
-            </pre>
           </dd>
           <dt>ADR Notes</dt>
           <dd>
-            <p><strong>Keyboard MVP:</strong> Joystick deferred; sufficient for demo and dataset seeds.</p>
-            <p><strong>Game-style keyboard:</strong> 50&nbsp;Hz poll, per-key hold timeouts, <code>s</code> = reverse; combos (<code>w</code>+<code>a</code>) supported. Heartbeat 25&nbsp;Hz / 200&nbsp;ms action timeout for lower latency.</p>
-            <p><strong>Robust teleop:</strong> Wheel-only Webots collision; interactive launch; readiness gates on <code>/clock</code> and controllers before keyboard starts.</p>
+            <p><strong>Shell script owns stdin:</strong> <code>ros2 launch teleop_sim.launch.py</code> is not valid for keyboard driving.</p>
+            <p><strong>Teleop tuning:</strong> 25 Hz heartbeat, 200 ms action timeout, <code>require_frame:=false</code>, 20 s startup grace.</p>
           </dd>
-          <dt>Validation</dt>
+          <dt>Verification Patterns</dt>
           <dd>
-            <pre><code>./ros_ws/scripts/run_teleop_sim.sh
+            <pre><code class="language-bash">./ros_ws/scripts/run_teleop_sim.sh
 ./ros_ws/scripts/stop_teleop_sim.sh
-ros2 launch litevla_bridge full_stack.launch.py control_mode:=dummy
-ls outputs/teleop/*/commands.jsonl</code></pre>
+colcon test --packages-select litevla_bridge</code></pre>
           </dd>
+          <dt>Open Questions</dt>
+          <dd><code>scripts/lib/sim_common.sh</code> is referenced by teleop scripts but excluded by root <code>lib/</code> gitignore — commit or narrow ignore rule.</dd>
         </dl>
       </article>
       </section>
@@ -338,19 +185,26 @@ ls outputs/teleop/*/commands.jsonl</code></pre>
         <div class="adr-grid">
           <article>
             <h3>ADR: MVP simulator is Webots (VLA-115)</h3>
-            <p><strong>Status:</strong> Accepted (revised)</p>
-            <p><strong>Context:</strong> Isaac Sim exceeded team GPU/VRAM; Epic 102 still needs camera + cmd_vel on Jazzy.</p>
-            <p><strong>Decision:</strong> Webots with <code>webots_ros2</code>; <code>mvp_arena.wbt</code> + <code>litevla_robot</code>.</p>
-            <p><strong>Alternatives rejected:</strong> Isaac Sim (GPU); Gazebo deferred; turtlesim dev-only.</p>
-            <p><strong>Consequences:</strong> Aligns with MVP/architecture docs; VLA-23 uses <code>run_webots_mvp.sh</code>.</p>
-            <p><a href="simulator-selection.html">Full comparison doc</a></p>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> Webots + <code>webots_ros2</code>; Isaac Sim rejected (GPU/VRAM).</p>
+            <p><a href="simulator-selection.html">Full comparison</a></p>
+          </article>
+          <article>
+            <h3>ADR: Heartbeat owns /cmd_vel (VLA-27)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> Action sources publish <code>/litevla/desired_twist</code>; heartbeat republishes at fixed rate with timeouts.</p>
+          </article>
+          <article>
+            <h3>ADR: Shell-orchestrated teleop (VLA-28)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> <code>run_teleop_sim.sh</code> foregrounds keyboard node after sim readiness gates.</p>
           </article>
         </div>
       </section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA epic presentation. Update this file as the epic evolves.</p>
+      <p>Lite-VLA · Epic 102 (Jira VLA-3) walkthrough</p>
     </footer>
   </div>
   <script type="module">

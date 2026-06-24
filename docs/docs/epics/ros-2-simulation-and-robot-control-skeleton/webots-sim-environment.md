@@ -1,127 +1,101 @@
 # Webots simulation environment
 
-**Epic:** ROS 2 Simulation and Robot Control Skeleton (102) · **Jira:** VLA-23 / Story 1011 · **Subtasks:** 10034 (world), 10035 / VLA-117 (spawn)
+**Epic:** ROS 2 Simulation and Robot Control Skeleton (102) · **Jira epic:** VLA-3 · **Story:** VLA-23 / 1011 · **Subtasks:** 10034 (world), 10035 / VLA-117 (spawn)
 
 **Human-readable version (browser):** [`webots-sim-environment.html`](webots-sim-environment.html)
 
-GPU-friendly MVP simulation using **Webots** + **`webots_ros2`** (replaces Isaac Sim path).
+## Executive summary
 
-## Intent
+This story delivers the **simulation contract** for Epic 102: a Webots world with a diff-drive `litevla_robot`, onboard camera, and ROS 2 topics `/image_raw` and `/cmd_vel`. `webots_sim.launch.py` wires `webots_ros2_driver`, `ros2_control` spawners, and topic remaps so downstream nodes (camera subscriber, heartbeat, teleop) can assume stable topic names matching `configs/default.example.yaml`.
 
-Launch a bounded arena with a red cube, diff-drive `litevla_robot` with onboard camera, and ROS 2 `/image_raw` + `/cmd_vel` for `litevla_bridge`.
+## API contract and data flow
 
-## Two-part install (important)
-
-Webots integration requires **two separate installs**. Installing only the ROS package is a common mistake.
-
-| Step | Component | Install | Provides |
-|------|-----------|---------|----------|
-| 1 | **ROS 2 bridge** | `sudo apt install ros-jazzy-webots-ros2` | `webots_ros2_driver`, launch helpers, ROS ↔ Webots glue |
-| 2 | **Webots simulator app** | `./ros_ws/scripts/install_webots.sh` | The `webots` binary, physics engine, GUI |
-
-If `run_webots_mvp.sh` prints **"Webots not found in PATH"** but `ros-jazzy-webots-ros2` is already installed, you are missing **step 2**.
-
-### Step 1 — ROS bridge
-
-```bash
-sudo apt install ros-jazzy-webots-ros2
+```text
+mvp_arena.wbt
+    ──> WebotsLauncher (batch) or InteractiveWebotsLauncher (GUI teleop)
+    ──> webots_ros2_driver (litevla_robot)
+            ├── /image_raw/image_color ──remap──> /image_raw
+            ├── diffdrive_controller/cmd_vel ──remap──> /cmd_vel
+            └── /odom
+    ──> controller_manager spawner: joint_state_broadcaster, diffdrive_controller
 ```
 
-### Step 2 — Webots application
+| Contract | Value |
+|----------|-------|
+| World default | `mvp_arena.wbt` |
+| Velocity limits | 0.2 m/s linear, 0.6 rad/s angular (`ros2_control.yml`) |
+| Sim time | `use_sim_time:=true` |
+| Spawn verify | `spawn_verifier` — expects frames on `/image_raw`, motion on `/cmd_vel` (VLA-117) |
 
-From the repository root:
+## Two-part install (critical)
+
+| Step | Component | Install |
+|------|-----------|---------|
+| 1 | ROS bridge | `sudo apt install ros-jazzy-webots-ros2` |
+| 2 | Webots app | `./ros_ws/scripts/install_webots.sh` |
+
+`ros-jazzy-webots-ros2` alone does **not** install the `webots` binary. Verify with `./ros_ws/scripts/find_webots.sh`.
+
+## Implementation breakdown
+
+### World and robot assets
+
+| Path | Responsibility |
+|------|----------------|
+| `worlds/mvp_arena.wbt` | Arena, red cube target, robot spawn |
+| `resource/litevla_robot.urdf` | Camera + diff-drive `ros2_control` interfaces |
+| `resource/ros2_control.yml` | Controller types and velocity limits |
+| `config/webots_sim.yaml` | Topic metadata for bridge nodes |
+
+Wheel-only collision geometry avoids tip-over during teleop sharp turns (VLA-28 follow-up).
+
+### Launch (`webots_sim.launch.py`)
+
+- **Jazzy remapping:** `diffdrive_controller/cmd_vel` → `/cmd_vel` (TwistStamped path).
+- **Interactive mode:** `interactive:=true` selects `InteractiveWebotsLauncher` (drops `--batch`).
+- **Shutdown coupling:** Webots exit triggers ROS shutdown via `OnProcessExit`.
+
+### Operator scripts
 
 ```bash
-./ros_ws/scripts/install_webots.sh
+./ros_ws/scripts/run_webots_mvp.sh          # sim only
+./ros_ws/scripts/run_teleop_sim.sh          # sim + teleop (interactive:=true)
+./ros_ws/scripts/stop_teleop_sim.sh         # clean shutdown
 ```
 
-This downloads [Webots R2025a](https://github.com/cyberbotics/webots/releases/tag/R2025a) (`webots_2025a_amd64.deb`) and installs it with `sudo`.
+## Engineering decisions
 
-**Manual alternative:**
+**ADR: Webots over Isaac Sim**
+
+- **Status:** Accepted (see [simulator-selection.md](simulator-selection.md) VLA-115)
+- **Context:** Isaac Sim exceeded team GPU/VRAM with concurrent VLA inference.
+- **Decision:** Webots + `webots_ros2` on Jazzy; custom `litevla_robot`.
+- **Consequences:** Lower visual fidelity; laptop-friendly loop for Epic 104–108.
+
+## Verification patterns
 
 ```bash
-wget https://github.com/cyberbotics/webots/releases/download/R2025a/webots_2025a_amd64.deb
-sudo apt install ./webots_2025a_amd64.deb
-```
-
-### Verify both are present
-
-```bash
+colcon test --packages-select litevla_bridge   # test_webots_config.py — no Webots required
 ./ros_ws/scripts/find_webots.sh
-# WEBOTS_BIN=/usr/local/webots/webots/bin/webots
-# WEBOTS_HOME=/usr/local/webots
-
-source /opt/ros/jazzy/setup.bash
-ros2 pkg list | grep webots_ros2
-```
-
-## Artifacts
-
-| Path | Purpose |
-|------|---------|
-| `worlds/mvp_arena.wbt` | Arena, red cube, `litevla_robot` + camera |
-| `resource/litevla_robot.urdf` | Camera + diff-drive `ros2_control` |
-| `resource/ros2_control.yml` | Velocity limits (0.2 m/s, 0.6 rad/s) |
-| `config/webots_sim.yaml` | Topic names and world metadata |
-| `launch/webots_sim.launch.py` | Webots + driver + controllers |
-| `scripts/run_webots_mvp.sh` | One-command launch |
-| `scripts/install_webots.sh` | Download and install Webots `.deb` |
-| `scripts/find_webots.sh` | Locate `webots` binary and set `WEBOTS_HOME` |
-| `spawn_verifier` + `verify_spawn.launch.py` | VLA-117 |
-
-## Run
-
-```bash
-source /opt/ros/jazzy/setup.bash
-./ros_ws/scripts/build_ros_ws.sh
-source ros_ws/install/setup.bash
 ./ros_ws/scripts/run_webots_mvp.sh
+ros2 launch litevla_bridge verify_spawn.launch.py   # VLA-117
 ```
 
-## Verify spawn (VLA-117)
-
-Terminal 2 (while Webots is running):
-
-```bash
-source /opt/ros/jazzy/setup.bash
-source ros_ws/install/setup.bash
-ros2 launch litevla_bridge verify_spawn.launch.py
-```
-
-**Pass:** `/image_raw` frames logged; test `/cmd_vel` published; robot moves in Webots.
+| Check | Pass criteria |
+|-------|---------------|
+| `test_webots_config.py` | Launch args, world path, remaps present |
+| `verify_spawn.launch.py` | `/image_raw` frames; robot moves on test `/cmd_vel` |
+| `ros2 topic list` | `/clock`, `/cmd_vel`, `/image_raw` while sim running |
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `Webots not found in PATH` | Simulator app not installed | `./ros_ws/scripts/install_webots.sh` |
-| `ros-jazzy-webots-ros2` installed but script still fails | Same as above — apt package ≠ Webots app | Run step 2 above |
-| No `/image_raw` topics | Driver not started or Webots closed | Re-run `run_webots_mvp.sh`; wait for controller spawners |
-| `/image_raw` missing but `/image_raw/image_color` exists | webots_ros2 naming | Launch remaps `image_color` → `/image_raw` in `webots_sim.launch.py` |
-| `ros2_control.yml` parse error | Controller `type:` must be under `controller_manager.ros__parameters` | See fixed `resource/ros2_control.yml` |
-| `WEBOTS_HOME` warning | Wrong path when `webots` is in `/usr/local/bin` | Run `./ros_ws/scripts/find_webots.sh` (should show `/usr/local/webots`) |
-| `WEBOTS_HOME` errors | Binary not on default path | `eval "$(./ros_ws/scripts/find_webots.sh --export)"` |
-
-## ADR: Webots over Isaac Sim
-
-| Field | Value |
-|-------|--------|
-| **Status** | Accepted |
-| **Context** | Isaac Sim exceeded available GPU/VRAM with inference workload. |
-| **Decision** | Webots + `webots_ros2`; custom `litevla_robot` in `mvp_arena.wbt`. |
-| **Consequences** | Aligns with original MVP/architecture docs; lower visual fidelity than Isaac. |
-
-## Validation
-
-```bash
-colcon test --packages-select litevla_bridge   # test_webots_config.py (no Webots required)
-./ros_ws/scripts/find_webots.sh                # confirms simulator app
-./ros_ws/scripts/run_webots_mvp.sh             # full sim (requires both installs)
-ros2 launch litevla_bridge verify_spawn.launch.py
-```
+| Symptom | Fix |
+|---------|-----|
+| `Webots not found` | `./ros_ws/scripts/install_webots.sh` |
+| No `/image_raw` | Wait for controller spawners; keep Webots window open |
+| Controllers inactive | Re-run after `stop_teleop_sim.sh`; allow up to 120 s |
 
 ## Related
 
 - [simulator-selection.md](simulator-selection.md) (VLA-115)
 - [`../../../../ros_ws/README.md`](../../../../ros_ws/README.md)
-- [`../../../../ros_ws/src/litevla_bridge/worlds/README.md`](../../../../ros_ws/src/litevla_bridge/worlds/README.md)

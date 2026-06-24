@@ -88,8 +88,11 @@ ros2 topic hz /cmd_vel
 Keyboard teleop (VLA-28) — interactive terminal required:
 
 ```bash
-ros2 launch litevla_bridge teleop_sim.launch.py
+./ros_ws/scripts/run_teleop_sim.sh
+./ros_ws/scripts/stop_teleop_sim.sh   # before restart
 ```
+
+Do not use `ros2 launch ... teleop_sim.launch.py` for keyboard driving — launch-managed nodes do not receive interactive stdin. See [manual-teleoperation.md](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md).
 
 Full stack integration demo:
 
