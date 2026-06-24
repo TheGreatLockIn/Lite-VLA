@@ -13,11 +13,15 @@ def generate_launch_description() -> LaunchDescription:
     package_dir = get_package_share_directory("litevla_bridge")
     return LaunchDescription(
         [
-            DeclareLaunchArgument("heartbeat_hz", default_value="10.0"),
+            DeclareLaunchArgument("heartbeat_hz", default_value="25.0"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     PathJoinSubstitution([package_dir, "launch", "webots_sim.launch.py"])
                 ),
+                launch_arguments={
+                    "interactive": "true",
+                    "use_sim_time": "true",
+                }.items(),
             ),
             Node(
                 package="litevla_bridge",
@@ -29,9 +33,11 @@ def generate_launch_description() -> LaunchDescription:
                         "use_sim_time": True,
                         "control_mode": "teleop",
                         "require_frame": False,
+                        "teleop_startup_grace_sec": 20.0,
                         "heartbeat_hz": ParameterValue(
                             LaunchConfiguration("heartbeat_hz"), value_type=float
                         ),
+                        "action_timeout_sec": 0.2,
                     }
                 ],
             ),
@@ -47,7 +53,14 @@ def generate_launch_description() -> LaunchDescription:
                 executable="teleop_keyboard",
                 name="litevla_teleop_keyboard",
                 output="screen",
-                parameters=[{"use_sim_time": True, "control_mode": "teleop"}],
+                parameters=[
+                    {
+                        "use_sim_time": True,
+                        "control_mode": "teleop",
+                        "poll_hz": 50.0,
+                        "hold_sec": 0.12,
+                    }
+                ],
             ),
         ]
     )

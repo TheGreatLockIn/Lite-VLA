@@ -299,7 +299,9 @@ ros2 topic echo /litevla/diagnostics --once</code></pre>
               <li><code>teleop_keyboard.py</code> — TTY keyboard → <code>/litevla/desired_twist</code></li>
               <li><code>teleop_utils.py</code> — key → discrete action map</li>
               <li><code>command_recorder.py</code> — JSONL under <code>outputs/teleop/</code></li>
-              <li><code>launch/teleop_sim.launch.py</code>, <code>launch/full_stack.launch.py</code></li>
+              <li><code>scripts/run_teleop_sim.sh</code>, <code>scripts/stop_teleop_sim.sh</code> — robust teleop lifecycle</li>
+              <li><code>launch/teleop_sim.launch.py</code>, <code>launch/webots_sim.launch.py</code> (interactive GUI)</li>
+              <li><code>litevla_bridge/webots_launcher.py</code> — drops <code>--batch</code> for teleop</li>
               <li><code>test/test_teleop_utils.py</code></li>
             </ul>
           </dd>
@@ -317,11 +319,13 @@ flowchart LR
           <dt>ADR Notes</dt>
           <dd>
             <p><strong>Keyboard MVP:</strong> Joystick deferred; sufficient for demo and dataset seeds.</p>
-            <p><strong>Refresh timer:</strong> Republishes held action so heartbeat action_timeout does not STOP mid-drive.</p>
+            <p><strong>Game-style keyboard:</strong> 50&nbsp;Hz poll, per-key hold timeouts, <code>s</code> = reverse; combos (<code>w</code>+<code>a</code>) supported. Heartbeat 25&nbsp;Hz / 200&nbsp;ms action timeout for lower latency.</p>
+            <p><strong>Robust teleop:</strong> Wheel-only Webots collision; interactive launch; readiness gates on <code>/clock</code> and controllers before keyboard starts.</p>
           </dd>
           <dt>Validation</dt>
           <dd>
-            <pre><code>ros2 launch litevla_bridge teleop_sim.launch.py
+            <pre><code>./ros_ws/scripts/run_teleop_sim.sh
+./ros_ws/scripts/stop_teleop_sim.sh
 ros2 launch litevla_bridge full_stack.launch.py control_mode:=dummy
 ls outputs/teleop/*/commands.jsonl</code></pre>
           </dd>

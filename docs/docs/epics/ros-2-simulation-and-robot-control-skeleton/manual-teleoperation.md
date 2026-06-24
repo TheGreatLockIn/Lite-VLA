@@ -18,18 +18,23 @@ Let a human override dummy/model commands via keyboard; log commands with timest
 | `litevla_bridge/teleop_utils.py` | Key map (`w`/`a`/`d`/`s`/`x`/arrows) |
 | `litevla_bridge/command_recorder.py` | JSONL log under `outputs/teleop/<timestamp>/` |
 | `launch/teleop_sim.launch.py` | Webots + heartbeat + teleop + recorder |
+| `scripts/run_teleop_sim.sh` | **Preferred** one-command teleop (interactive terminal) |
+| `scripts/stop_teleop_sim.sh` | Clean shutdown of Webots + ROS teleop stack |
+| `scripts/lib/sim_common.sh` | Shared readiness checks (`/clock`, controllers, camera) |
 | `launch/full_stack.launch.py` | Epic 102 integration demo (`control_mode` switch) |
 
 ## Key map
 
 | Key | Action |
 |-----|--------|
-| `w` / `↑` | `MOVE_FORWARD` |
-| `a` / `←` | `TURN_LEFT` |
-| `d` / `→` | `TURN_RIGHT` |
-| `s` | `SLOW_DOWN` |
-| `x` / `space` | `STOP` (estop) |
+| `w` / `↑` | Forward |
+| `s` / `↓` | Backward |
+| `a` / `←` | Turn left |
+| `d` / `→` | Turn right |
+| `x` / `space` | Brake (stop) |
 | `q` | Quit |
+
+Game-style: hold keys to drive; release to coast to a stop (~120 ms). `w`+`a` drives forward while turning.
 
 ## Control modes
 
@@ -42,25 +47,38 @@ Let a human override dummy/model commands via keyboard; log commands with timest
 ## Run
 
 ```bash
+source /opt/ros/jazzy/setup.bash
 source ros_ws/install/setup.bash
 
 # Teleop in Webots (interactive terminal required)
 ./ros_ws/scripts/run_teleop_sim.sh
 
+# Stop a previous session before restarting
+./ros_ws/scripts/stop_teleop_sim.sh
+
 # Full stack demo (dummy mode + camera)
 ros2 launch litevla_bridge full_stack.launch.py control_mode:=dummy
 ```
 
-`run_teleop_sim.sh` starts Webots, heartbeat, and command recording in the
-background, then runs `teleop_keyboard` in the foreground so `w`/`a`/`d` are read
-from the active terminal. Do not use `ros2 launch ... teleop_sim.launch.py` for
-keyboard driving because launch-managed nodes do not receive interactive stdin.
+`run_teleop_sim.sh`:
 
-**Teleop only** (sim already running):
+1. Stops stale Webots/ROS processes from a prior run
+2. Launches Webots in **interactive** mode (GUI camera follows the robot)
+3. Waits for `/clock`, active `joint_state_broadcaster` + `diffdrive_controller`, and `/image_raw`
+4. Starts heartbeat + command recorder, then `teleop_keyboard` in the **foreground**
+
+Do not use `ros2 launch ... teleop_sim.launch.py` for keyboard driving — launch-managed
+nodes do not receive interactive stdin.
+
+**Teleop only** (sim already running with active controllers):
 
 ```bash
-ros2 run litevla_bridge teleop_keyboard --ros-args -p control_mode:=teleop
-ros2 run litevla_bridge command_recorder
+ros2 run litevla_bridge heartbeat_controller --ros-args \
+  -p use_sim_time:=true -p control_mode:=teleop -p require_frame:=false
+ros2 run litevla_bridge teleop_keyboard --ros-args \
+  -p use_sim_time:=true -p control_mode:=teleop
+ros2 run litevla_bridge command_recorder --ros-args \
+  -p use_sim_time:=true -p enabled:=true -p source:=teleop
 ```
 
 ## Command log format

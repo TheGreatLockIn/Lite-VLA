@@ -1,0 +1,194 @@
+/* Lite-VLA — editor-style code blocks (Prism token theme + panel chrome) */
+
+.code-panel {
+  margin: var(--space-md) 0 var(--space-lg);
+  border: 1px solid #2d2d2d;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(44, 40, 37, 0.08);
+}
+
+.code-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 0.45rem 0.75rem;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.code-panel-lang {
+  color: #cccccc;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.code-panel-dots {
+  display: flex;
+  gap: 0.35rem;
+  margin-right: auto;
+  margin-left: 0.5rem;
+}
+
+.code-panel-dots span {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #3c3c3c;
+}
+
+.code-panel-dots span:nth-child(1) {
+  background: #ff5f57;
+}
+
+.code-panel-dots span:nth-child(2) {
+  background: #febc2e;
+}
+
+.code-panel-dots span:nth-child(3) {
+  background: #28c840;
+}
+
+.code-copy-btn {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #3c3c3c;
+  border-radius: 0.25rem;
+  background: #2d2d2d;
+  color: #cccccc;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.code-copy-btn:hover,
+.code-copy-btn:focus {
+  background: #3c3c3c;
+  border-color: #4f4f4f;
+  color: #ffffff;
+}
+
+.code-copy-btn.copied {
+  border-color: #28c840;
+  color: #28c840;
+}
+
+.code-panel pre {
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: #1e1e1e;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.code-panel pre code {
+  display: block;
+  padding: 1rem 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  tab-size: 4;
+  color: #d4d4d4;
+  background: transparent;
+}
+
+/* Prism tokens — VS Code Dark+ inspired */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #6a9955;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: #d4d4d4;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #b5cea8;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #ce9178;
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: #d4d4d4;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #569cd6;
+}
+
+.token.function,
+.token.class-name {
+  color: #dcdcaa;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #d16969;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+/* Diff highlight plugin */
+.token.coord {
+  color: #9cdcfe;
+}
+
+.token.deleted:not(.prefix) {
+  background: rgba(244, 71, 71, 0.18);
+}
+
+.token.inserted:not(.prefix) {
+  background: rgba(40, 200, 64, 0.18);
+}
+
+.prefix.deleted,
+.prefix.inserted {
+  color: #808080;
+  user-select: none;
+}
+
+/* Line numbers (optional plugin) */
+.code-panel .line-numbers .line-numbers-rows {
+  border-right: 1px solid #3c3c3c;
+}
+
+.code-panel .line-numbers-rows > span:before {
+  color: #858585;
+}

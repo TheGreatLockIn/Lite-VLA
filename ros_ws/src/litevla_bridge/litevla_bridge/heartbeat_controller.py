@@ -39,6 +39,7 @@ class HeartbeatController(Node):
         self.declare_parameter("max_angular_vel", 0.6)
         self.declare_parameter("require_frame", True)
         self.declare_parameter("control_mode", "dummy")
+        self.declare_parameter("teleop_startup_grace_sec", 0.0)
 
         self._heartbeat_hz = float(self.get_parameter("heartbeat_hz").value)
         if self._heartbeat_hz <= 0:
@@ -48,6 +49,7 @@ class HeartbeatController(Node):
         self._frame_timeout = float(self.get_parameter("frame_timeout_sec").value)
         self._require_frame = bool(self.get_parameter("require_frame").value)
         self._control_mode = str(self.get_parameter("control_mode").value)
+        self._teleop_grace = float(self.get_parameter("teleop_startup_grace_sec").value)
 
         self._desired_linear = 0.0
         self._desired_angular = 0.0
@@ -57,6 +59,7 @@ class HeartbeatController(Node):
         self._last_publish_stamp = ""
         self._timed_out = True
         self._warned_no_teleop = False
+        self._started_at = self._now()
 
         self._cmd_vel = CmdVelPublisher(
             self,
@@ -141,6 +144,7 @@ class HeartbeatController(Node):
             self._control_mode == "teleop"
             and action_age is None
             and not self._warned_no_teleop
+            and (now - self._started_at) >= self._teleop_grace
         ):
             self._warned_no_teleop = True
             self.get_logger().error(

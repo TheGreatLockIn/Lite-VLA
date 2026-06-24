@@ -24,6 +24,14 @@ def test_mvp_arena_world_exists() -> None:
     assert "PositionSensor" in text
 
 
+def test_mvp_arena_robot_uses_wheel_contact_only() -> None:
+    text = _world_path().read_text(encoding="utf-8")
+    robot_block = text[text.rindex("Robot {") :]
+    assert "maxTorque 0.2" in robot_block
+    assert 'contactMaterial "wheel"' in robot_block
+    assert "  boundingObject Box" not in robot_block
+
+
 def _urdf_path() -> Path:
     return Path(__file__).resolve().parent.parent / "resource" / "litevla_robot.urdf"
 

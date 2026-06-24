@@ -86,36 +86,26 @@ def _launch_setup(context: LaunchContext) -> list[launch.Action]:
         respawn=True,
     )
 
-    controller_manager_timeout = ["--controller-manager-timeout", "120"]
     prefix = "python.exe" if os.name == "nt" else ""
-
-    joint_state_broadcaster_spawner = Node(
+    controllers_spawner = Node(
         package="controller_manager",
         executable="spawner",
         output="screen",
         prefix=prefix,
-        arguments=["joint_state_broadcaster"] + controller_manager_timeout,
-        parameters=[{"use_sim_time": use_sim_time}],
-    )
-    diffdrive_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        output="screen",
-        prefix=prefix,
-        arguments=["diffdrive_controller"] + controller_manager_timeout,
+        arguments=[
+            "joint_state_broadcaster",
+            "diffdrive_controller",
+            "--controller-manager-timeout",
+            "120",
+            "--switch-timeout",
+            "30",
+        ],
         parameters=[{"use_sim_time": use_sim_time}],
     )
 
     waiting_nodes = WaitForControllerConnection(
         target_driver=robot_driver,
-        nodes_to_start=[joint_state_broadcaster_spawner],
-    )
-
-    spawn_diffdrive_after_joint = RegisterEventHandler(
-        event_handler=OnProcessExit(
-            target_action=joint_state_broadcaster_spawner,
-            on_exit=[diffdrive_controller_spawner],
-        )
+        nodes_to_start=[controllers_spawner],
     )
 
     shutdown_on_webots_exit = RegisterEventHandler(
@@ -132,7 +122,6 @@ def _launch_setup(context: LaunchContext) -> list[launch.Action]:
         robot_state_publisher,
         robot_driver,
         waiting_nodes,
-        spawn_diffdrive_after_joint,
         shutdown_on_webots_exit,
     ]
 

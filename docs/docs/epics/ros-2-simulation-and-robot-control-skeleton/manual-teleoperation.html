@@ -17,8 +17,27 @@
     <main>
       <section id="run">
         <h2>Run</h2>
-        <pre><code>./ros_ws/scripts/run_teleop_sim.sh</code></pre>
-        <p>Requires an interactive terminal (TTY) for keyboard input. The wrapper starts Webots, heartbeat, and command recording in the background, then keeps <code>teleop_keyboard</code> in the foreground so <code>w</code>/<code>a</code>/<code>d</code> reach the node.</p>
+        <pre><code>source /opt/ros/jazzy/setup.bash
+source ros_ws/install/setup.bash
+./ros_ws/scripts/run_teleop_sim.sh</code></pre>
+        <p>Requires an interactive terminal (TTY). The script stops stale processes, launches Webots in interactive mode, waits for <code>/clock</code> and active diff-drive controllers, then starts heartbeat + recorder and keeps <code>teleop_keyboard</code> in the foreground.</p>
+        <pre><code>./ros_ws/scripts/stop_teleop_sim.sh</code></pre>
+        <p>Use <code>stop_teleop_sim.sh</code> before restarting if a previous session left Webots or ROS nodes running.</p>
+      </section>
+      <section id="keys">
+        <h2>Key map (game-style)</h2>
+        <table>
+          <thead><tr><th>Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><code>w</code> / <code>↑</code></td><td>Drive forward</td></tr>
+            <tr><td><code>s</code> / <code>↓</code></td><td>Drive backward</td></tr>
+            <tr><td><code>a</code> / <code>←</code></td><td>Turn left</td></tr>
+            <tr><td><code>d</code> / <code>→</code></td><td>Turn right</td></tr>
+            <tr><td><code>x</code> / space</td><td>Brake</td></tr>
+            <tr><td><code>q</code></td><td>Quit</td></tr>
+          </tbody>
+        </table>
+        <p>Hold keys to drive; release to stop within ~120&nbsp;ms. Combine <code>w</code>+<code>a</code> to arc turn. ML <code>SLOW_DOWN</code> remains model-only; teleop <code>s</code> is full reverse.</p>
       </section>
     </main>
     <footer class="doc-footer">
