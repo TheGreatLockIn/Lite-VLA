@@ -24,6 +24,7 @@ setup(
                 "launch/heartbeat.launch.py",
                 "launch/full_stack.launch.py",
                 "launch/teleop_sim.launch.py",
+                "launch/reference_capture.launch.py",
             ],
         ),
         ("share/" + package_name + "/worlds", ["worlds/mvp_arena.wbt"]),
@@ -50,6 +51,7 @@ setup(
             "heartbeat_controller = litevla_bridge.heartbeat_controller:main",
             "teleop_keyboard = litevla_bridge.teleop_keyboard:main",
             "command_recorder = litevla_bridge.command_recorder:main",
+            "reference_frame_capture = litevla_bridge.reference_frame_capture:main",
         ],
     },
 )

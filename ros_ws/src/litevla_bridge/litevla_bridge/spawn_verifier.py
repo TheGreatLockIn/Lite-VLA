@@ -6,10 +6,11 @@ import sys
 import time
 
 import rclpy
-from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
+
+from litevla_bridge.cmd_vel_publisher import CmdVelPublisher
 
 
 class SpawnVerifier(Node):
@@ -26,7 +27,7 @@ class SpawnVerifier(Node):
         self._publish_test = bool(self.get_parameter("publish_test_cmd").value)
 
         self._image_seen = False
-        self._cmd_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
+        self._cmd_vel = CmdVelPublisher(self, cmd_vel_topic=str(self._cmd_vel_topic))
         self.create_subscription(Image, self._image_topic, self._on_image, qos_profile_sensor_data)
 
         self.get_logger().info(
@@ -55,12 +56,10 @@ class SpawnVerifier(Node):
             return 1
 
         if self._publish_test:
-            twist = Twist()
-            twist.linear.x = 0.1
-            self._cmd_pub.publish(twist)
+            self._cmd_vel.publish_twist(0.1, 0.0)
             self.get_logger().info(f"Published test forward cmd on {self._cmd_vel_topic}")
             time.sleep(0.5)
-            self._cmd_pub.publish(Twist())
+            self._cmd_vel.publish_stop()
             self.get_logger().info("Published stop — check litevla_robot motion in Webots")
 
         self.get_logger().info("Spawn verification passed (camera + cmd_vel publish).")

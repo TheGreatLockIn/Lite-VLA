@@ -2,6 +2,7 @@
 
 from litevla_bridge.heartbeat_utils import (
     build_diagnostics,
+    format_age_ms,
     is_timed_out,
     select_velocities,
 )
@@ -31,6 +32,11 @@ def test_is_not_timed_out_when_fresh() -> None:
         action_timeout_sec=0.5,
         frame_timeout_sec=2.0,
     )
+
+
+def test_format_age_ms_handles_none() -> None:
+    assert format_age_ms(None) == "n/a"
+    assert format_age_ms(0.0123) == "12.3"
 
 
 def test_build_diagnostics_payload() -> None:

@@ -15,6 +15,7 @@ from litevla_bridge.action_schema import DiscreteAction
 from litevla_bridge.cmd_vel_publisher import CmdVelPublisher
 from litevla_bridge.heartbeat_utils import (
     build_diagnostics,
+    format_age_ms,
     is_timed_out,
     seconds_since,
     select_velocities,
@@ -55,6 +56,7 @@ class HeartbeatController(Node):
         self._last_frame_time: float | None = None
         self._last_publish_stamp = ""
         self._timed_out = True
+        self._warned_no_teleop = False
 
         self._cmd_vel = CmdVelPublisher(
             self,
@@ -135,11 +137,22 @@ class HeartbeatController(Node):
         now = self._now()
         action_age = seconds_since(self._last_action_time, now)
         frame_age = seconds_since(self._last_frame_time, now)
+        if (
+            self._control_mode == "teleop"
+            and action_age is None
+            and not self._warned_no_teleop
+        ):
+            self._warned_no_teleop = True
+            self.get_logger().error(
+                "No teleop commands received (action_age=n/a). "
+                "teleop_keyboard is idle or not in an interactive terminal — "
+                "run ./ros_ws/scripts/run_teleop_sim.sh from GNOME Terminal / Konsole."
+            )
         self.get_logger().info(
             f"heartbeat health timed_out={self._timed_out} "
             f"action={self._current_action} "
-            f"action_age_ms={None if action_age is None else action_age * 1000.0:.1f} "
-            f"frame_age_ms={None if frame_age is None else frame_age * 1000.0:.1f}",
+            f"action_age_ms={format_age_ms(action_age)} "
+            f"frame_age_ms={format_age_ms(frame_age)}",
             throttle_duration_sec=1.0,
         )
 

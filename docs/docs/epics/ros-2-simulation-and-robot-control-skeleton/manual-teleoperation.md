@@ -45,11 +45,16 @@ Let a human override dummy/model commands via keyboard; log commands with timest
 source ros_ws/install/setup.bash
 
 # Teleop in Webots (interactive terminal required)
-ros2 launch litevla_bridge teleop_sim.launch.py
+./ros_ws/scripts/run_teleop_sim.sh
 
 # Full stack demo (dummy mode + camera)
 ros2 launch litevla_bridge full_stack.launch.py control_mode:=dummy
 ```
+
+`run_teleop_sim.sh` starts Webots, heartbeat, and command recording in the
+background, then runs `teleop_keyboard` in the foreground so `w`/`a`/`d` are read
+from the active terminal. Do not use `ros2 launch ... teleop_sim.launch.py` for
+keyboard driving because launch-managed nodes do not receive interactive stdin.
 
 **Teleop only** (sim already running):
 

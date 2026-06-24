@@ -8,8 +8,10 @@ WorldInfo {
   basicTimeStep 16
 }
 Viewpoint {
-  orientation 0.35 -0.35 -0.85 1.4
-  position 2.8 1.5 2.5
+  orientation 0.2 -0.2 -0.95 1.2
+  position 0.8 0.6 0.35
+  follow "litevla_robot"
+  followType "Follow Behind"
 }
 TexturedBackground {
 }
@@ -66,6 +68,9 @@ Robot {
           name "left wheel motor"
           maxVelocity 10
         }
+        PositionSensor {
+          name "left wheel motor sensor"
+        }
       ]
       endPoint Solid {
         translation 0 0.03 0
@@ -102,6 +107,9 @@ Robot {
           name "right wheel motor"
           maxVelocity 10
         }
+        PositionSensor {
+          name "right wheel motor sensor"
+        }
       ]
       endPoint Solid {
         translation 0 -0.03 0
@@ -132,8 +140,8 @@ Robot {
       translation 0.06 0 0.03
       rotation 0 1 0 0
       name "camera"
-      width 320
-      height 240
+      width 640
+      height 480
       fieldOfView 1.2
     }
   ]

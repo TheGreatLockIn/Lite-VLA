@@ -26,7 +26,9 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[
                     {
+                        "use_sim_time": True,
                         "control_mode": "teleop",
+                        "require_frame": False,
                         "heartbeat_hz": ParameterValue(
                             LaunchConfiguration("heartbeat_hz"), value_type=float
                         ),
@@ -38,14 +40,14 @@ def generate_launch_description() -> LaunchDescription:
                 executable="command_recorder",
                 name="litevla_command_recorder",
                 output="screen",
-                parameters=[{"enabled": True, "source": "teleop"}],
+                parameters=[{"use_sim_time": True, "enabled": True, "source": "teleop"}],
             ),
             Node(
                 package="litevla_bridge",
                 executable="teleop_keyboard",
                 name="litevla_teleop_keyboard",
                 output="screen",
-                parameters=[{"control_mode": "teleop"}],
+                parameters=[{"use_sim_time": True, "control_mode": "teleop"}],
             ),
         ]
     )

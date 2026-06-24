@@ -17,8 +17,8 @@
     <main>
       <section id="run">
         <h2>Run</h2>
-        <pre><code>ros2 launch litevla_bridge teleop_sim.launch.py</code></pre>
-        <p>Requires an interactive terminal (TTY) for keyboard input.</p>
+        <pre><code>./ros_ws/scripts/run_teleop_sim.sh</code></pre>
+        <p>Requires an interactive terminal (TTY) for keyboard input. The wrapper starts Webots, heartbeat, and command recording in the background, then keeps <code>teleop_keyboard</code> in the foreground so <code>w</code>/<code>a</code>/<code>d</code> reach the node.</p>
       </section>
     </main>
     <footer class="doc-footer">
