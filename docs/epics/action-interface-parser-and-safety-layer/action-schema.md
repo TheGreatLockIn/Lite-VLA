@@ -251,6 +251,7 @@ python scripts/run_dummy_pipeline.py
 
 ## Related docs
 
+- Parser (noisy VLA text): [`discrete-action-parser.md`](discrete-action-parser.md)
 - Epic walkthrough: [`index.html`](index.html)
 - MVP acceptance criteria: [`../../mvp_definition.md`](../../mvp_definition.md)
 - Architecture overview: [`../../architecture_summary.md`](../../architecture_summary.md)

@@ -42,7 +42,7 @@ flowchart TD
   VLA --> P --> S --> G --> M --> CV
   G --> CV
         </pre>
-        <p><strong>Implemented today:</strong> Story 1017 (<code>litevla.actions</code>). <strong>Planned:</strong> parser, JSON path, safety gate, smoothing.</p>
+        <p><strong>Implemented today:</strong> Stories 1017 and 1019 (<code>litevla.actions</code>). <strong>Planned:</strong> JSON path, safety gate, smoothing.</p>
       </section>
 
       <section id="stories">
@@ -137,21 +137,56 @@ python scripts/run_dummy_pipeline.py</code></pre>
         </dl>
       </article>
       <article class="task-card" id="story-1019">
-        <span class="status-pill">Planned</span>
+        <span class="status-pill">Complete</span>
         <h3>Story 1019: Implement discrete action parser</h3>
         <dl>
           <dt>Intent</dt>
           <dd>Extract a valid <code>DiscreteAction</code> token from noisy VLA text (whitespace, punctuation, lowercase variants) before calling <code>action_to_twist</code>.</dd>
-          <dt>Planned scope</dt>
-          <dd>
-            <p>Implement <code>parse_discrete_action(text) -&gt; DiscreteAction | None</code> (exact name TBD) with normalization rules and unit tests for valid, invalid, and noisy outputs. On failure, return <code>None</code> or raise — Story 1021 will map failures to <code>STOP</code> at the safety gate.</p>
-            <p><strong>Upstream:</strong> raw model string from inference node.</p>
-            <p><strong>Downstream:</strong> <code>litevla.actions.action_to_twist</code> (Story 1017), then safety gate (Story 1021).</p>
-          </dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not started. See <a href="action-schema.html">action schema doc</a> for the vocabulary this parser must recognize.</dd>
+          <dd>
+            <p>Full walkthrough: <a href="discrete-action-parser.html">Discrete action parser</a> (<code>discrete-action-parser.md</code> for agents).</p>
+
+            <p><strong>Normalization (10058)</strong> — <code>normalize_action_text</code> and
+            <code>_strip_trailing_punctuation</code> in <code>litevla/actions/parser.py</code>.
+            <em>Design:</em> strip, uppercase, trim trailing <code>.</code>/<code>!</code> on whole-string candidates.
+            <em>Risk:</em> leading punctuation relies on regex fallback.</p>
+
+            <p><strong>Parser (10057)</strong> — <code>parse_discrete_action(text) -&gt; DiscreteAction | None</code>.
+            Exact match fast path, then <code>_ACTION_TOKEN_PATTERN</code> word-boundary search built from
+            <code>ACTION_NAMES</code>.
+            <em>Design:</em> returns <code>None</code> on failure; Story 1021 maps to <code>STOP</code>.
+            <em>Risk:</em> multiple tokens return first match only.</p>
+
+            <p><strong>Tests (10059)</strong> — <code>tests/test_action_parser.py</code> covers exact,
+            noisy, invalid, and multi-token inputs.</p>
+          </dd>
+          <dt>Data And Control Flow</dt>
+          <dd>
+            <pre><code class="language-text">VLA text ──> parse_discrete_action ──> DiscreteAction | None ──> action_to_twist / safety gate</code></pre>
+            <p>
+              <strong>Contract:</strong> raw string in; known token or <code>None</code> out.
+              <strong>Invariant:</strong> vocabulary matches Story 1017; no aliases.
+              <strong>Trade-off:</strong> fail reporting here; fail-safe publishing deferred to 1021.
+            </p>
+          </dd>
+          <dt>ADR Notes</dt>
+          <dd>
+            <p><strong>ADR: Return None on parse failure</strong> — Accepted. Safety gate owns
+            <code>STOP</code> fallback (RSK-02). Rejected raising in parser and returning
+            <code>STOP</code> directly.</p>
+          </dd>
           <dt>Verification Patterns</dt>
-          <dd class="update-note">Not run — story not implemented.</dd>
+          <dd>
+            <pre><code class="language-bash">pytest tests/test_action_parser.py -q</code></pre>
+            <p>Contracts: exact tokens, normalized noise, invalid/alias rejection, first embedded token wins.</p>
+          </dd>
+          <dt>Open Questions</dt>
+          <dd>
+            <ul>
+              <li>Prefer last token when model revises mid-string (Story 1028)?</li>
+              <li>Log parse failures for baseline eval (Story 1027)?</li>
+            </ul>
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1020">

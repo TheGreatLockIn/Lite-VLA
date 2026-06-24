@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discrete action parser — Epic 103</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 103 · Story 1019</p>
+      <h1>Discrete action parser</h1>
+      <p class="doc-lead">
+        Extract a <code>DiscreteAction</code> from noisy VLA model text before velocity mapping.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          <code>litevla.actions.parser</code> extracts a <strong><code>DiscreteAction</code></strong>
+          from noisy VLA model text before velocity mapping. It owns normalization (whitespace, case,
+          trailing punctuation) and token discovery in longer strings. It does <strong>not</strong> map
+          failures to <code>STOP</code> — Story 1021's safety gate handles that.
+        </p>
+        <p>
+          Subtasks covered: <strong>10057</strong> (parser function), <strong>10058</strong> (normalization),
+          <strong>10059</strong> (unit tests).
+        </p>
+      </section>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+
+        <h3>Task-local flow</h3>
+        <pre><code class="language-text">VLA raw text
+        │
+        ├──&gt; normalize_action_text (strip, uppercase)
+        │
+        ├──&gt; exact token match (after trailing-punctuation trim)
+        │         or regex search for ACTION_NAMES token
+        │
+        └──&gt; DiscreteAction | None  ──&gt; action_to_twist (1017) / safety gate (1021)</code></pre>
+
+        <h3>Contract</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Input</strong></td><td>Raw model string (may include whitespace, punctuation, prose)</td></tr>
+              <tr><td><strong>Output</strong></td><td><code>DiscreteAction</code> when a known token is found; <code>None</code> otherwise</td></tr>
+              <tr><td><strong>Vocabulary</strong></td><td>Exact tokens from Story 1017 — no aliases (<code>FORWARD</code>, <code>GO</code>)</td></tr>
+              <tr><td><strong>Multi-token text</strong></td><td>First embedded token wins (left-to-right search)</td></tr>
+              <tr><td><strong>Errors</strong></td><td>Returns <code>None</code> on empty, whitespace-only, or unrecognized text</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Normalization (Subtask 10058)</h3>
+        <pre><code class="language-python">def normalize_action_text(text: str) -&gt; str:
+    return text.strip().upper()
+
+def _strip_trailing_punctuation(token: str) -&gt; str:
+    return _TRAILING_PUNCTUATION.sub("", token)</code></pre>
+        <p><strong>Design notes:</strong> Outer whitespace and case are normalized before comparison. Trailing punctuation is stripped from whole-string candidates.</p>
+
+        <h3>Parser function (Subtask 10057)</h3>
+        <pre><code class="language-python">def parse_discrete_action(text: str) -&gt; DiscreteAction | None:
+    if not text or not text.strip():
+        return None
+
+    normalized = normalize_action_text(text)
+    exact_candidate = _strip_trailing_punctuation(normalized)
+    if is_valid_action(exact_candidate):
+        return DiscreteAction(exact_candidate)
+
+    match = _ACTION_TOKEN_PATTERN.search(text)
+    if match is None:
+        return None
+
+    return DiscreteAction(match.group(1).upper())</code></pre>
+        <p><strong>Design notes:</strong> Fast path for token-only outputs; regex with word boundaries for prose-wrapped tokens. Pattern is built from <code>ACTION_NAMES</code>.</p>
+        <p><strong>Risks:</strong> Multiple tokens return the first match only. <code>FORWARD</code> alone stays invalid.</p>
+      </section>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <pre><code class="language-text">ADR: Return None on parse failure
+Status: Accepted
+Context: MVP requires deterministic handling of malformed VLA text (RSK-02).
+Decision: Parser returns None; Story 1021 maps None/invalid to STOP at publish time.
+Alternatives Rejected: Raising ValueError; returning STOP directly from parser.
+Consequences: Callers must check for None or delegate to safety gate.</code></pre>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Contract defended</th><th scope="col">Where</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>All five tokens parse exactly</td><td><code>test_parse_exact_valid_actions</code></td></tr>
+              <tr><td>Whitespace, case, punctuation tolerated</td><td><code>test_parse_normalized_and_noisy_outputs</code></td></tr>
+              <tr><td>Aliases and prose without tokens → None</td><td><code>test_parse_invalid_outputs_return_none</code></td></tr>
+              <tr><td>First embedded token wins</td><td><code>test_parse_returns_first_embedded_token</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre><code class="language-bash">pytest tests/test_action_parser.py -q</code></pre>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li>Should Story 1028 prefer last token when the model revises its answer mid-string?</li>
+          <li>Should <code>parse_discrete_action</code> log parse failures for baseline evaluation (Story 1027)?</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 103 · <code>discrete-action-parser.md</code> is the agent source of truth.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

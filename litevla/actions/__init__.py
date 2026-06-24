@@ -1,5 +1,6 @@
 """Discrete action vocabulary and velocity mapping for Lite-VLA."""
 
+from litevla.actions.parser import normalize_action_text, parse_discrete_action
 from litevla.actions.schema import (
     ACTION_NAMES,
     ACTION_VELOCITIES,
@@ -24,4 +25,6 @@ __all__ = [
     "action_to_twist",
     "clamp_velocity",
     "is_valid_action",
+    "normalize_action_text",
+    "parse_discrete_action",
 ]
