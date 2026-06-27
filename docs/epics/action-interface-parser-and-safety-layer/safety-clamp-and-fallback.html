@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Safety clamp and fallback — Epic 103</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 103 · Story 1021</p>
+      <h1>Safety clamp and fallback behavior</h1>
+      <p class="doc-lead">
+        Fail-safe boundary between VLA model text and bounded <code>/cmd_vel</code> publishing.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#learning">Learning</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          <code>litevla.actions.safety</code> is the <strong>fail-safe boundary</strong> between VLA model text
+          and ROS <code>/cmd_vel</code> publishing. It composes the discrete parser (Story 1019) and velocity
+          mapper (Story 1017), clamps every command to configured limits, converts parse failures into
+          zero-velocity <code>STOP</code>, and logs safety events with the original model output.
+        </p>
+        <p>
+          Subtasks covered: <strong>10063</strong> (velocity clamp), <strong>10064</strong> (invalid-output STOP),
+          <strong>10065</strong> (safety event logging), <strong>10252</strong> and <strong>10253</strong> (learning).
+        </p>
+      </section>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+
+        <h3>Task-local flow</h3>
+        <pre><code class="language-text">VLA raw text
+        │
+        ├──&gt; parse_discrete_action (1019) ──&gt; DiscreteAction | None
+        │
+        ├──&gt; None? ──&gt; STOP (0.0, 0.0) + PARSE_FAILURE event
+        │
+        └──&gt; action_to_twist (1017) ──&gt; clamp check ──&gt; SafeCommand
+                                                    │
+                                                    └──&gt; /cmd_vel (1022 smoother optional)</code></pre>
+
+        <h3>Contract</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Input</strong></td><td>Raw VLA text string, or a known <code>DiscreteAction</code></td></tr>
+              <tr><td><strong>Output</strong></td><td><code>SafeCommand</code> with clamped velocities, effective action, and event trail</td></tr>
+              <tr><td><strong>Parse failure</strong></td><td>Publishes <code>STOP</code> at <code>(0.0, 0.0)</code> — never raises</td></tr>
+              <tr><td><strong>Velocity limits</strong></td><td>Config <code>safety.max_linear_vel</code> / <code>safety.max_angular_vel</code></td></tr>
+              <tr><td><strong>Logging</strong></td><td>WARNING on parse failure and clamp; DEBUG on OK</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="learning">
+        <h2>Learning notes</h2>
+
+        <h3>Subtask 10252 — Velocity clamping and operational limits</h3>
+        <p><strong>Why clamp?</strong> Nominal discrete speeds or future continuous outputs must never exceed deployment ceilings.</p>
+        <ul>
+          <li><strong>Per-axis clamping</strong> — <code>clamp_velocity</code> maps each axis into <code>[-limit, limit]</code>.</li>
+          <li><strong>Nominal vs. config limits</strong> — <code>ACTION_VELOCITIES</code> is stable for training; config tightens deploy limits.</li>
+          <li><strong>Detection</strong> — <code>VELOCITY_CLAMPED</code> events when nominal values exceed config (RSK-04).</li>
+        </ul>
+        <p>MVP limits: linear ≤ 0.2 m/s, angular ≤ 0.6 rad/s at full design point.</p>
+
+        <h3>Subtask 10253 — Fail-safe fallback and safety event logging</h3>
+        <p><strong>Why fallback STOP?</strong> VLMs can emit conversational text instead of action tokens (RSK-02).</p>
+        <ul>
+          <li><strong>Fail-report vs. fail-safe</strong> — parser returns <code>None</code>; safety gate publishes <code>STOP</code>.</li>
+          <li><strong>Safety events</strong> — <code>SafetyEventKind</code>: <code>ok</code>, <code>parse_failure</code>, <code>velocity_clamped</code>.</li>
+          <li><strong>Logging levels</strong> — WARNING for failures/clamps with original text; DEBUG for OK.</li>
+        </ul>
+        <p>ROS nodes should call <code>safe_command_from_text</code> before publishing <code>Twist</code>.</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Velocity clamp (Subtask 10063)</h3>
+        <pre><code class="language-python">def clamp_twist_velocities(
+    linear_x: float,
+    angular_z: float,
+    *,
+    max_linear_vel: float,
+    max_angular_vel: float,
+) -&gt; tuple[float, float, bool]:
+    clamped_linear = clamp_velocity(linear_x, max_linear_vel)
+    clamped_angular = clamp_velocity(angular_z, max_angular_vel)
+    was_clamped = clamped_linear != linear_x or clamped_angular != angular_z
+    return clamped_linear, clamped_angular, was_clamped</code></pre>
+        <p><strong>Design:</strong> Reuses Story 1017 <code>clamp_velocity</code>. Standalone helper for future JSON/continuous paths.</p>
+
+        <h3>Invalid-output STOP (Subtask 10064)</h3>
+        <pre><code class="language-python">parsed = parse_discrete_action(text)
+if parsed is None:
+    return SafeCommand(
+        linear_x=0.0,
+        angular_z=0.0,
+        action=DiscreteAction.STOP,
+        original_text=text,
+        events=(SafetyEvent(kind=SafetyEventKind.PARSE_FAILURE, ...),),
+    )</code></pre>
+        <p><strong>Design:</strong> Never raises. Every path returns a bounded <code>SafeCommand</code>.</p>
+
+        <h3>Safety event logging (Subtask 10065)</h3>
+        <pre><code class="language-python">def _log_event(event: SafetyEvent, *, logger: logging.Logger) -&gt; None:
+    if event.kind is SafetyEventKind.OK:
+        logger.debug(event.message)
+        return
+    detail = f"{event.message} (original_text={event.original_text!r})"
+    logger.warning(detail)</code></pre>
+        <p><strong>Design:</strong> Structured <code>SafeCommand.events</code> for tests; <code>logging</code> for live nodes.</p>
+
+        <h3>Integration</h3>
+        <p><code>scripts/run_dummy_pipeline.py</code> uses <code>safe_command_from_action</code> for known tokens and demonstrates invalid-text fallback.</p>
+      </section>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <pre><code class="language-text">ADR: Central safety gate for discrete MVP
+Status: Accepted
+Context: Parser reports failure; schema fail-fast; ROS needs fail-safe publishing (RSK-02, RSK-04).
+Decision: safe_command_from_text / safe_command_from_action in litevla.actions.safety.
+Alternatives Rejected: STOP inside parser; try/except at every call site.
+Consequences: Route all model text through the safety gate before /cmd_vel.</code></pre>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Contract</th><th scope="col">Test</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Axis clamp within/outside limits</td><td><code>test_clamp_twist_velocities_*</code></td></tr>
+              <tr><td>Valid text → action + velocity</td><td><code>test_safe_command_from_text_valid_outputs</code></td></tr>
+              <tr><td>Invalid text → STOP</td><td><code>test_safe_command_from_text_invalid_outputs_stop</code></td></tr>
+              <tr><td>Config limits clamp nominal</td><td><code>test_safe_command_from_action_clamps_to_config_limits</code></td></tr>
+              <tr><td>Parse failure logged</td><td><code>test_safe_command_from_text_logs_parse_failure</code></td></tr>
+              <tr><td>Clamp event logged</td><td><code>test_safe_command_from_action_logs_clamp_event</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre><code class="language-bash">pytest tests/test_action_safety.py -q
+python scripts/run_dummy_pipeline.py</code></pre>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA epic task documentation.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

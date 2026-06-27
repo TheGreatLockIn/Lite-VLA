@@ -136,4 +136,5 @@ pytest tests/test_action_parser.py -q
 ## Related docs
 
 - Vocabulary contract: [`action-schema.md`](action-schema.md)
+- Safety gate (downstream): [`safety-clamp-and-fallback.md`](safety-clamp-and-fallback.md)
 - Epic walkthrough: [`index.html`](index.html)

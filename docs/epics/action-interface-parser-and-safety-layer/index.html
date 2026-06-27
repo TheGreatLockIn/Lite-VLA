@@ -24,7 +24,7 @@
         <p><strong>Context:</strong> The VLA model emits text. The robot needs bounded, repeatable velocity commands on ROS <code>/cmd_vel</code>. This epic owns everything between raw model output and a safe <code>geometry_msgs/Twist</code>.</p>
         <p><strong>Scope:</strong> Discrete and optional continuous action schemas, parsers that normalize noisy text, velocity clamps, fallback <code>STOP</code> on invalid output, and command smoothing between inference steps.</p>
         <p><strong>Success criteria:</strong> Invalid model output maps to <code>STOP</code>; velocity limits are enforced; parser has unit tests; the discrete action schema is documented and shared via <code>litevla.actions</code>.</p>
-        <p><strong>Current progress:</strong> Story 1017 (discrete action schema) is <strong>complete</strong>. Stories 1018–1022 are planned and seeded from Jira — see each task card for intended upstream/downstream connections.</p>
+        <p><strong>Current progress:</strong> Stories 1017, 1019, and 1021 (discrete path through safety gate) are <strong>complete</strong>. Stories 1018, 1020, and 1022 are planned — see each task card.</p>
       </section>
 
       <section id="epic-pipeline" class="visual-card">
@@ -42,7 +42,7 @@ flowchart TD
   VLA --> P --> S --> G --> M --> CV
   G --> CV
         </pre>
-        <p><strong>Implemented today:</strong> Stories 1017 and 1019 (<code>litevla.actions</code>). <strong>Planned:</strong> JSON path, safety gate, smoothing.</p>
+        <p><strong>Implemented today:</strong> Stories 1017, 1019, and 1021 (<code>litevla.actions</code> through safety gate). <strong>Planned:</strong> JSON path, command smoothing.</p>
       </section>
 
       <section id="stories">
@@ -207,21 +207,63 @@ python scripts/run_dummy_pipeline.py</code></pre>
         </dl>
       </article>
       <article class="task-card" id="story-1021">
-        <span class="status-pill">Planned</span>
+        <span class="status-pill">Complete</span>
         <h3>Story 1021: Implement safety clamp and fallback behavior</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Guarantee unsafe or unparseable commands cannot reach <code>/cmd_vel</code>. MVP acceptance: malformed VLA output becomes zero velocity <code>STOP</code>; velocities stay within 0.2 m/s / 0.6 rad/s operational limits.</dd>
-          <dt>Planned scope</dt>
-          <dd>
-            <p>Central safety gate that composes parser output, applies clamps (may reuse <code>clamp_velocity</code> from Story 1017), converts parser failures to <code>STOP</code>, and logs safety events. <code>action_to_twist</code> already clamps per-axis values but does not handle invalid tokens or ROS publish policy — this story owns end-to-end safe publishing.</p>
-            <p><strong>Upstream:</strong> parser (1019) or JSON parser (1020).</p>
-            <p><strong>Downstream:</strong> ROS <code>/cmd_vel</code> publisher; optional smoother (1022).</p>
-          </dd>
+          <dd>Guarantee unsafe or unparseable commands cannot reach <code>/cmd_vel</code>. MVP acceptance: malformed VLA output becomes zero velocity <code>STOP</code>; velocities stay within config limits (MVP design points 0.2 m/s / 0.6 rad/s).</dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not started. Foundation: <code>clamp_velocity</code> and <code>action_to_twist</code> in <code>litevla/actions/schema.py</code>.</dd>
+          <dd>
+            <p>Full walkthrough: <a href="safety-clamp-and-fallback.html">Safety clamp and fallback</a> (<code>safety-clamp-and-fallback.md</code> for agents). Learning notes for subtasks 10252 and 10253 are in that doc.</p>
+
+            <p><strong>Velocity clamp (10063)</strong> — <code>clamp_twist_velocities</code> in
+            <code>litevla/actions/safety.py</code>, reusing <code>clamp_velocity</code> from Story 1017.
+            <em>Design:</em> standalone per-axis clamp with <code>was_clamped</code> flag.
+            <em>Risk:</em> NaN/Inf not validated (same as schema).</p>
+
+            <p><strong>Invalid-output STOP (10064)</strong> — <code>safe_command_from_text</code> calls
+            <code>parse_discrete_action</code>; on <code>None</code> returns <code>STOP</code> at
+            <code>(0.0, 0.0)</code> without raising.
+            <em>Design:</em> fail-safe at ROS publish boundary (RSK-02).
+            <em>Risk:</em> first embedded token still wins when multiple tokens present.</p>
+
+            <p><strong>Safety event logging (10065)</strong> — <code>SafetyEvent</code> /
+            <code>SafetyEventKind</code> on every <code>SafeCommand</code>; WARNING logs include
+            <code>original_text</code> on failure and clamp.
+            <em>Design:</em> structured events for tests + <code>logging</code> for live nodes.</p>
+
+            <p><strong>Integration</strong> — <code>scripts/run_dummy_pipeline.py</code> routes actions
+            through <code>safe_command_from_action</code> and demonstrates invalid-text fallback.</p>
+          </dd>
+          <dt>Data And Control Flow</dt>
+          <dd>
+            <pre><code class="language-text">VLA text ──> safe_command_from_text ──> SafeCommand ──> (linear_x, angular_z) ──> /cmd_vel</code></pre>
+            <p>
+              <strong>Contract:</strong> raw text or known <code>DiscreteAction</code> in; bounded velocities out.
+              <strong>Invariant:</strong> no parse failure propagates as an exception.
+              <strong>Trade-off:</strong> discrete-only MVP; JSON path deferred to Stories 1018/1020.
+            </p>
+          </dd>
+          <dt>ADR Notes</dt>
+          <dd>
+            <p><strong>ADR: Central safety gate</strong> — Accepted. Parser reports failure; safety gate
+            publishes <code>STOP</code> and logs. Rejected STOP inside parser and per-call-site
+            try/except around <code>action_to_twist</code>.</p>
+          </dd>
           <dt>Verification Patterns</dt>
-          <dd class="update-note">Not run — story not implemented.</dd>
+          <dd>
+            <pre><code class="language-bash">pytest tests/test_action_safety.py -q
+python scripts/run_dummy_pipeline.py</code></pre>
+            <p>Contracts: axis clamp, valid text mapping, invalid text STOP, config clamp events, safety logging.</p>
+          </dd>
+          <dt>Open Questions</dt>
+          <dd>
+            <ul>
+              <li>Extend gate for JSON velocities (Story 1020)?</li>
+              <li>Latched e-stop on repeated parse failures in ROS node?</li>
+              <li>Rate-limit safety WARNING logs during baseline eval (Story 1027)?</li>
+            </ul>
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1022">
