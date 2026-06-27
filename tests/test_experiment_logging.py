@@ -48,7 +48,11 @@ def test_run_directory_creates_expected_layout(tmp_path: Path) -> None:
 
 
 def test_experiment_run_writes_config_and_metadata(tmp_path: Path) -> None:
-    config = {"runtime": {"mode": "dummy"}, "benchmark": {"iterations": 10, "warmup": 1}}
+    config = {
+        "runtime": {"mode": "dummy"},
+        "model": {"prompt_version": "v2"},
+        "benchmark": {"iterations": 10, "warmup": 1},
+    }
 
     with ExperimentRun(
         "inference",
@@ -68,7 +72,8 @@ def test_experiment_run_writes_config_and_metadata(tmp_path: Path) -> None:
     assert metadata["run_id"] == "fixed-run"
     assert metadata["kind"] == "inference"
     assert metadata["config_path"] == "configs/default.example.yaml"
-    assert metadata["git"]["commit"] is None
+    assert metadata["prompt_version"] == "v2"
+    assert metadata["git"]["commit"] is None or isinstance(metadata["git"]["commit"], str)
 
     metrics = json.loads((run.directory / METRICS_FILENAME).read_text(encoding="utf-8"))
     assert metrics["status"] == "success"

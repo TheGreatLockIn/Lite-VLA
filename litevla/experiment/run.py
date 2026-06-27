@@ -210,6 +210,11 @@ class ExperimentRun(AbstractContextManager["ExperimentRun"]):
 
     def __enter__(self) -> ExperimentRun:
         save_config_snapshot(self.directory, self.config)
+        extra = dict(self.metadata_extra or {})
+        prompt_ver = self.config.get("model", {}).get("prompt_version")
+        if prompt_ver is not None:
+            extra["prompt_version"] = prompt_ver
+
         save_metadata(
             self.directory,
             collect_metadata(
@@ -217,7 +222,7 @@ class ExperimentRun(AbstractContextManager["ExperimentRun"]):
                 run_id=self.run_id,
                 config_path=self.config_path,
                 repo_root=self.repo_root,
-                extra=self.metadata_extra,
+                extra=extra,
             ),
         )
         return self

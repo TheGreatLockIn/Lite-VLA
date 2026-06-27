@@ -47,7 +47,7 @@ def test_missing_required_key_fails_with_clear_error(tmp_path: Path) -> None:
     config_file = tmp_path / "invalid.yaml"
     payload = {
         "runtime": {"mode": "dummy", "heartbeat_hz": 10, "default_instruction": "go"},
-        "model": {"path": "models/demo", "device": "cpu", "max_tokens": 32},
+        "model": {"path": "models/demo", "device": "cpu", "max_tokens": 32, "prompt_version": "v1"},
         "ros": {
             "image_topic": "/image_raw",
             "cmd_vel_topic": "/cmd_vel",
