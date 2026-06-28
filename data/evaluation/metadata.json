@@ -1,0 +1,162 @@
+[
+  {
+    "image_id": "eval_01",
+    "image_path": "data/evaluation/eval_01.png",
+    "instruction": "go to the red block",
+    "expected_action": "MOVE_FORWARD",
+    "source_image": "red_cone_centered.png",
+    "variation_type": "original"
+  },
+  {
+    "image_id": "eval_02",
+    "image_path": "data/evaluation/eval_02.png",
+    "instruction": "go to the red block",
+    "expected_action": "MOVE_FORWARD",
+    "source_image": "red_cone_centered.png",
+    "variation_type": "brightness_high"
+  },
+  {
+    "image_id": "eval_03",
+    "image_path": "data/evaluation/eval_03.png",
+    "instruction": "go to the red block",
+    "expected_action": "MOVE_FORWARD",
+    "source_image": "red_cone_centered.png",
+    "variation_type": "contrast_low"
+  },
+  {
+    "image_id": "eval_04",
+    "image_path": "data/evaluation/eval_04.png",
+    "instruction": "go to the red block",
+    "expected_action": "MOVE_FORWARD",
+    "source_image": "red_cone_centered.png",
+    "variation_type": "gaussian_blur"
+  },
+  {
+    "image_id": "eval_05",
+    "image_path": "data/evaluation/eval_05.png",
+    "instruction": "go to the red block",
+    "expected_action": "MOVE_FORWARD",
+    "source_image": "red_cone_centered.png",
+    "variation_type": "sensor_noise"
+  },
+  {
+    "image_id": "eval_06",
+    "image_path": "data/evaluation/eval_06.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_LEFT",
+    "source_image": "red_cone_left.png",
+    "variation_type": "original"
+  },
+  {
+    "image_id": "eval_07",
+    "image_path": "data/evaluation/eval_07.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_LEFT",
+    "source_image": "red_cone_left.png",
+    "variation_type": "brightness_high"
+  },
+  {
+    "image_id": "eval_08",
+    "image_path": "data/evaluation/eval_08.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_LEFT",
+    "source_image": "red_cone_left.png",
+    "variation_type": "contrast_low"
+  },
+  {
+    "image_id": "eval_09",
+    "image_path": "data/evaluation/eval_09.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_LEFT",
+    "source_image": "red_cone_left.png",
+    "variation_type": "gaussian_blur"
+  },
+  {
+    "image_id": "eval_10",
+    "image_path": "data/evaluation/eval_10.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_LEFT",
+    "source_image": "red_cone_left.png",
+    "variation_type": "sensor_noise"
+  },
+  {
+    "image_id": "eval_11",
+    "image_path": "data/evaluation/eval_11.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_RIGHT",
+    "source_image": "red_cone_right.png",
+    "variation_type": "original"
+  },
+  {
+    "image_id": "eval_12",
+    "image_path": "data/evaluation/eval_12.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_RIGHT",
+    "source_image": "red_cone_right.png",
+    "variation_type": "brightness_high"
+  },
+  {
+    "image_id": "eval_13",
+    "image_path": "data/evaluation/eval_13.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_RIGHT",
+    "source_image": "red_cone_right.png",
+    "variation_type": "contrast_low"
+  },
+  {
+    "image_id": "eval_14",
+    "image_path": "data/evaluation/eval_14.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_RIGHT",
+    "source_image": "red_cone_right.png",
+    "variation_type": "gaussian_blur"
+  },
+  {
+    "image_id": "eval_15",
+    "image_path": "data/evaluation/eval_15.png",
+    "instruction": "go to the red block",
+    "expected_action": "TURN_RIGHT",
+    "source_image": "red_cone_right.png",
+    "variation_type": "sensor_noise"
+  },
+  {
+    "image_id": "eval_16",
+    "image_path": "data/evaluation/eval_16.png",
+    "instruction": "go to the red block",
+    "expected_action": "STOP",
+    "source_image": "stop_barrier_close.png",
+    "variation_type": "original"
+  },
+  {
+    "image_id": "eval_17",
+    "image_path": "data/evaluation/eval_17.png",
+    "instruction": "go to the red block",
+    "expected_action": "STOP",
+    "source_image": "stop_barrier_close.png",
+    "variation_type": "brightness_high"
+  },
+  {
+    "image_id": "eval_18",
+    "image_path": "data/evaluation/eval_18.png",
+    "instruction": "go to the red block",
+    "expected_action": "STOP",
+    "source_image": "stop_barrier_close.png",
+    "variation_type": "contrast_low"
+  },
+  {
+    "image_id": "eval_19",
+    "image_path": "data/evaluation/eval_19.png",
+    "instruction": "go to the red block",
+    "expected_action": "STOP",
+    "source_image": "stop_barrier_close.png",
+    "variation_type": "gaussian_blur"
+  },
+  {
+    "image_id": "eval_20",
+    "image_path": "data/evaluation/eval_20.png",
+    "instruction": "go to the red block",
+    "expected_action": "STOP",
+    "source_image": "stop_barrier_close.png",
+    "variation_type": "sensor_noise"
+  }
+]
