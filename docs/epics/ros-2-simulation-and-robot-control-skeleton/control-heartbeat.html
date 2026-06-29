@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Low-level control heartbeat — Epic 102</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-27</p>
+      <h1>Low-level control heartbeat</h1>
+      <p class="doc-lead">
+        <code>heartbeat_controller</code> is the safety and timing layer between slow action sources and the diff-drive controller.
+      </p>
+    </header>
+
+    <main>
+      <section id="executive-summary">
+        <h2>Executive summary</h2>
+        <p><code>heartbeat_controller</code> is the <strong>safety and timing layer</strong> between slow action sources and the diff-drive controller. It republishes the latest desired twist on <code>/cmd_vel</code> at a fixed rate, enforces action and camera freshness timeouts, clamps velocities, and emits JSON diagnostics. Every Epic 102 command source (dummy, teleop, future model) converges here before actuation.</p>
+      </section>
+
+      <section id="api-contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">/litevla/desired_twist  ──┐
+/litevla/current_action ──┼──&gt; heartbeat_controller (timer @ heartbeat_hz)
+/image_raw (optional)   ──┘         │
+                                      ├──&gt; clamp + timeout gate
+                                      ├──&gt; /cmd_vel
+                                      └──&gt; /litevla/diagnostics (JSON)</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Parameter</th>
+                <th scope="col">Default</th>
+                <th scope="col">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>heartbeat_hz</code></td>
+                <td><code>10.0</code></td>
+                <td>Teleop stack uses <code>25.0</code> for lower latency</td>
+              </tr>
+              <tr>
+                <td><code>action_timeout_sec</code></td>
+                <td><code>0.5</code></td>
+                <td>Teleop uses <code>0.2</code></td>
+              </tr>
+              <tr>
+                <td><code>frame_timeout_sec</code></td>
+                <td><code>2.0</code></td>
+                <td>Stale camera → STOP</td>
+              </tr>
+              <tr>
+                <td><code>require_frame</code></td>
+                <td><code>true</code></td>
+                <td><code>false</code> for teleop / cmd-only benches</td>
+              </tr>
+              <tr>
+                <td><code>control_mode</code></td>
+                <td><code>dummy</code></td>
+                <td><code>dummy</code> | <code>teleop</code> | <code>model</code></td>
+              </tr>
+              <tr>
+                <td><code>teleop_startup_grace_sec</code></td>
+                <td><code>0.0</code></td>
+                <td><code>20.0</code> in teleop script — avoids immediate STOP before keys</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Invariant:</strong> On timeout or mode mismatch, published twist is zero (<code>STOP</code>).</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Pure helpers (<code>heartbeat_utils.py</code>)</h3>
+        <pre><code class="language-python">def is_timed_out(age_sec, timeout_sec) -&gt; bool: ...
+def select_velocities(desired, *, timed_out, ...) -&gt; tuple[float, float]: ...
+def build_diagnostics(...) -&gt; dict: ...</code></pre>
+        <p>Unit-tested without ROS — documents timeout math explicitly.</p>
+
+        <h3>Controller node (<code>heartbeat_controller.py</code>)</h3>
+        <ul>
+          <li>Uses <code>CmdVelPublisher</code> (VLA-25) for all <code>/cmd_vel</code> output.</li>
+          <li>Subscribes desired twist, action label, and optionally camera with sensor QoS.</li>
+          <li><code>control_mode</code> gate: ignores sources not matching active mode.</li>
+        </ul>
+
+        <h3>Diagnostics JSON</h3>
+        <pre><code class="language-json">{
+  "heartbeat_hz": 25.0,
+  "last_cmd": "MOVE_FORWARD",
+  "action_age_ms": 12.3,
+  "frame_age_ms": 45.0,
+  "timed_out": false,
+  "control_mode": "teleop"
+}</code></pre>
+      </section>
+
+      <section id="engineering-decisions">
+        <h2>Engineering decisions</h2>
+        <p><strong>ADR: Fixed-rate cmd_vel publisher</strong></p>
+        <ul>
+          <li><strong>Status:</strong> Accepted</li>
+          <li><strong>Context:</strong> Model and keyboard inputs are event-driven; <code>ros2_control</code> expects continuous commands.</li>
+          <li><strong>Decision:</strong> Timer-driven republish of last safe command.</li>
+          <li><strong>Alternatives rejected:</strong> Direct publish from each source (jerky motion, race conditions).</li>
+          <li><strong>Consequences:</strong> Tune <code>heartbeat_hz</code> and <code>action_timeout_sec</code> per mode (teleop vs dummy).</li>
+        </ul>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">colcon test --packages-select litevla_bridge   # test_heartbeat_utils.py
+ros2 launch litevla_bridge dummy_sim.launch.py
+ros2 topic hz /cmd_vel
+ros2 topic echo /litevla/diagnostics --once</code></pre>
+        <p>Stop dummy node or camera → <code>timed_out: true</code> → zero <code>/cmd_vel</code>.</p>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="dummy-action-generator.html">dummy-action-generator</a> (VLA-26)</li>
+          <li><a href="manual-teleoperation.html">manual-teleoperation</a> (VLA-28)</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 102 task documentation</p>
+    </footer>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

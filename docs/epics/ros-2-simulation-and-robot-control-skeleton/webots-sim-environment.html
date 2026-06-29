@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Webots simulation environment — Epic 102</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-23</p>
+      <h1>Webots simulation environment</h1>
+      <p class="doc-lead">
+        The simulation contract for Epic 102: a Webots world with diff-drive robot, camera, and stable ROS 2 topics <code>/image_raw</code> and <code>/cmd_vel</code>.
+      </p>
+    </header>
+
+    <main>
+      <section id="executive-summary">
+        <h2>Executive summary</h2>
+        <p>This story delivers the <strong>simulation contract</strong> for Epic 102: a Webots world with a diff-drive <code>litevla_robot</code>, onboard camera, and ROS 2 topics <code>/image_raw</code> and <code>/cmd_vel</code>. <code>webots_sim.launch.py</code> wires <code>webots_ros2_driver</code>, <code>ros2_control</code> spawners, and topic remaps so downstream nodes (camera subscriber, heartbeat, teleop) can assume stable topic names matching <code>configs/default.example.yaml</code>.</p>
+      </section>
+
+      <section id="api-contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">mvp_arena.wbt
+    ──&gt; WebotsLauncher (batch) or InteractiveWebotsLauncher (GUI teleop)
+    ──&gt; webots_ros2_driver (litevla_robot)
+            ├── /image_raw/image_color ──remap──&gt; /image_raw
+            ├── diffdrive_controller/cmd_vel ──remap──&gt; /cmd_vel
+            └── /odom
+    ──&gt; controller_manager spawner: joint_state_broadcaster, diffdrive_controller</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Contract</th>
+                <th scope="col">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>World default</td>
+                <td><code>mvp_arena.wbt</code></td>
+              </tr>
+              <tr>
+                <td>Velocity limits</td>
+                <td>0.2 m/s linear, 0.6 rad/s angular (<code>ros2_control.yml</code>)</td>
+              </tr>
+              <tr>
+                <td>Sim time</td>
+                <td><code>use_sim_time:=true</code></td>
+              </tr>
+              <tr>
+                <td>Spawn verify</td>
+                <td><code>spawn_verifier</code> — expects frames on <code>/image_raw</code>, motion on <code>/cmd_vel</code> (VLA-117)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="two-part-install">
+        <h2>Two-part install (critical)</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Step</th>
+                <th scope="col">Component</th>
+                <th scope="col">Install</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>ROS bridge</td>
+                <td><code>sudo apt install ros-jazzy-webots-ros2</code></td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>Webots app</td>
+                <td><code>./ros_ws/scripts/install_webots.sh</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p><code>ros-jazzy-webots-ros2</code> alone does <strong>not</strong> install the <code>webots</code> binary. Verify with <code>./ros_ws/scripts/find_webots.sh</code>.</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>World and robot assets</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Path</th>
+                <th scope="col">Responsibility</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>worlds/mvp_arena.wbt</code></td>
+                <td>Arena, red cube target, robot spawn</td>
+              </tr>
+              <tr>
+                <td><code>resource/litevla_robot.urdf</code></td>
+                <td>Camera + diff-drive <code>ros2_control</code> interfaces</td>
+              </tr>
+              <tr>
+                <td><code>resource/ros2_control.yml</code></td>
+                <td>Controller types and velocity limits</td>
+              </tr>
+              <tr>
+                <td><code>config/webots_sim.yaml</code></td>
+                <td>Topic metadata for bridge nodes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Wheel-only collision geometry avoids tip-over during teleop sharp turns (VLA-28 follow-up).</p>
+
+        <h3>Launch (<code>webots_sim.launch.py</code>)</h3>
+        <ul>
+          <li><strong>Jazzy remapping:</strong> <code>diffdrive_controller/cmd_vel</code> → <code>/cmd_vel</code> (TwistStamped path).</li>
+          <li><strong>Interactive mode:</strong> <code>interactive:=true</code> selects <code>InteractiveWebotsLauncher</code> (drops <code>--batch</code>).</li>
+          <li><strong>Shutdown coupling:</strong> Webots exit triggers ROS shutdown via <code>OnProcessExit</code>.</li>
+        </ul>
+
+        <h3>Operator scripts</h3>
+        <pre><code class="language-bash">./ros_ws/scripts/run_webots_mvp.sh          # sim only
+./ros_ws/scripts/run_teleop_sim.sh          # sim + teleop (interactive:=true)
+./ros_ws/scripts/run_episode_capture.sh     # sim + teleop + frames/commands for VLA-42
+./ros_ws/scripts/stop_teleop_sim.sh         # clean shutdown (teleop + capture)</code></pre>
+      </section>
+
+      <section id="engineering-decisions">
+        <h2>Engineering decisions</h2>
+        <p><strong>ADR: Webots over Isaac Sim</strong></p>
+        <ul>
+          <li><strong>Status:</strong> Accepted (see <a href="simulator-selection.html">simulator-selection</a> VLA-115)</li>
+          <li><strong>Context:</strong> Isaac Sim exceeded team GPU/VRAM with concurrent VLA inference.</li>
+          <li><strong>Decision:</strong> Webots + <code>webots_ros2</code> on Jazzy; custom <code>litevla_robot</code>.</li>
+          <li><strong>Consequences:</strong> Lower visual fidelity; laptop-friendly loop for Epic 104–108.</li>
+        </ul>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">colcon test --packages-select litevla_bridge   # test_webots_config.py — no Webots required
+./ros_ws/scripts/find_webots.sh
+./ros_ws/scripts/run_webots_mvp.sh
+ros2 launch litevla_bridge verify_spawn.launch.py   # VLA-117</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Check</th>
+                <th scope="col">Pass criteria</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>test_webots_config.py</code></td>
+                <td>Launch args, world path, remaps present</td>
+              </tr>
+              <tr>
+                <td><code>verify_spawn.launch.py</code></td>
+                <td><code>/image_raw</code> frames; robot moves on test <code>/cmd_vel</code></td>
+              </tr>
+              <tr>
+                <td><code>ros2 topic list</code></td>
+                <td><code>/clock</code>, <code>/cmd_vel</code>, <code>/image_raw</code> while sim running</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Symptom</th>
+                <th scope="col">Fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Webots not found</code></td>
+                <td><code>./ros_ws/scripts/install_webots.sh</code></td>
+              </tr>
+              <tr>
+                <td>No <code>/image_raw</code></td>
+                <td>Wait for controller spawners; keep Webots window open</td>
+              </tr>
+              <tr>
+                <td>Controllers inactive</td>
+                <td>Re-run after <code>stop_teleop_sim.sh</code>; allow up to 120 s</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="simulator-selection.html">simulator-selection</a> (VLA-115)</li>
+          <li><a href="../../../../ros_ws/README.md">ros_ws README</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 102 task documentation</p>
+    </footer>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

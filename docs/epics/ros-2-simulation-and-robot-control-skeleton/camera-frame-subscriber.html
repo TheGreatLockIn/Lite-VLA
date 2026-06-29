@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Camera frame subscriber — Epic 102</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-24</p>
+      <h1>Camera frame subscriber</h1>
+      <p class="doc-lead">
+        <code>camera_subscriber</code> is the perception ingress for Epic 102: <code>sensor_msgs/Image</code> to RGB <code>numpy</code> frames for future VLA inference.
+      </p>
+    </header>
+
+    <main>
+      <section id="executive-summary">
+        <h2>Executive summary</h2>
+        <p><code>camera_subscriber</code> is the <strong>perception ingress</strong> for Epic 102: it subscribes to <code>sensor_msgs/Image</code> (default <code>/image_raw</code>), converts each message to an RGB <code>numpy</code> ndarray, and keeps the latest frame in node state for future VLA inference (Epic 108). Optional rate-limited PNG recording supports dataset debugging without flooding disk.</p>
+      </section>
+
+      <section id="api-contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">/image_raw (sensor_msgs/Image)
+    ──&gt; camera_subscriber._on_image
+    ──&gt; ros_image_to_rgb()  [cv_bridge]
+    ──&gt; latest_frame (H×W×3 uint8), latest_stamp
+    ──&gt; optional PNG → outputs/frames/  (record_interval_sec gate)</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Parameter</th>
+                <th scope="col">Default</th>
+                <th scope="col">Config mirror</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>image_topic</code></td>
+                <td><code>/image_raw</code></td>
+                <td><code>ros.image_topic</code></td>
+              </tr>
+              <tr>
+                <td><code>record_frames</code></td>
+                <td><code>false</code></td>
+                <td><code>ros.record_frames</code></td>
+              </tr>
+              <tr>
+                <td><code>frame_save_dir</code></td>
+                <td><code>outputs/frames</code></td>
+                <td><code>ros.frame_save_dir</code></td>
+              </tr>
+              <tr>
+                <td><code>record_interval_sec</code></td>
+                <td><code>1.0</code></td>
+                <td>Max save rate when recording</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Invariant:</strong> <code>latest_frame</code> is always the most recent successfully decoded image; decode failures log and skip update.</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Image conversion (<code>image_utils.py</code>)</h3>
+        <pre><code class="language-python">def ros_image_to_rgb(msg: Image) -&gt; np.ndarray:
+    # Supports rgb8 and bgr8 via cv_bridge</code></pre>
+        <ul>
+          <li><strong>Design note:</strong> Centralizing conversion avoids duplicating <code>cv_bridge</code> encoding logic in inference nodes later.</li>
+          <li><strong>Gotcha:</strong> Webots may publish on <code>/image_raw/image_color</code>; <code>webots_sim.launch.py</code> remaps to <code>/image_raw</code>.</li>
+        </ul>
+
+        <h3>Subscriber node (<code>camera_subscriber.py</code>)</h3>
+        <ul>
+          <li>Logs first frame geometry and encoding once (operator confidence).</li>
+          <li>Exposes <code>latest_frame</code> / <code>latest_stamp</code> for synchronous reads from future orchestration code.</li>
+        </ul>
+
+        <h3>Heartbeat coupling</h3>
+        <p><code>heartbeat_controller</code> optionally requires fresh frames (<code>require_frame</code>, <code>frame_timeout_sec</code>). Teleop sets <code>require_frame:=false</code> so driving works before camera warmup.</p>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">colcon test --packages-select litevla_bridge   # test_image_utils.py
+./ros_ws/scripts/run_webots_mvp.sh             # terminal 1
+ros2 launch litevla_bridge camera_subscriber.launch.py record_frames:=true</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Test</th>
+                <th scope="col">Contract defended</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>test_image_utils.py</code></td>
+                <td>rgb8/bgr8 → consistent RGB ndarray shape</td>
+              </tr>
+              <tr>
+                <td>Live launch</td>
+                <td>First-frame log; PNG files at ≤ 1 Hz when recording</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="webots-sim-environment.html">webots-sim-environment</a> (VLA-23)</li>
+          <li><a href="../../../../configs/default.example.yaml">configs/default.example.yaml</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 102 task documentation</p>
+    </footer>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

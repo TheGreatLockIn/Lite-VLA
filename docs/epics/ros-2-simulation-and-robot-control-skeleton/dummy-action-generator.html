@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dummy action generator — Epic 102</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-26</p>
+      <h1>Dummy action generator</h1>
+      <p class="doc-lead">
+        <code>dummy_action_generator</code> is the pre-ML command source: Epic 103 discrete actions to desired twists for the heartbeat, not <code>/cmd_vel</code> directly.
+      </p>
+    </header>
+
+    <main>
+      <section id="executive-summary">
+        <h2>Executive summary</h2>
+        <p><code>dummy_action_generator</code> is the <strong>pre-ML command source</strong> for Epic 102: it steps through a configurable list of Epic 103 discrete actions, maps each to nominal velocities via <code>action_to_twist()</code>, and publishes desired twists for the heartbeat—not <code>/cmd_vel</code> directly. This proves the full perception–action loop before Epic 104/108 connect a VLA model.</p>
+      </section>
+
+      <section id="api-contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">action_sequence (config / param)
+    ──&gt; dummy_action_generator (timer per step)
+    ──&gt; action_to_twist(DiscreteAction)
+    ──&gt; /litevla/desired_twist + /litevla/current_action
+    ──&gt; heartbeat_controller
+    ──&gt; /cmd_vel</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Parameter</th>
+                <th scope="col">Default</th>
+                <th scope="col">Config mirror</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>runtime_mode</code></td>
+                <td><code>dummy</code></td>
+                <td><code>runtime.mode</code> — node idles otherwise</td>
+              </tr>
+              <tr>
+                <td><code>action_sequence</code></td>
+                <td>forward → forward → left → stop</td>
+                <td><code>runtime.action_sequence</code></td>
+              </tr>
+              <tr>
+                <td><code>sequence_step_sec</code></td>
+                <td><code>2.0</code></td>
+                <td><code>runtime.sequence_step_sec</code></td>
+              </tr>
+              <tr>
+                <td><code>desired_twist_topic</code></td>
+                <td><code>/litevla/desired_twist</code></td>
+                <td>Consumed by VLA-27</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Invariant:</strong> Action names are uppercase Epic 103 tokens only (<code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, …).</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Shared schema bridge</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Path</th>
+                <th scope="col">Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>litevla/actions/schema.py</code></td>
+                <td>Canonical <code>DiscreteAction</code>, <code>action_to_twist()</code></td>
+              </tr>
+              <tr>
+                <td><code>litevla_bridge/action_schema.py</code></td>
+                <td>ROS package import shim</td>
+              </tr>
+              <tr>
+                <td><code>scripts/run_dummy_pipeline.py</code></td>
+                <td>Offline print of the same sequence (no ROS)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Single vocabulary for dummy ROS, offline scripts, future parser (Epic 103), and dataset labels (Epic 105).</p>
+
+        <h3>ROS node (<code>dummy_action_generator.py</code>)</h3>
+        <ul>
+          <li>Publishes twist + string action label each step.</li>
+          <li>Respects <code>control_mode</code> / <code>runtime_mode</code> gates so teleop can take over without duplicate publishers.</li>
+        </ul>
+      </section>
+
+      <section id="engineering-decisions">
+        <h2>Engineering decisions</h2>
+        <p><strong>ADR: Publish desired twist, not cmd_vel</strong></p>
+        <ul>
+          <li><strong>Status:</strong> Accepted (VLA-27)</li>
+          <li><strong>Context:</strong> Action sources update slowly; diff-drive expects steady commands.</li>
+          <li><strong>Decision:</strong> Dummy publishes <code>/litevla/desired_twist</code>; heartbeat owns <code>/cmd_vel</code>.</li>
+          <li><strong>Consequences:</strong> All future sources (teleop, model) follow the same pattern.</li>
+        </ul>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_action_schema.py -q
+python scripts/run_dummy_pipeline.py
+colcon test --packages-select litevla_bridge
+ros2 launch litevla_bridge dummy_sim.launch.py</code></pre>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="../action-interface-parser-and-safety-layer/action-schema.html">action-schema</a> (VLA-29)</li>
+          <li><a href="control-heartbeat.html">control-heartbeat</a> (VLA-27)</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 102 task documentation</p>
+    </footer>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>
