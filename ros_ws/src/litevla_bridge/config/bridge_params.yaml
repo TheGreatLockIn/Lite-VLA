@@ -1,0 +1,70 @@
+# Default ROS parameters for litevla_bridge (mirrors configs/default.example.yaml).
+# Override in launch files or via --ros-args -p name:=value.
+
+litevla_workspace_ping:
+  ros__parameters:
+    heartbeat_hz: 10.0
+
+litevla_camera_subscriber:
+  ros__parameters:
+    image_topic: /image_raw
+    record_frames: false
+    frame_save_dir: outputs/frames
+    record_interval_sec: 1.0
+
+litevla_cmd_vel_publisher:
+  ros__parameters:
+    cmd_vel_topic: /cmd_vel
+    max_linear_vel: 0.2
+    max_angular_vel: 0.6
+
+litevla_cmd_vel_tester:
+  ros__parameters:
+    cmd_vel_topic: /cmd_vel
+    max_linear_vel: 0.2
+    max_angular_vel: 0.6
+    step_duration_sec: 2.0
+
+litevla_dummy_action_generator:
+  ros__parameters:
+    control_mode: dummy
+    runtime_mode: dummy
+    default_action: MOVE_FORWARD
+    action_sequence:
+      - MOVE_FORWARD
+      - MOVE_FORWARD
+      - TURN_LEFT
+      - STOP
+    sequence_step_sec: 2.0
+    desired_twist_topic: /litevla/desired_twist
+    current_action_topic: /litevla/current_action
+    max_linear_vel: 0.2
+    max_angular_vel: 0.6
+
+litevla_heartbeat_controller:
+  ros__parameters:
+    control_mode: dummy
+    heartbeat_hz: 10.0
+    cmd_vel_topic: /cmd_vel
+    diagnostics_topic: /litevla/diagnostics
+    desired_twist_topic: /litevla/desired_twist
+    current_action_topic: /litevla/current_action
+    image_topic: /image_raw
+    action_timeout_sec: 0.5
+    frame_timeout_sec: 2.0
+    require_frame: true
+    max_linear_vel: 0.2
+    max_angular_vel: 0.6
+
+litevla_teleop_keyboard:
+  ros__parameters:
+    control_mode: teleop
+    refresh_hz: 10.0
+    max_linear_vel: 0.2
+    max_angular_vel: 0.6
+
+litevla_command_recorder:
+  ros__parameters:
+    enabled: true
+    output_dir: outputs/teleop
+    source: teleop

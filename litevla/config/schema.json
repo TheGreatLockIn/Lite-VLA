@@ -14,8 +14,8 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["dummy", "model"],
-          "description": "dummy uses scripted actions; model runs VLM inference."
+          "enum": ["dummy", "teleop", "model"],
+          "description": "dummy/teleop use scripted or keyboard actions; model runs VLM inference."
         },
         "heartbeat_hz": {
           "type": "number",
@@ -26,6 +26,36 @@
           "type": "string",
           "minLength": 1,
           "description": "Goal text sent with each frame when no override is provided."
+        },
+        "sequence_step_sec": {
+          "type": "number",
+          "minimum": 0.1,
+          "description": "Seconds between scripted dummy actions."
+        },
+        "action_sequence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "MOVE_FORWARD",
+              "TURN_LEFT",
+              "TURN_RIGHT",
+              "SLOW_DOWN",
+              "STOP"
+            ]
+          },
+          "description": "Ordered dummy actions before ML is connected."
+        },
+        "action_timeout_sec": {
+          "type": "number",
+          "minimum": 0.05,
+          "description": "Seconds without a fresh action before STOP."
+        },
+        "frame_timeout_sec": {
+          "type": "number",
+          "minimum": 0.1,
+          "description": "Seconds without a camera frame before STOP."
         }
       }
     },
