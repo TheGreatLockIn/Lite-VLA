@@ -11,6 +11,16 @@
 
 The **red cube stays fixed** in `mvp_arena.wbt` (`translation 2 0 0.1`). Only the **robot moves** via `/cmd_vel` and `/odom`.
 
+## Dataset labels (VLA-43)
+
+Action labels for the builder live in [`manifest.json`](manifest.json). Run:
+
+```bash
+python scripts/build_starter_dataset.py
+```
+
+after capturing the four PNGs above.
+
 ## Recommended: capture by driving (simulation motion)
 
 ```bash

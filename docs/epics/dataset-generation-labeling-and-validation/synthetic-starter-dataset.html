@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Synthetic starter dataset — Epic 105</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-43 / Story 1031</p>
+      <h1>Synthetic starter dataset</h1>
+      <p class="doc-lead">
+        Build ≥200 validated training rows: reference manifest + raw episodes + Pillow augmentations → <code>processed/v0.1.0/train.jsonl</code>.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#related">Related</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          VLA-43 implements the <strong>Layer A → Layer B compiler</strong>: it ingests reference Webots frames, optional VLA-42 raw episodes, and Pillow augmentations to produce ≥200 validated <code>TrainingRecord</code> rows under <code>data/processed/&lt;version&gt;/train.jsonl</code> and <code>val.jsonl</code>. Every row passes VLA-41 schema validation before write. The CLI is <code>scripts/build_starter_dataset.py</code>.
+        </p>
+      </section>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">reference_images/manifest.json ──&gt; records_from_reference_manifest (source=reference)
+data/raw/episodes/*/             ──&gt; records_from_raw_episode (forward-fill labels)
+        │                                    │
+        └──────────────┬─────────────────────┘
+                       ▼
+         augment_reference_records()  (if count &lt; min_records)
+                       │
+                       ▼
+              validate_record_dict × N
+                       │
+                       ▼
+              split_records(seed, val_ratio)
+                       │
+                       ▼
+         processed/v0.1.0/train.jsonl + val.jsonl</code></pre>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Contract</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Minimum size</td><td>Default <code>--min-records 200</code> (Jira 1031)</td></tr>
+              <tr><td>Label join</td><td>Latest command at or before frame sim time (forward-fill)</td></tr>
+              <tr><td>Split</td><td>Deterministic shuffle by seed; unique <code>id</code> required; disjoint train/val</td></tr>
+              <tr><td>Output paths</td><td>Gitignored under <code>data/processed/</code>; rebuild locally</td></tr>
+              <tr><td>Augmentation</td><td>Only from reference base images — not raw teleop frames</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Reference ingest (<code>records_from_reference_manifest</code>)</h3>
+        <p>Reads committed <code>data/reference_images/manifest.json</code>; skips missing PNGs (gitignored images) and counts them in <code>BuildStats.skipped_missing_image</code>.</p>
+
+        <h3>Raw episode join (<code>records_from_raw_episode</code>)</h3>
+        <pre><code class="language-python">def _action_at_sim_time(commands, sim_ns):
+    # Return latest command row where sim_stamp &lt;= frame sim_ns</code></pre>
+        <ul>
+          <li><strong>Design note:</strong> Frames at 11.5s inherit <code>MOVE_FORWARD</code> if that was the last command at 10s — matches “what was the robot trying to do when this frame was taken?”</li>
+          <li><strong>Gotcha:</strong> Exact timestamp matches are rare; forward-fill is intentional, not nearest-neighbor.</li>
+        </ul>
+
+        <h3>Augmentation (<code>augment_reference_records</code>)</h3>
+        <p>Deterministic Pillow transforms (brightness, contrast, crop, occasional blur) keyed by variant index + seed. Writes PNGs to <code>processed/&lt;version&gt;/images/</code> with <code>source: synthetic</code>.</p>
+        <p><strong>ADR (10093):</strong> Augment curated reference frames, not teleop trajectories, to hit 200 rows before large-scale collection.</p>
+
+        <h3>Orchestrator (<code>build_starter_dataset</code>)</h3>
+        <p>Auto-computes <code>variants_per_image</code> when reference + raw count is below <code>min_records</code>:</p>
+        <pre><code class="language-python">auto_variants = (needed + base_count - 1) // base_count</code></pre>
+
+        <h3>CLI (<code>scripts/build_starter_dataset.py</code>)</h3>
+        <pre><code class="language-bash">python scripts/build_starter_dataset.py \
+  --version v0.1.0 \
+  --min-records 200 \
+  --val-ratio 0.1 \
+  --seed 42</code></pre>
+      </section>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <h3>ADR: Forward-fill labels (10094)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Context:</strong> Commands log on action transitions; frames arrive at ~5 Hz.<br>
+        <strong>Decision:</strong> Each frame gets the most recent command at or before its sim stamp.<br>
+        <strong>Alternatives rejected:</strong> Nearest-neighbor (can label a frame with a future action).</p>
+
+        <h3>ADR: Seed split (10095)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> <code>random.Random(seed).shuffle</code> then slice; reject duplicate ids before split.<br>
+        <strong>Consequences:</strong> Reproducible train/val across machines with same inputs.</p>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_dataset_builder.py -q
+python scripts/build_starter_dataset.py   # requires reference PNGs locally</code></pre>
+        <p>Defends: forward-fill logic, min record count, unique ids across split, schema validation on build.</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li><strong>VLA-45 validator:</strong> Will add image-existence checks and summary counts on the same JSONL paths.</li>
+          <li><strong>Real vs synthetic ratio:</strong> Starter set is augmentation-heavy by design; rebalance when teleop volume grows.</li>
+        </ul>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="dataset-schema.html">VLA-41 schema</a> (output contract)</li>
+          <li><a href="simulation-data-capture.html">VLA-42 capture</a> (input)</li>
+          <li><a href="../../../data/reference_images/manifest.json">reference_images/manifest.json</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 105 task documentation</p>
+    </footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

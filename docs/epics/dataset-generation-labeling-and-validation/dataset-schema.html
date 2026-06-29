@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataset schema and file layout — Epic 105</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-41 / Story 1029</p>
+      <h1>Dataset schema and file layout</h1>
+      <p class="doc-lead">
+        Processed training JSONL contract: <code>image_path</code>, <code>instruction</code>, Epic 103 <code>action</code>, validated by <code>record.schema.json</code>.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#related">Related</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          VLA-41 owns the <strong>processed training record contract</strong> for supervised fine-tuning: one UTF-8 JSONL row per image-instruction-action example under <code>data/processed/&lt;version&gt;/</code>. Raw simulation logs (VLA-42) use a different on-disk shape; only rows validated against <code>record.schema.json</code> enter training. Action tokens are locked to Epic 103 <code>DiscreteAction</code> so labels, dummy controller, parser, and prompts stay aligned.
+        </p>
+      </section>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">Raw capture (VLA-42)                    Processed SFT (VLA-41)
+─────────────────────                   ────────────────────────
+raw/episodes/&lt;id&gt;/commands.jsonl   ──&gt;  processed/v0.1.0/train.jsonl
+raw/episodes/&lt;id&gt;/frames/*.png     ──&gt;       (image_path + instruction + action)
+reference_images/manifest.json     ──&gt;  (via VLA-43 builder)</code></pre>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Contract</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Format</td><td>JSONL — one JSON object per line, UTF-8</td></tr>
+              <tr><td><code>action</code></td><td><code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>SLOW_DOWN</code>, <code>STOP</code></td></tr>
+              <tr><td><code>source</code></td><td><code>teleop</code>, <code>reference</code>, <code>synthetic</code>, <code>manual_review</code></td></tr>
+              <tr><td><code>image_path</code></td><td>Repo-relative POSIX path; no backslashes</td></tr>
+              <tr><td>Validation</td><td>JSON Schema + <code>parse_action()</code> before processed write</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Trade-off:</strong> CSV is reserved for human label review (VLA-44), not canonical training storage — nested <code>metadata</code> in JSONL matches the ROS <code>command_recorder</code> pattern.</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>JSON Schema (<code>data/schema/record.schema.json</code>)</h3>
+        <p>Machine-readable contract with <code>additionalProperties: false</code> on the top-level record so typos fail CI instead of silently entering training data.</p>
+        <ul>
+          <li><strong>Design note:</strong> <code>metadata</code> is an open object for sim stamps, velocities, and review flags without schema churn per capture field.</li>
+          <li><strong>Gotcha:</strong> Raw episode <code>source</code> enums (<code>dummy</code>, <code>scripted</code>) differ from training <code>source</code> — the builder maps them (VLA-43).</li>
+        </ul>
+
+        <h3>Python API (<code>litevla/data/schema.py</code>)</h3>
+        <pre><code class="language-python">@dataclass(frozen=True)
+class TrainingRecord:
+    image_path: str
+    instruction: str
+    action: str
+    timestamp: str
+    source: str
+    id: str | None = None
+    episode_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)</code></pre>
+        <ul>
+          <li><strong><code>parse_training_record</code></strong> — Draft 202012 JSON Schema validation, then <code>parse_action()</code> from <code>litevla.actions</code>.</li>
+          <li><strong><code>read_jsonl</code> / <code>write_jsonl</code></strong> — streaming I/O for builder (VLA-43) and validator (VLA-45); compact JSON on write.</li>
+          <li><strong>Design note:</strong> <code>RecordSchemaError</code> wraps schema and action errors with line numbers for JSONL files.</li>
+        </ul>
+
+        <h3>Fixtures (<code>data/fixtures/sample_train.jsonl</code>)</h3>
+        <p>Six committed rows covering all five actions and three <code>source</code> values. CI validates schema <strong>without</strong> requiring PNG files on disk.</p>
+
+        <h3>Config wiring (<code>configs/default.example.yaml</code>)</h3>
+        <pre><code class="language-yaml">data:
+  schema_path: data/schema/record.schema.json
+  processed_version: v0.1.0
+  train_path: data/processed/v0.1.0/train.jsonl
+  val_path: data/processed/v0.1.0/val.jsonl
+  raw_episodes_dir: data/raw/episodes
+training:
+  dataset_path: data/processed/v0.1.0/train.jsonl</code></pre>
+      </section>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <h3>ADR: JSONL for training (VLA-169)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Context:</strong> Need nested metadata and streaming for large datasets.<br>
+        <strong>Decision:</strong> JSONL only for processed training; CSV only for label review spreadsheets.<br>
+        <strong>Alternatives rejected:</strong> Parquet (heavier dependency for MVP), single JSON array (not stream-friendly).</p>
+
+        <h3>ADR: Epic 103 action enum in schema (VLA-170)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Context:</strong> Model output, dummy controller, and dataset must share one vocabulary.<br>
+        <strong>Decision:</strong> Hard-code the five <code>DiscreteAction</code> tokens in JSON Schema <code>enum</code>.<br>
+        <strong>Consequences:</strong> Teleop-only labels like <code>MOVE_BACKWARD</code> stay in raw logs, not training rows.</p>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_dataset_schema.py -q
+python -c "
+from litevla.data.schema import read_jsonl, FIXTURES_PATH
+print(sum(1 for _ in read_jsonl(FIXTURES_PATH)))
+"</code></pre>
+        <p>Defends: required fields, invalid action rejection, extra-key rejection, JSONL round-trip.</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li><strong>Image path convention:</strong> Processed augmentations live under <code>data/processed/&lt;version&gt;/images/</code>; confirm loader resolves repo-relative paths the same way (VLA-46).</li>
+        </ul>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="../action-interface-parser-and-safety-layer/action-schema.html">Epic 103 action schema</a></li>
+          <li><a href="simulation-data-capture.html">VLA-42 — raw capture</a></li>
+          <li><a href="synthetic-starter-dataset.html">VLA-43 — starter builder</a></li>
+          <li><a href="../../../data/README.md">data/README.md</a> (folder layout)</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 105 task documentation</p>
+    </footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

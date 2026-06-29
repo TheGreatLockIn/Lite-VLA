@@ -7,7 +7,7 @@
 # Prerequisites:
 #   Python 3.10+ with requirements/dev.txt installed (see setup_python_env.sh).
 #
-# Read docs/ci.md (agents) or docs/ci.html (humans).
+# Read docs/ci.md (agents) or docs/html/ci.html (humans).
 
 set -euo pipefail
 

@@ -8,6 +8,7 @@ cleanup_stale_sim_processes() {
   pkill -f "litevla_bridge/heartbeat_controller" 2>/dev/null || true
   pkill -f "litevla_bridge/teleop_keyboard" 2>/dev/null || true
   pkill -f "litevla_bridge/command_recorder" 2>/dev/null || true
+  pkill -f "litevla_bridge/camera_subscriber" 2>/dev/null || true
   pkill -f "litevla_bridge/cmd_vel_tester" 2>/dev/null || true
   pkill -f webots-bin 2>/dev/null || true
   sleep 2

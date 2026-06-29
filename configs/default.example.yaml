@@ -38,11 +38,20 @@ benchmark:
   iterations: 100
   warmup: 5
 
+# Dataset paths and schema (Epic 105 / VLA-41).
+data:
+  schema_path: data/schema/record.schema.json
+  processed_version: v0.1.0
+  train_path: data/processed/v0.1.0/train.jsonl
+  val_path: data/processed/v0.1.0/val.jsonl
+  raw_episodes_dir: data/raw/episodes
+  default_instruction: explore the area
+
 # Optional — used by fine-tuning scripts (Epic: supervised fine-tuning).
 training:
   seed: 42
   lora_rank: 8
   lora_alpha: 16.0
   lora_dropout: 0.05
-  dataset_path: data/processed/train.jsonl
+  dataset_path: data/processed/v0.1.0/train.jsonl
   output_dir: runs/finetune

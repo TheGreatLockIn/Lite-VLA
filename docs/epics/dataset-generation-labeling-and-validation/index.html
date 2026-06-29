@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataset Generation, Labeling, and Validation — Lite-VLA Epic Walkthrough</title>
+  <link rel="stylesheet" href="../../styles/presentation.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to epic index</a>
+      <p class="eyebrow">Epic 105 · Jira VLA-6</p>
+      <h1>Dataset Generation, Labeling, and Validation</h1>
+      <p class="doc-lead">Image-instruction-action dataset for supervised fine-tuning: schema, raw capture, processed JSONL, validation, loader.</p>
+      <nav class="doc-nav" aria-label="Story navigation">
+        <a href="#intent">Intent</a> | <a href="#epic-flow">Epic flow</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="intent" class="meta-card">
+        <h2>Epic Intent</h2>
+        <p><strong>Context:</strong> LiteVLA-Edge assumes curated demonstrations; the team must define how examples are captured, stored, validated, and loaded for fine-tuning on beginner-friendly hardware.</p>
+        <p><strong>Scope:</strong> Training record schema, simulation capture, starter dataset builder, labeling workflow, validator, PyTorch loader, versioning docs.</p>
+        <p><strong>Success criteria:</strong> Stable schema; ≥200 labeled examples; loader runs in training script; quality report catches bad rows.</p>
+        <p><strong>Status:</strong> Complete through VLA-43 (schema, capture, starter builder). VLA-44–47 planned.</p>
+      </section>
+
+      <section id="epic-flow" class="visual-card">
+        <h2>Epic 105 data pipeline</h2>
+        <pre class="mermaid">
+flowchart LR
+  subgraph layerA [Layer A — raw]
+    CAP[VLA-42 teleop capture]
+    RAW[raw/episodes/id/]
+    CAP --> RAW
+  end
+  subgraph layerB [Layer B — processed]
+    SCHEMA[VLA-41 TrainingRecord]
+    BUILD[VLA-43 builder]
+    PROC[processed/v0.1.0/]
+    BUILD --> PROC
+    SCHEMA --> PROC
+  end
+  subgraph downstream [Planned VLA-44–47]
+    VAL[validator]
+    LOAD[loader]
+    PROC --> VAL
+    PROC --> LOAD
+  end
+  RAW --> BUILD
+  REF[reference_images/manifest] --> BUILD
+        </pre>
+        <p><strong>Two-layer JSONL:</strong> Raw <code>commands.jsonl</code> (high frequency, sim stamps) is not training data until VLA-43 aligns frames and emits VLA-41 rows.</p>
+      </section>
+
+      <section id="stories">
+        <h2>Task order (Jira VLA-6)</h2>
+        <ol class="task-list">
+          <li><a href="#story-1029">Story 1029: Define dataset schema and file layout</a> — <a href="dataset-schema.html">VLA-41</a></li>
+          <li><a href="#story-1030">Story 1030: Build simulation data capture tool</a> — <a href="simulation-data-capture.html">VLA-42</a></li>
+          <li><a href="#story-1031">Story 1031: Create synthetic starter dataset</a> — <a href="synthetic-starter-dataset.html">VLA-43</a></li>
+          <li><a href="#story-1032">Story 1032: Design labeling workflow</a></li>
+          <li><a href="#story-1033">Story 1033: Implement dataset validation checks</a></li>
+          <li><a href="#story-1034">Story 1034: Create dataset loader for training</a></li>
+          <li><a href="#story-1035">Story 1035: Create dataset versioning and documentation</a></li>
+        </ol>
+
+        <article class="task-card" id="story-1029">
+          <span class="status-pill">Complete</span>
+          <h3>Story 1029: Define dataset schema and file layout</h3>
+          <p><a href="dataset-schema.html">VLA-41 — task doc</a> (VLA-169 · VLA-170 · VLA-171)</p>
+          <dl>
+            <dt>Intent</dt>
+            <dd>Own the processed training record contract: JSONL rows with <code>image_path</code>, <code>instruction</code>, Epic 103 <code>action</code>, <code>timestamp</code>, <code>source</code>.</dd>
+            <dt>Implementation Walkthrough</dt>
+            <dd>
+              <ul>
+                <li><code>data/schema/record.schema.json</code></li>
+                <li><code>litevla/data/schema.py</code> — <code>TrainingRecord</code>, <code>read_jsonl</code>, <code>parse_training_record</code></li>
+                <li><code>data/fixtures/sample_train.jsonl</code>, <code>data/README.md</code></li>
+                <li><code>configs/default.example.yaml</code> — <code>data:</code> paths</li>
+              </ul>
+            </dd>
+            <dt>Verification Patterns</dt>
+            <dd><pre><code>pytest tests/test_dataset_schema.py -q</code></pre></dd>
+          </dl>
+        </article>
+
+        <article class="task-card" id="story-1030">
+          <span class="status-pill">Complete</span>
+          <h3>Story 1030: Build simulation data capture tool</h3>
+          <p><a href="simulation-data-capture.html">VLA-42 — task doc</a> (10090 · 10091 · 10092)</p>
+          <dl>
+            <dt>Intent</dt>
+            <dd>Save synchronized frames, sim-stamped command labels, and episode metadata from Webots teleop under <code>data/raw/episodes/</code>.</dd>
+            <dt>Implementation Walkthrough</dt>
+            <dd>
+              <ul>
+                <li><code>litevla/data/episode.py</code>, <code>data/schema/episode.schema.json</code></li>
+                <li><code>command_recorder.py</code> — <code>episode_dir</code>, sim stamps</li>
+                <li><code>run_episode_capture.sh</code> — ~5 Hz frames + teleop stack</li>
+              </ul>
+            </dd>
+            <dt>Verification Patterns</dt>
+            <dd><pre><code>pytest tests/test_episode_capture.py -q
+./ros_ws/scripts/run_episode_capture.sh</code></pre></dd>
+          </dl>
+        </article>
+
+        <article class="task-card" id="story-1031">
+          <span class="status-pill">Complete</span>
+          <h3>Story 1031: Create synthetic starter dataset</h3>
+          <p><a href="synthetic-starter-dataset.html">VLA-43 — task doc</a> (10093 · 10094 · 10095)</p>
+          <dl>
+            <dt>Intent</dt>
+            <dd>Build ≥200 validated train/val JSONL rows from reference frames, raw episodes, and Pillow augmentations.</dd>
+            <dt>Implementation Walkthrough</dt>
+            <dd>
+              <ul>
+                <li><code>litevla/data/builder.py</code> — forward-fill join, split, augment</li>
+                <li><code>data/reference_images/manifest.json</code></li>
+                <li><code>scripts/build_starter_dataset.py</code></li>
+              </ul>
+            </dd>
+            <dt>Verification Patterns</dt>
+            <dd><pre><code>pytest tests/test_dataset_builder.py -q
+python scripts/build_starter_dataset.py</code></pre></dd>
+          </dl>
+        </article>
+
+        <article class="task-card" id="story-1032">
+          <span class="status-pill">Planned</span>
+          <h3>Story 1032: Design labeling workflow</h3>
+          <dl>
+            <dt>Intent</dt>
+            <dd>Human review and correction of image-action pairs (CSV or lightweight tool).</dd>
+            <dt>Implementation Walkthrough</dt>
+            <dd class="update-note">Not started. Will add guidelines, template, and review checklist per Jira 10096–10098.</dd>
+          </dl>
+        </article>
+
+        <article class="task-card" id="story-1033">
+          <span class="status-pill">Planned</span>
+          <h3>Story 1033: Implement dataset validation checks</h3>
+          <dl>
+            <dt>Intent</dt>
+            <dd>Detect missing images, invalid labels, malformed JSONL; emit summary report.</dd>
+            <dt>Implementation Walkthrough</dt>
+            <dd class="update-note">Not started. Will consume VLA-41 schema and processed paths from VLA-43.</dd>
+          </dl>
+        </article>
+
+        <article class="task-card" id="story-1034">
+          <span class="status-pill">Planned</span>
+          <h3>Story 1034: Create dataset loader for training</h3>
+          <dl>
+            <dt>Intent</dt>
+            <dd>PyTorch <code>Dataset</code> returning image, instruction, action for fine-tuning pipeline.</dd>
+            <dt>Implementation Walkthrough</dt>
+            <dd class="update-note">Not started. Depends on VLA-41 record shape and VLA-43 processed files.</dd>
+          </dl>
+        </article>
+
+        <article class="task-card" id="story-1035">
+          <span class="status-pill">Planned</span>
+          <h3>Story 1035: Create dataset versioning and documentation</h3>
+          <dl>
+            <dt>Intent</dt>
+            <dd>Track dataset versions, changelogs, and quality stats per release.</dd>
+            <dt>Implementation Walkthrough</dt>
+            <dd class="update-note">Not started. Will extend <code>data/processed/&lt;version&gt;/</code> conventions.</dd>
+          </dl>
+        </article>
+      </section>
+
+      <section id="adr-log" class="adr-card">
+        <h2>Epic ADR Log</h2>
+        <div class="adr-grid">
+          <article>
+            <h3>Two-layer JSONL (VLA-41)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> Raw capture shape ≠ training shape; builder is mandatory gate.</p>
+          </article>
+          <article>
+            <h3>Sim-time join (VLA-42 → VLA-43)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> Shared <code>sim_stamp_sec/nanosec</code>; forward-fill labels per frame.</p>
+          </article>
+          <article>
+            <h3>Augment to 200 rows (VLA-43)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> Pillow variants on reference PNGs until teleop volume is sufficient.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 105 walkthrough · Jira VLA-6</p>
+    </footer>
+  </div>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
+</body>
+</html>

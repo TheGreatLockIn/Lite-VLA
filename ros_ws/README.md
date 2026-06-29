@@ -50,7 +50,7 @@ ros_ws/
 
 ## Webots MVP (VLA-23)
 
-GPU-friendly simulation (selected over Isaac Sim). Full runbook: [VLA-23 task doc](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md).
+GPU-friendly simulation (selected over Isaac Sim). Full runbook: [VLA-23 task doc](../docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md).
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -92,7 +92,7 @@ Keyboard teleop (VLA-28) — interactive terminal required:
 ./ros_ws/scripts/stop_teleop_sim.sh   # before restart
 ```
 
-Do not use `ros2 launch ... teleop_sim.launch.py` for keyboard driving — launch-managed nodes do not receive interactive stdin. See [manual-teleoperation.md](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md).
+Do not use `ros2 launch ... teleop_sim.launch.py` for keyboard driving — launch-managed nodes do not receive interactive stdin. See [manual-teleoperation.md](../docs/epics/ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md).
 
 Full stack integration demo:
 
@@ -150,11 +150,11 @@ source /path/to/Lite-VLA/ros_ws/install/setup.bash
 
 ## Related docs
 
-- Task doc (VLA-19): [`../docs/docs/epics/repository-development-environment-and-tooling/ros-2-workspace-setup.md`](../docs/docs/epics/repository-development-environment-and-tooling/ros-2-workspace-setup.md)
-- Simulator selection (VLA-115): [`../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/simulator-selection.md`](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/simulator-selection.md)
-- Webots environment (VLA-23): [`../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md`](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md)
-- Camera subscriber (VLA-24): [`../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/camera-frame-subscriber.md`](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/camera-frame-subscriber.md)
-- Velocity publisher (VLA-25): [`../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/velocity-command-publisher.md`](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/velocity-command-publisher.md)
-- Dummy action generator (VLA-26): [`../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/dummy-action-generator.md`](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/dummy-action-generator.md)
-- Control heartbeat (VLA-27): [`../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/control-heartbeat.md`](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/control-heartbeat.md)
-- Manual teleop (VLA-28): [`../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md`](../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md)
+- Task doc (VLA-19): [`../docs/epics/repository-development-environment-and-tooling/ros-2-workspace-setup.md`](../docs/epics/repository-development-environment-and-tooling/ros-2-workspace-setup.md)
+- Simulator selection (VLA-115): [`../docs/epics/ros-2-simulation-and-robot-control-skeleton/simulator-selection.md`](../docs/epics/ros-2-simulation-and-robot-control-skeleton/simulator-selection.md)
+- Webots environment (VLA-23): [`../docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md`](../docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md)
+- Camera subscriber (VLA-24): [`../docs/epics/ros-2-simulation-and-robot-control-skeleton/camera-frame-subscriber.md`](../docs/epics/ros-2-simulation-and-robot-control-skeleton/camera-frame-subscriber.md)
+- Velocity publisher (VLA-25): [`../docs/epics/ros-2-simulation-and-robot-control-skeleton/velocity-command-publisher.md`](../docs/epics/ros-2-simulation-and-robot-control-skeleton/velocity-command-publisher.md)
+- Dummy action generator (VLA-26): [`../docs/epics/ros-2-simulation-and-robot-control-skeleton/dummy-action-generator.md`](../docs/epics/ros-2-simulation-and-robot-control-skeleton/dummy-action-generator.md)
+- Control heartbeat (VLA-27): [`../docs/epics/ros-2-simulation-and-robot-control-skeleton/control-heartbeat.md`](../docs/epics/ros-2-simulation-and-robot-control-skeleton/control-heartbeat.md)
+- Manual teleop (VLA-28): [`../docs/epics/ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md`](../docs/epics/ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md)

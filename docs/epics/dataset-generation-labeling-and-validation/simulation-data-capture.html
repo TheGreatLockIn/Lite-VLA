@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulation data capture — Epic 105</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-42 / Story 1030</p>
+      <h1>Simulation data capture tool</h1>
+      <p class="doc-lead">
+        Raw Webots teleop sessions under <code>data/raw/episodes/</code>: <code>episode.json</code>, sim-stamped <code>commands.jsonl</code>, and <code>frames/*.png</code>.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#related">Related</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          VLA-42 owns <strong>Layer A raw capture</strong> during Webots keyboard teleop: each session writes a self-contained directory under <code>data/raw/episodes/&lt;episode_id&gt;/</code> with <code>episode.json</code>, sim-stamped <code>commands.jsonl</code>, and <code>frames/*.png</code>. VLA-43 joins frames to commands and emits VLA-41 training JSONL. Capture reuses Epic 102 teleop nodes; the entry point is <code>run_episode_capture.sh</code> (interactive TTY required).
+        </p>
+      </section>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">run_episode_capture.sh ──&gt; init_raw_episode() ──&gt; episode.json + frames/
+        │
+        ├──&gt; webots_sim.launch.py (interactive)
+        ├──&gt; heartbeat_controller (teleop mode)
+        ├──&gt; camera_subscriber (record_frames @ ~5 Hz)
+        ├──&gt; command_recorder (episode_dir set)
+        └──&gt; teleop_keyboard (foreground)
+
+/litevla/current_action ──&gt; command_recorder ──&gt; commands.jsonl
+/image_raw ──&gt; camera_subscriber ──&gt; frames/{sec}_{nanosec}.png</code></pre>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Contract</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Episode init</td><td><code>episode.json</code> written <strong>before</strong> ROS nodes start</td></tr>
+              <tr><td>Frame naming</td><td><code>{sim_sec}_{sim_nanosec:09d}.png</code> from image header stamp</td></tr>
+              <tr><td>Command log</td><td>Append on <strong>action transition</strong>; includes <code>sim_stamp_sec/nanosec</code></td></tr>
+              <tr><td>Sim clock</td><td>All recorders use <code>use_sim_time:=true</code></td></tr>
+              <tr><td>Entry point</td><td><code>./ros_ws/scripts/run_episode_capture.sh</code> — not plain <code>run_teleop_sim.sh</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Trade-off:</strong> Separate capture script keeps casual teleop (<code>outputs/teleop/</code>) lightweight; full episodes are opt-in.</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Episode layout (<code>litevla/data/episode.py</code>)</h3>
+        <pre><code class="language-python">def init_raw_episode(*, instruction, source="teleop", world="mvp_arena.wbt", record_frames_hz=5.0) -&gt; Path:
+    # Creates data/raw/episodes/&lt;id&gt;/episode.json and frames/</code></pre>
+        <ul>
+          <li><strong><code>EpisodeMetadata</code></strong> validated against <code>data/schema/episode.schema.json</code> before write.</li>
+          <li><strong>Design note:</strong> Episode helpers live in <code>litevla/</code> (not ROS) so tests and VLA-43 builder run without a sim.</li>
+        </ul>
+
+        <h3>Command rows (<code>litevla_bridge/capture_utils.py</code>, <code>command_recorder.py</code>)</h3>
+        <pre><code class="language-python">def build_command_record(*, stamp, sim_stamp_sec, sim_stamp_nanosec, source, action, linear_x, angular_z):
+    ...</code></pre>
+        <ul>
+          <li><strong><code>episode_dir</code> param:</strong> When set, writes <code>commands.jsonl</code> directly in the episode folder (no timestamp subdir under <code>outputs/teleop/</code>).</li>
+          <li><strong>Gotcha:</strong> Recording triggers on <code>/litevla/current_action</code> changes, not every twist tick — many frames may share one label until the next action transition.</li>
+        </ul>
+
+        <h3>Frame recorder (<code>camera_subscriber.py</code>)</h3>
+        <p>Existing node; capture script sets:</p>
+        <pre><code class="language-bash">-p record_frames:=true
+-p frame_save_dir:="${EPISODE_DIR}/frames"
+-p record_interval_sec:=0.2   # 5 Hz default</code></pre>
+        <ul>
+          <li><strong>Design note:</strong> Rate limit uses wall-clock monotonic time; filename uses <strong>sim stamp</strong> from the image message — join key for VLA-43.</li>
+        </ul>
+
+        <h3>Orchestration (<code>run_episode_capture.sh</code>)</h3>
+        <ol>
+          <li>TTY check (same constraint as teleop).</li>
+          <li><code>init_raw_episode()</code> via Python with instruction from CLI/env.</li>
+          <li>Launch Webots + wait for <code>/clock</code> and controllers.</li>
+          <li>Start heartbeat, <code>camera_subscriber</code>, <code>command_recorder</code>, foreground teleop.</li>
+          <li>Stop with <code>./ros_ws/scripts/stop_teleop_sim.sh</code> (also kills <code>camera_subscriber</code>).</li>
+        </ol>
+      </section>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <h3>ADR: Sim-time alignment (10090)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> Reuse <code>camera_subscriber</code> filename convention; command rows add matching sim stamp fields.<br>
+        <strong>Consequences:</strong> VLA-43 forward-fills without a separate index file.</p>
+
+        <h3>ADR: Episode metadata before ROS (10092)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> Shell/Python writes <code>episode.json</code> first; recorders only append runtime artifacts.<br>
+        <strong>Consequences:</strong> Crashed sim still leaves session intent on disk.</p>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_episode_capture.py -q
+pytest ros_ws/src/litevla_bridge/test/test_capture_utils.py -q
+
+# Manual smoke (interactive terminal + Webots)
+./ros_ws/scripts/run_episode_capture.sh --instruction "Move toward the red cube."
+./ros_ws/scripts/stop_teleop_sim.sh
+ls data/raw/episodes/&lt;latest&gt;/</code></pre>
+        <p>Defends: episode schema validation, sim stamp in command records, frame filename parser.</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li><strong>Dummy/scripted capture:</strong> <code>episode.json</code> <code>source</code> enum includes <code>dummy</code> and <code>scripted</code>; wiring a dummy-driven capture session reuses the same layout (future work).</li>
+        </ul>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="../ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.html">VLA-28 manual teleop</a> (Epic 102 teleop stack)</li>
+          <li><a href="synthetic-starter-dataset.html">VLA-43 builder</a> (consumes raw episodes)</li>
+          <li><a href="../../../data/schema/episode.schema.json">episode.schema.json</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 105 task documentation</p>
+    </footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>
