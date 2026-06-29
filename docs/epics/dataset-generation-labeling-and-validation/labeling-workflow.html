@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Labeling workflow — Epic 105</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-44 / Story 1032</p>
+      <h1>Labeling workflow</h1>
+      <p class="doc-lead">
+        Human review via CSV export/import: guidelines, template, checklist, and <code>scripts/label_review.py</code> round-trip into validated JSONL.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#guidelines">Guidelines</a> ·
+        <a href="#checklist">Checklist</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#verification">Verification</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          VLA-44 owns the <strong>human review path</strong> between VLA-43 processed JSONL and training-ready data. Reviewers work in a spreadsheet-friendly CSV (<code>data/templates/label_review.csv</code>), not in JSONL directly. Export → edit → import preserves traceability via <code>id</code>, <code>review_status</code>, and <code>metadata.review</code> on merged rows. Approved and corrected rows become <code>source: manual_review</code>; rejected rows are dropped from the import output.
+        </p>
+      </section>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">processed/v0.1.0/train.jsonl
+        │
+        ▼
+  label_review.py export  ──&gt;  label_review.csv  (spreadsheet)
+        │
+        ▼  human sets review_status, action_reviewed, reviewer, notes
+        │
+  label_review.py import  ──&gt;  train_reviewed.jsonl</code></pre>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Contract</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Review format</td><td>CSV with fixed columns</td></tr>
+              <tr><td>Training format</td><td>JSONL only — CSV never enters training directly</td></tr>
+              <tr><td><code>review_status</code></td><td><code>pending</code> | <code>approved</code> | <code>corrected</code> | <code>rejected</code></td></tr>
+              <tr><td>Final action</td><td><code>corrected</code> → <code>action_reviewed</code>; else proposed or reviewed</td></tr>
+              <tr><td>Traceability</td><td><code>metadata.review</code> stores reviewer, notes, original action/source</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="guidelines">
+        <h2>Labeling guidelines (10096)</h2>
+        <p>Answer: <strong>“What should the robot do next?”</strong> given the image and instruction.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Action</th><th scope="col">When to use</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>MOVE_FORWARD</code></td><td>Clear path toward target; target visible ahead</td></tr>
+              <tr><td><code>TURN_LEFT</code> / <code>TURN_RIGHT</code></td><td>Target off-center or not visible</td></tr>
+              <tr><td><code>SLOW_DOWN</code></td><td>Approaching target cautiously</td></tr>
+              <tr><td><code>STOP</code></td><td>Goal reached, blocked, or halt required</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Do not use:</strong> teleop-only tokens (<code>MOVE_BACKWARD</code>, combos), or synonyms (<code>FORWARD</code>, <code>GO</code>).</p>
+      </section>
+
+      <section id="checklist">
+        <h2>Review checklist (10098)</h2>
+        <p>Printable checklist: <a href="../../../data/templates/label_review_checklist.md">label_review_checklist.md</a></p>
+        <ul>
+          <li>No training rows left <code>pending</code></li>
+          <li><code>corrected</code> rows have valid <code>action_reviewed</code></li>
+          <li>Rejected rows document <code>review_notes</code></li>
+          <li>Spot-check after import</li>
+        </ul>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+        <h3>Template</h3>
+        <p><code>data/templates/label_review.csv</code> — column headers + two example rows.</p>
+        <h3>CLI</h3>
+        <pre><code class="language-bash">python scripts/label_review.py export \
+  --jsonl data/processed/v0.1.0/train.jsonl \
+  --output data/processed/v0.1.0/label_review.csv
+
+python scripts/label_review.py import \
+  --jsonl data/processed/v0.1.0/train.jsonl \
+  --csv data/processed/v0.1.0/label_review.csv \
+  --output data/processed/v0.1.0/train_reviewed.jsonl</code></pre>
+        <h3>Python API</h3>
+        <p><code>litevla/data/label_review.py</code> — <code>export_jsonl_to_review_csv</code>, <code>import_review_csv_to_jsonl</code>.</p>
+      </section>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <p><strong>ADR: CSV for review, JSONL for training (10097)</strong> — Accepted. Spreadsheet UX for humans; validated JSONL for training.</p>
+        <p><strong>ADR: Reject drops row on import (10098)</strong> — Accepted. Rejected examples never reach training output.</p>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_label_review.py -q</code></pre>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="dataset-schema.html">VLA-41 schema</a></li>
+          <li><a href="synthetic-starter-dataset.html">VLA-43 builder</a></li>
+          <li><a href="../action-interface-parser-and-safety-layer/action-schema.html">Epic 103 actions</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 105 task documentation</p>
+    </footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

@@ -18,6 +18,7 @@ Python API: `litevla.data.TrainingRecord`
 |------|-----|---------|
 | `schema/` | tracked | JSON Schema for training records |
 | `fixtures/` | tracked | Sample JSONL for tests and docs |
+| `templates/` | tracked | Label review CSV template + checklist (VLA-44) |
 | `reference_images/` | PNGs ignored | Webots reference frames (see README there) |
 | `raw/episodes/` | ignored | Raw capture from sim (VLA-42) — see below |
 | `processed/` | ignored | Built train/val JSONL + stats (VLA-43, VLA-47) |
@@ -72,3 +73,16 @@ data/processed/v0.1.0/
 Reference labels: [`reference_images/manifest.json`](reference_images/manifest.json)
 
 Task doc: [`synthetic-starter-dataset.md`](../docs/epics/dataset-generation-labeling-and-validation/synthetic-starter-dataset.md).
+
+## Label review (VLA-44)
+
+Export processed JSONL to CSV, review in a spreadsheet, merge back:
+
+```bash
+python scripts/label_review.py export --jsonl data/processed/v0.1.0/train.jsonl --output data/processed/v0.1.0/label_review.csv
+# edit CSV: review_status, action_reviewed, reviewer, notes
+python scripts/label_review.py import --jsonl data/processed/v0.1.0/train.jsonl --csv data/processed/v0.1.0/label_review.csv --output data/processed/v0.1.0/train_reviewed.jsonl
+```
+
+Template: [`templates/label_review.csv`](templates/label_review.csv)  
+Task doc: [`labeling-workflow.md`](../docs/epics/dataset-generation-labeling-and-validation/labeling-workflow.md).

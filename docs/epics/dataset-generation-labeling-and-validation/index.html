@@ -24,7 +24,7 @@
         <p><strong>Context:</strong> LiteVLA-Edge assumes curated demonstrations; the team must define how examples are captured, stored, validated, and loaded for fine-tuning on beginner-friendly hardware.</p>
         <p><strong>Scope:</strong> Training record schema, simulation capture, starter dataset builder, labeling workflow, validator, PyTorch loader, versioning docs.</p>
         <p><strong>Success criteria:</strong> Stable schema; ≥200 labeled examples; loader runs in training script; quality report catches bad rows.</p>
-        <p><strong>Status:</strong> Complete through VLA-43 (schema, capture, starter builder). VLA-44–47 planned.</p>
+        <p><strong>Status:</strong> Complete through VLA-44 (labeling workflow). VLA-45–47 planned.</p>
       </section>
 
       <section id="epic-flow" class="visual-card">
@@ -61,7 +61,7 @@ flowchart LR
           <li><a href="#story-1029">Story 1029: Define dataset schema and file layout</a> — <a href="dataset-schema.html">VLA-41</a></li>
           <li><a href="#story-1030">Story 1030: Build simulation data capture tool</a> — <a href="simulation-data-capture.html">VLA-42</a></li>
           <li><a href="#story-1031">Story 1031: Create synthetic starter dataset</a> — <a href="synthetic-starter-dataset.html">VLA-43</a></li>
-          <li><a href="#story-1032">Story 1032: Design labeling workflow</a></li>
+          <li><a href="#story-1032">Story 1032: Design labeling workflow</a> — <a href="labeling-workflow.html">VLA-44</a></li>
           <li><a href="#story-1033">Story 1033: Implement dataset validation checks</a></li>
           <li><a href="#story-1034">Story 1034: Create dataset loader for training</a></li>
           <li><a href="#story-1035">Story 1035: Create dataset versioning and documentation</a></li>
@@ -131,13 +131,27 @@ python scripts/build_starter_dataset.py</code></pre></dd>
         </article>
 
         <article class="task-card" id="story-1032">
-          <span class="status-pill">Planned</span>
+          <span class="status-pill">Complete</span>
           <h3>Story 1032: Design labeling workflow</h3>
+          <p><a href="labeling-workflow.html">VLA-44 — task doc</a> (10096 · 10097 · 10098)</p>
           <dl>
             <dt>Intent</dt>
-            <dd>Human review and correction of image-action pairs (CSV or lightweight tool).</dd>
+            <dd>Human review and correction of image-action pairs via CSV export/import; guidelines and checklist for Epic 103 actions only.</dd>
             <dt>Implementation Walkthrough</dt>
-            <dd class="update-note">Not started. Will add guidelines, template, and review checklist per Jira 10096–10098.</dd>
+            <dd>
+              <ul>
+                <li><code>data/templates/label_review.csv</code>, <code>label_review_checklist.md</code></li>
+                <li><code>litevla/data/label_review.py</code> — export/import merge</li>
+                <li><code>scripts/label_review.py</code> — CLI round-trip</li>
+              </ul>
+            </dd>
+            <dt>Data And Control Flow</dt>
+            <dd>JSONL → CSV spreadsheet → validated JSONL with <code>source: manual_review</code> and <code>metadata.review</code>; rejected rows dropped.</dd>
+            <dt>ADR Notes</dt>
+            <dd><strong>CSV for review, JSONL for training:</strong> Spreadsheet UX for humans; schema validation on import.</dd>
+            <dt>Verification Patterns</dt>
+            <dd><pre><code>pytest tests/test_label_review.py -q
+python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl --output /tmp/review.csv</code></pre></dd>
           </dl>
         </article>
 
@@ -192,6 +206,11 @@ python scripts/build_starter_dataset.py</code></pre></dd>
             <h3>Augment to 200 rows (VLA-43)</h3>
             <p><strong>Status:</strong> Accepted</p>
             <p><strong>Decision:</strong> Pillow variants on reference PNGs until teleop volume is sufficient.</p>
+          </article>
+          <article>
+            <h3>CSV review round-trip (VLA-44)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> Export JSONL to CSV for spreadsheet review; import validates and sets <code>manual_review</code> provenance.</p>
           </article>
         </div>
       </section>

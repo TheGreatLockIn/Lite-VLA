@@ -24,6 +24,15 @@ from litevla.data.episode import (
     validate_episode_dict,
     write_episode_json,
 )
+from litevla.data.label_review import (
+    ImportReviewStats,
+    LabelReviewError,
+    REVIEW_COLUMNS,
+    apply_reviews_to_records,
+    export_jsonl_to_review_csv,
+    import_review_csv_to_jsonl,
+    read_review_csv,
+)
 from litevla.data.schema import (
     TrainingRecord,
     load_record_schema,
@@ -36,6 +45,13 @@ from litevla.data.schema import (
 )
 
 __all__ = [
+    "ImportReviewStats",
+    "LabelReviewError",
+    "REVIEW_COLUMNS",
+    "apply_reviews_to_records",
+    "export_jsonl_to_review_csv",
+    "import_review_csv_to_jsonl",
+    "read_review_csv",
     "BuildResult",
     "BuildStats",
     "DEFAULT_RAW_EPISODES_DIR",

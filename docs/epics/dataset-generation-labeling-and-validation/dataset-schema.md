@@ -104,6 +104,7 @@ Defends: required fields, invalid action rejection, extra-key rejection, JSONL r
 - [action-schema.md](../action-interface-parser-and-safety-layer/action-schema.md) (Epic 103 labels)
 - [simulation-data-capture.md](simulation-data-capture.md) (VLA-42 raw layer)
 - [synthetic-starter-dataset.md](synthetic-starter-dataset.md) (VLA-43 builder output)
+- [labeling-workflow.md](labeling-workflow.md) (VLA-44 human review)
 - [`data/README.md`](../../../../data/README.md) (folder layout)
 
 ## Open questions
