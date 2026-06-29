@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velocity command publisher — Epic 102</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-25</p>
+      <h1>Velocity command publisher</h1>
+      <p class="doc-lead">
+        <code>CmdVelPublisher</code> is the shared actuation sink for Epic 102: bounded twists to <code>/cmd_vel</code> aligned with <code>ros2_control.yml</code>.
+      </p>
+    </header>
+
+    <main>
+      <section id="executive-summary">
+        <h2>Executive summary</h2>
+        <p><code>CmdVelPublisher</code> is the shared <strong>actuation sink</strong> for Epic 102: any node that needs to move the robot should call this library rather than publishing <code>geometry_msgs/Twist</code> directly. <code>clamp_velocity()</code> enforces MVP limits before messages reach <code>/cmd_vel</code>, keeping dummy, heartbeat, tester, and future model paths aligned with <code>ros2_control.yml</code>.</p>
+      </section>
+
+      <section id="api-contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">caller (tester / heartbeat / legacy direct use)
+    ──&gt; CmdVelPublisher.publish_twist(linear_x, angular_z)
+    ──&gt; clamp_velocity()
+    ──&gt; geometry_msgs/Twist
+    ──&gt; /cmd_vel
+    ──&gt; diffdrive_controller (Webots)</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Parameter</th>
+                <th scope="col">Default</th>
+                <th scope="col">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>cmd_vel_topic</code></td>
+                <td><code>/cmd_vel</code></td>
+                <td>Matches <code>configs/default.example.yaml</code></td>
+              </tr>
+              <tr>
+                <td><code>max_linear_vel</code></td>
+                <td><code>0.2</code></td>
+                <td>Matches <code>resource/ros2_control.yml</code></td>
+              </tr>
+              <tr>
+                <td><code>max_angular_vel</code></td>
+                <td><code>0.6</code></td>
+                <td>Webots diff-drive limit</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Invariant:</strong> Published twists never exceed configured maxima; <code>publish_stop()</code> always sends zeros.</p>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Twist helpers (<code>twist_utils.py</code>)</h3>
+        <pre><code class="language-python">def clamp_velocity(linear_x, angular_z, *, max_linear_vel, max_angular_vel):
+    ...
+def make_twist(linear_x, angular_z) -&gt; Twist:
+    ...</code></pre>
+        <p>Pure functions — fully covered by <code>test_twist_utils.py</code> without ROS runtime.</p>
+
+        <h3>Publisher class (<code>cmd_vel_publisher.py</code>)</h3>
+        <pre><code class="language-python">publisher = CmdVelPublisher(node, cmd_vel_topic="/cmd_vel")
+publisher.publish_twist(0.15, 0.0)
+publisher.publish_stop()</code></pre>
+        <ul>
+          <li><strong>Design note:</strong> Accepts a <code>rclpy.Node</code> so heartbeat and testers share one implementation.</li>
+          <li><strong>Gotcha:</strong> Post–VLA-27 architecture routes most traffic through <code>heartbeat_controller</code>; direct <code>/cmd_vel</code> publish is for tests and legacy paths.</li>
+        </ul>
+
+        <h3>Sim tester (<code>cmd_vel_tester.py</code>, subtask 10041)</h3>
+        <p>Cycles forward → left → right → stop with <code>step_duration_sec</code> dwell (default 2 s).</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Step</th>
+                <th scope="col">linear.x</th>
+                <th scope="col">angular.z</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>forward</td>
+                <td>0.15</td>
+                <td>0</td>
+              </tr>
+              <tr>
+                <td>turn_left</td>
+                <td>0</td>
+                <td>0.4</td>
+              </tr>
+              <tr>
+                <td>turn_right</td>
+                <td>0</td>
+                <td>-0.4</td>
+              </tr>
+              <tr>
+                <td>stop</td>
+                <td>0</td>
+                <td>0</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">colcon test --packages-select litevla_bridge
+./ros_ws/scripts/run_webots_mvp.sh
+ros2 launch litevla_bridge cmd_vel_test.launch.py
+ros2 topic echo /cmd_vel</code></pre>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="camera-frame-subscriber.html">camera-frame-subscriber</a> (VLA-24)</li>
+          <li><a href="control-heartbeat.html">control-heartbeat</a> (VLA-27)</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 102 task documentation</p>
+    </footer>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>
