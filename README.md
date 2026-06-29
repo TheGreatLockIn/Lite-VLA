@@ -118,7 +118,26 @@ See [`docs/ci.html`](docs/ci.html) for what runs in GitHub Actions and how to fi
 
 ### ROS 2 workspace
 
-ROS setup will be documented in `ros_ws/` as that workspace is built out.
+ROS 2 **Jazzy** and `colcon` are required (not installed via pip). See [`ros_ws/README.md`](ros_ws/README.md) and the [VLA-19 task doc](docs/docs/epics/repository-development-environment-and-tooling/ros-2-workspace-setup.md).
+
+```bash
+source /opt/ros/jazzy/setup.bash
+./ros_ws/scripts/build_ros_ws.sh
+source ros_ws/install/setup.bash
+ros2 run litevla_bridge workspace_ping
+```
+
+**Webots simulation (VLA-23)** needs two installs — the ROS bridge apt package and the Webots app:
+
+```bash
+sudo apt install ros-jazzy-webots-ros2
+./ros_ws/scripts/install_webots.sh
+./ros_ws/scripts/run_webots_mvp.sh
+```
+
+Details: [Webots environment task doc](docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md).
+
+The `litevla_bridge` package holds camera, velocity, dummy-action, heartbeat, and teleop nodes (Epic 102).
 
 ## Contributing
 

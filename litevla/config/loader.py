@@ -21,6 +21,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "mode": "dummy",
         "heartbeat_hz": 10.0,
         "default_instruction": "explore the area",
+        "sequence_step_sec": 2.0,
+        "action_timeout_sec": 0.5,
+        "frame_timeout_sec": 2.0,
+        "action_sequence": [
+            "MOVE_FORWARD",
+            "MOVE_FORWARD",
+            "TURN_LEFT",
+            "STOP",
+        ],
     },
     "model": {
         "path": "models/demo",

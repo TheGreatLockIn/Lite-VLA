@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MVP Demo Task & Non-Goals Definition — Lite-VLA</title>
+  <link rel="stylesheet" href="styles/doc.css">
+  <style>
+    /* Scoped styling matching the Warm Neutral palette */
+    .section-box {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: var(--space-md) var(--space-lg);
+      margin: var(--space-md) 0 var(--space-lg);
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: var(--space-md);
+      margin: var(--space-md) 0;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.15rem 0.4rem;
+      border-radius: var(--radius);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: inline-block;
+      margin-bottom: var(--space-xs);
+    }
+
+    .badge-in {
+      background-color: rgba(44, 160, 44, 0.1);
+      color: #1e5a1e;
+      border: 1px solid rgba(44, 160, 44, 0.2);
+    }
+
+    .badge-out {
+      background-color: rgba(184, 96, 42, 0.1);
+      color: var(--color-accent);
+      border: 1px solid rgba(184, 96, 42, 0.2);
+    }
+
+    ul.check-list {
+      list-style-type: none;
+      padding-left: 0;
+    }
+
+    ul.check-list li {
+      margin-bottom: var(--space-sm);
+      padding-left: 1.5rem;
+      position: relative;
+    }
+
+    ul.check-list li::before {
+      content: "✔";
+      position: absolute;
+      left: 0;
+      color: #1e5a1e;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-shell">
+    
+    <header class="doc-header">
+      <h1>MVP Demo Task & Non-Goals Definition</h1>
+      <p class="doc-lead">Preventing scope creep and aligning on measurable success criteria for the initial implementation</p>
+      <div class="doc-nav">
+        <a href="../README.md">← Back to README</a>
+      </div>
+    </header>
+
+    <main>
+      <!-- SECTION 1: Selected Simulated Task -->
+      <section>
+        <h2>1. Selected Simulated Task: Navigate to Target Object</h2>
+        <p>For our initial demonstration, the robot will perform a single, narrow task in simulation to prove the end-to-end learning and control pipeline.</p>
+        
+        <div class="section-box">
+          <h3>Task Scenario: Red Cube Navigation</h3>
+          <p><strong>Environment:</strong> A flat, bounded arena in Webots containing a single wheeled mobile robot (e.g., Pioneer 3-DX or E-puck) and a high-contrast target object (a Red Cube).</p>
+          <p><strong>Objective:</strong> The robot must search for, navigate toward, and stop directly in front of the red cube.</p>
+          <p><strong>Instruction Examples:</strong></p>
+          <ul>
+            <li><code>"Move toward the red cube."</code></li>
+            <li><code>"Turn left until you see the red cube."</code></li>
+            <li><code>"Stop when close to the red cube."</code></li>
+          </ul>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 2: Explicit Non-Goals -->
+      <section>
+        <h2>2. Explicit Scope Boundaries</h2>
+        <p>To prevent scope creep and keep this project achievable for a beginner team, the following items are divided between active scope and deferred items:</p>
+        
+        <div class="grid-two">
+          <div class="card">
+            <h3><span class="badge badge-in">In Scope (MVP)</span></h3>
+            <ul>
+              <li><strong>Webots Simulation:</strong> Entirely virtual runs on a single laptop host.</li>
+              <li><strong>Discrete Action Space:</strong> Parsing five predefined movement tokens.</li>
+              <li><strong>ROS 2 loop:</strong> Workspace, camera publishers, and Twist publishers active.</li>
+              <li><strong>Single-task baseline:</strong> Navigating to a single colored target cube.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3><span class="badge badge-out">Out of Scope (Deferred)</span></h3>
+            <ul>
+              <li><strong>Real Robot Deployment:</strong> No physical hardware runs or embedded Jetson setup.</li>
+              <li><strong>Exact Latency Numbers:</strong> Bypassing the paper's 150.5 ms target for now.</li>
+              <li><strong>Continuous Action Outputs:</strong> No raw velocities predicted directly by VLM.</li>
+              <li><strong>Manipulation tasks:</strong> No robotic arms, picking, or placing objects.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 3: MVP Acceptance Criteria -->
+      <section>
+        <h2>3. MVP Acceptance Criteria</h2>
+        <p>The project is considered complete and working when it meets the following criteria across our selected simulated task:</p>
+
+        <div class="section-box">
+          <h3>3.1 VLA Model Output</h3>
+          <ul class="check-list">
+            <li>The fine-tuned model accepts a camera frame and text instruction and outputs a valid discrete action token (<code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>STOP</code>, <code>SLOW_DOWN</code>).</li>
+            <li>Achieves $\ge 90\%$ format accuracy on held-out test images.</li>
+          </ul>
+
+          <h3>3.2 ROS 2 Control Loop</h3>
+          <ul class="check-list">
+            <li>The ROS 2 workspace compiles cleanly using <code>colcon build</code>.</li>
+            <li>A bridge node successfully translates the simulator's camera sensor into <code>/image_raw</code> ROS topics.</li>
+            <li>The model inference node subscribes to <code>/image_raw</code> and publishes velocity commands on <code>/cmd_vel</code> at a stable rate ($\ge 5$ Hz).</li>
+          </ul>
+
+          <h3>3.3 Safety Gate</h3>
+          <ul class="check-list">
+            <li><strong>Velocity Clamping:</strong> Linear velocity is strictly clamped to a maximum of $0.2\text{ m/s}$ and angular velocity to $0.6\text{ rad/s}$.</li>
+            <li><strong>Parsing Fallback:</strong> Any malformed or unrecognized text output from the VLA model is caught by the parser and immediately publishes a <code>Twist</code> command with all zeros (<code>STOP</code>).</li>
+            <li><strong>Emergency Stop:</strong> Pressing a designated keyboard key instantly overrides the VLA publisher and halts the robot.</li>
+          </ul>
+
+          <h3>3.4 Ingestion & Logging</h3>
+          <ul class="check-list">
+            <li>The system logs the camera frame timestamp, natural language instruction, model raw text output, parsed velocity command, and end-to-end inference latency (ms) for every control step.</li>
+          </ul>
+        </div>
+      </section>
+      <hr>
+
+      <!-- SECTION 4: Project Risk Register -->
+      <section>
+        <h2>4. Project Risk Register</h2>
+        <p>To ensure project stability, the team will track and mitigate the following technical and project risks.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Risk ID</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Severity</th>
+                <th>Mitigation Strategy</th>
+                <th>Owner</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>RSK-01</strong></td>
+                <td>Machine Learning</td>
+                <td><strong>Dataset Quality & Label Noise:</strong> Inconsistent manual action labels during data collection cause model confusion.</td>
+                <td><span class="badge badge-out">High</span></td>
+                <td>Write scripted rule-based heuristics to generate optimal actions for the baseline dataset to ensure 100% label consistency.</td>
+                <td>ML Lead</td>
+              </tr>
+              <tr>
+                <td><strong>RSK-02</strong></td>
+                <td>Machine Learning</td>
+                <td><strong>VLA Malformed Outputs:</strong> Model outputs open-ended conversational text instead of strict action tokens.</td>
+                <td><span class="badge badge-out">High</span></td>
+                <td>Implement a deterministic regex parser inside the Action Parser node that maps any invalid output to a safe <code>STOP</code> command.</td>
+                <td>ML Lead</td>
+              </tr>
+              <tr>
+                <td><strong>RSK-03</strong></td>
+                <td>Machine Learning</td>
+                <td><strong>Overfitting to Arena:</strong> Robot learns to navigate only with specific lighting or starting positions.</td>
+                <td><span class="badge badge-modified">Medium</span></td>
+                <td>Randomize starting orientation, cube placement, and arena colors during dataset collection.</td>
+                <td>QA Lead</td>
+              </tr>
+              <tr>
+                <td><strong>RSK-04</strong></td>
+                <td>Robotics & Control</td>
+                <td><strong>Unsafe Control Commands:</strong> Model outputs extreme velocities causing the robot to flip or crash.</td>
+                <td><span class="badge badge-out">High</span></td>
+                <td>Apply a strict velocity clamp ($v \le 0.2\text{ m/s}$, $\omega \le 0.6\text{ rad/s}$) at the Safety Gate node.</td>
+                <td>ROS Lead</td>
+              </tr>
+              <tr>
+                <td><strong>RSK-05</strong></td>
+                <td>Robotics & Control</td>
+                <td><strong>Control Jitter & Lag:</strong> Disconnected control frequencies between VLA inference and Webots lead to jerky movements.</td>
+                <td><span class="badge badge-modified">Medium</span></td>
+                <td>Decouple the loop. Run a low-level smoothing controller at 100 Hz that interpolates VLA commands received at ~5 Hz.</td>
+                <td>ROS Lead</td>
+              </tr>
+              <tr>
+                <td><strong>RSK-06</strong></td>
+                <td>Deployment</td>
+                <td><strong>GGUF/llama.cpp Compatibility:</strong> Selected VLM architecture fails to convert to GGUF format.</td>
+                <td><span class="badge badge-out">High</span></td>
+                <td>Validate GGUF export and running via <code>llama.cpp</code> using the base un-tuned model in Week 1 before starting fine-tuning.</td>
+                <td>Deployment Lead</td>
+              </tr>
+              <tr>
+                <td><strong>RSK-07</strong></td>
+                <td>Deployment</td>
+                <td><strong>VRAM Allocation Failures:</strong> Running Webots and model inference on the same GPU leads to memory crashes.</td>
+                <td><span class="badge badge-modified">Medium</span></td>
+                <td>Quantize to 4-bit (<code>Q4_K_M</code>) to reduce VLA memory footprint to &lt;1.5GB, and monitor VRAM allocation limits.</td>
+                <td>Deployment Lead</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>4.1 Review Cadence</h3>
+        <p>Risks will be evaluated <strong>weekly</strong> during Sunday retrospective sessions. Updates to risk status, severity, or ownership will be recorded in the weekly learning logs (e.g., <a href="../logs/week_1.md">logs/week_1.md</a>).</p>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA Scope & MVP Specifications | Prepared for the Lite-VLA Project Group</p>
+    </footer>
+  </div>
+</body>
+</html>
