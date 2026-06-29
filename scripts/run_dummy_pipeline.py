@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from litevla.actions import ACTION_NAMES, DEFAULT_ACTION_SEQUENCE, action_to_twist
+from litevla.actions import ACTION_NAMES, safe_command_from_action, safe_command_from_text
 from litevla.config import ConfigError, example_config_path, load_config
 from litevla.experiment import ExperimentRun
 
@@ -55,15 +55,28 @@ def run_dummy_pipeline(
         print(f"  sequence:    {list(sequence)}")
         print()
 
+        safety = config["safety"]
         actions: list[dict[str, float | str]] = []
-        for action in sequence:
-            linear, angular = action_to_twist(
+        for action in ACTION_NAMES:
+            command = safe_command_from_action(
                 action,
                 max_linear_vel=safety["max_linear_vel"],
                 max_angular_vel=safety["max_angular_vel"],
             )
+            linear, angular = command.linear_x, command.angular_z
             actions.append({"action": action, "linear": linear, "angular": angular})
             print(f"action={action:13s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s")
+
+        fallback = safe_command_from_text(
+            "invalid model output",
+            max_linear_vel=safety["max_linear_vel"],
+            max_angular_vel=safety["max_angular_vel"],
+        )
+        print()
+        print(
+            f"fallback demo: invalid text -> {fallback.action.value} "
+            f"(linear={fallback.linear_x:.3f}, angular={fallback.angular_z:.3f})"
+        )
 
         if experiment is not None:
             experiment.write_metrics(

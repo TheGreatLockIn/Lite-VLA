@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Action Interface, Parser, and Safety Layer - Lite-VLA Epic Walkthrough</title>
+  <link rel="stylesheet" href="../../styles/presentation.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to epic index</a>
+      <p class="eyebrow">Epic 103</p>
+      <h1>Action Interface, Parser, and Safety Layer</h1>
+      <p class="doc-lead">Define safe structured actions and convert model text into bounded robot commands.</p>
+      <nav class="doc-nav" aria-label="Story navigation">
+        <a href="#intent">Intent</a> | <a href="#epic-pipeline">Epic pipeline</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="intent" class="meta-card">
+        <h2>Epic Intent</h2>
+        <p><strong>Context:</strong> The VLA model emits text. The robot needs bounded, repeatable velocity commands on ROS <code>/cmd_vel</code>. This epic owns everything between raw model output and a safe <code>geometry_msgs/Twist</code>.</p>
+        <p><strong>Scope:</strong> Discrete and optional continuous action schemas, parsers that normalize noisy text, velocity clamps, fallback <code>STOP</code> on invalid output, and command smoothing between inference steps.</p>
+        <p><strong>Success criteria:</strong> Invalid model output maps to <code>STOP</code>; velocity limits are enforced; parser has unit tests; the discrete action schema is documented and shared via <code>litevla.actions</code>.</p>
+        <p><strong>Current progress:</strong> Stories 1017, 1019, and 1021 (discrete path through safety gate) are <strong>complete</strong>. Stories 1018, 1020, and 1022 are planned — see each task card.</p>
+      </section>
+
+      <section id="epic-pipeline" class="visual-card">
+        <h2>Epic pipeline (target state)</h2>
+        <pre><code class="language-text">VLA raw text ──> parser (1019) ──> DiscreteAction ──> action_to_twist (1017)
+        ──> safety gate (1021) ──> smoother (1022, optional) ──> /cmd_vel Twist</code></pre>
+        <pre class="mermaid">
+flowchart TD
+  VLA["VLA raw text"]
+  P["Parser 1019"]
+  S["action_to_twist 1017"]
+  G["Safety gate 1021"]
+  M["Smoother 1022 optional"]
+  CV["/cmd_vel Twist"]
+  VLA --> P --> S --> G --> M --> CV
+  G --> CV
+        </pre>
+        <p><strong>Implemented today:</strong> Stories 1017, 1019, and 1021 (<code>litevla.actions</code> through safety gate). <strong>Planned:</strong> JSON path, command smoothing.</p>
+      </section>
+
+      <section id="stories">
+        <h2>Task Order</h2>
+        <ol class="task-list">
+          <li><a href="#story-1017">Story 1017: Define discrete action schema</a></li>
+          <li><a href="#story-1018">Story 1018: Define continuous command schema</a></li>
+          <li><a href="#story-1019">Story 1019: Implement discrete action parser</a></li>
+          <li><a href="#story-1020">Story 1020: Implement JSON command parser</a></li>
+          <li><a href="#story-1021">Story 1021: Implement safety clamp and fallback behavior</a></li>
+          <li><a href="#story-1022">Story 1022: Add command smoothing</a></li>
+        </ol>
+
+      <article class="task-card" id="story-1017">
+        <span class="status-pill">Complete</span>
+        <h3>Story 1017: Define discrete action schema</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>
+            Owns the <strong>discrete action contract</strong>: five exact tokens and nominal
+            <code>(linear_x, angular_z)</code> mapping via <code>litevla.actions</code>. Downstream
+            parser, safety, dataset, and ROS code import this module — they do not define parallel vocabularies.
+          </dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd>
+            <p>Full walkthrough: <a href="action-schema.html">Discrete action schema</a> (<code>action-schema.md</code> for agents).</p>
+
+            <p><strong>Vocabulary + nominal profile</strong> — <code>DiscreteAction</code> enum and
+            <code>ACTION_VELOCITIES</code> in <code>litevla/actions/schema.py</code>.
+            <em>Design:</em> single source of truth for labeling and runtime.
+            <em>Risk:</em> enum renames break datasets.</p>
+
+            <p><strong>Validation + clamp primitives</strong> — <code>is_valid_action</code>,
+            <code>clamp_velocity</code>.
+            <em>Design:</em> non-throwing probe + reusable axis clamp for Story 1021.
+            <em>Risk:</em> whitespace normalization deferred to Story 1019.</p>
+
+            <p><strong>Mapping API</strong> — <code>action_to_twist(action, *, max_linear_vel, max_angular_vel)</code>.
+            <em>Design:</em> required config limits; fail-fast on unknown tokens.
+            <em>Risk:</em> <code>ValueError</code> must not reach <code>/cmd_vel</code> without Story 1021.</p>
+
+            <p><strong>Integration</strong> — <code>scripts/run_dummy_pipeline.py</code> iterates
+            <code>ACTION_NAMES</code> with config <code>safety</code> limits; replaced ad-hoc
+            <code>FORWARD</code>/<code>STOP</code> placeholders.</p>
+          </dd>
+          <dt>Data And Control Flow</dt>
+          <dd>
+            <pre><code class="language-text">token ──> ACTION_VELOCITIES ──> clamp_velocity ──> (linear_x, angular_z)</code></pre>
+            <p>
+              <strong>Contract:</strong> exact token in; clamped SI velocities out.
+              <strong>Invariant:</strong> every enum member has one nominal pair.
+              <strong>Trade-off:</strong> nominal semantics stable for training; config tightens deployment limits.
+            </p>
+          </dd>
+          <dt>ADR Notes</dt>
+          <dd>
+            <p><strong>ADR: Five-token discrete vocabulary</strong> — Accepted. Discrete-first for MVP;
+            JSON velocity path secondary. Rejected <code>FORWARD</code> alias and continuous schema as primary path.</p>
+          </dd>
+          <dt>Verification Patterns</dt>
+          <dd>
+            <p>Contracts defended: stable token order, complete velocity table, MVP design-point values,
+            config clamping, alias rejection, fail-fast on invalid tokens, config integration via dummy pipeline.</p>
+            <pre><code class="language-bash">pytest tests/test_action_schema.py -q
+python scripts/run_dummy_pipeline.py</code></pre>
+          </dd>
+          <dt>Open Questions</dt>
+          <dd>
+            <ul>
+              <li>Narrow <code>action_to_twist</code> to <code>DiscreteAction</code> only once Story 1019 owns string coercion?</li>
+              <li>How do discrete tokens and optional JSON velocities coexist at the safety gate?</li>
+            </ul>
+          </dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1018">
+        <span class="status-pill">Planned</span>
+        <h3>Story 1018: Define continuous command schema</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Prepare an optional JSON schema for direct <code>linear_x</code> / <code>angular_z</code> velocity output — a future path if the team experiments beyond discrete tokens. Not required for the MVP demo, which uses Story 1017’s discrete vocabulary.</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>Define JSON fields (<code>linear_x</code>, <code>angular_z</code>, optional <code>stop</code>), numeric bounds, and valid/invalid examples for parser tests. Expected location: new module under <code>litevla/actions/</code> or adjacent parser package, documented in a paired task doc in this epic folder.</p>
+            <p><strong>Upstream:</strong> MVP non-goals keep discrete actions primary; this schema is optional infrastructure.</p>
+            <p><strong>Downstream:</strong> Story 1020 (JSON parser) and Story 1021 (safety gate) will consume validated JSON commands.</p>
+          </dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd class="update-note">Not started. Populate when schema constants and example fixtures land in the repo.</dd>
+          <dt>Verification Patterns</dt>
+          <dd class="update-note">Not run — story not implemented.</dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1019">
+        <span class="status-pill">Complete</span>
+        <h3>Story 1019: Implement discrete action parser</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Extract a valid <code>DiscreteAction</code> token from noisy VLA text (whitespace, punctuation, lowercase variants) before calling <code>action_to_twist</code>.</dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd>
+            <p>Full walkthrough: <a href="discrete-action-parser.html">Discrete action parser</a> (<code>discrete-action-parser.md</code> for agents).</p>
+
+            <p><strong>Normalization (10058)</strong> — <code>normalize_action_text</code> and
+            <code>_strip_trailing_punctuation</code> in <code>litevla/actions/parser.py</code>.
+            <em>Design:</em> strip, uppercase, trim trailing <code>.</code>/<code>!</code> on whole-string candidates.
+            <em>Risk:</em> leading punctuation relies on regex fallback.</p>
+
+            <p><strong>Parser (10057)</strong> — <code>parse_discrete_action(text) -&gt; DiscreteAction | None</code>.
+            Exact match fast path, then <code>_ACTION_TOKEN_PATTERN</code> word-boundary search built from
+            <code>ACTION_NAMES</code>.
+            <em>Design:</em> returns <code>None</code> on failure; Story 1021 maps to <code>STOP</code>.
+            <em>Risk:</em> multiple tokens return first match only.</p>
+
+            <p><strong>Tests (10059)</strong> — <code>tests/test_action_parser.py</code> covers exact,
+            noisy, invalid, and multi-token inputs.</p>
+          </dd>
+          <dt>Data And Control Flow</dt>
+          <dd>
+            <pre><code class="language-text">VLA text ──> parse_discrete_action ──> DiscreteAction | None ──> action_to_twist / safety gate</code></pre>
+            <p>
+              <strong>Contract:</strong> raw string in; known token or <code>None</code> out.
+              <strong>Invariant:</strong> vocabulary matches Story 1017; no aliases.
+              <strong>Trade-off:</strong> fail reporting here; fail-safe publishing deferred to 1021.
+            </p>
+          </dd>
+          <dt>ADR Notes</dt>
+          <dd>
+            <p><strong>ADR: Return None on parse failure</strong> — Accepted. Safety gate owns
+            <code>STOP</code> fallback (RSK-02). Rejected raising in parser and returning
+            <code>STOP</code> directly.</p>
+          </dd>
+          <dt>Verification Patterns</dt>
+          <dd>
+            <pre><code class="language-bash">pytest tests/test_action_parser.py -q</code></pre>
+            <p>Contracts: exact tokens, normalized noise, invalid/alias rejection, first embedded token wins.</p>
+          </dd>
+          <dt>Open Questions</dt>
+          <dd>
+            <ul>
+              <li>Prefer last token when model revises mid-string (Story 1028)?</li>
+              <li>Log parse failures for baseline eval (Story 1027)?</li>
+            </ul>
+          </dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1020">
+        <span class="status-pill">Planned</span>
+        <h3>Story 1020: Implement JSON command parser</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Parse optional continuous command JSON safely when the model (or a future prompt format) emits structured velocity objects instead of discrete tokens.</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>JSON extraction utility, required-field validation, malformed-output tests. Depends on Story 1018 schema definition.</p>
+            <p><strong>Downstream:</strong> safety gate (Story 1021) clamps parsed velocities.</p>
+          </dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd class="update-note">Not started.</dd>
+          <dt>Verification Patterns</dt>
+          <dd class="update-note">Not run — story not implemented.</dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1021">
+        <span class="status-pill">Complete</span>
+        <h3>Story 1021: Implement safety clamp and fallback behavior</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Guarantee unsafe or unparseable commands cannot reach <code>/cmd_vel</code>. MVP acceptance: malformed VLA output becomes zero velocity <code>STOP</code>; velocities stay within config limits (MVP design points 0.2 m/s / 0.6 rad/s).</dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd>
+            <p>Full walkthrough: <a href="safety-clamp-and-fallback.html">Safety clamp and fallback</a> (<code>safety-clamp-and-fallback.md</code> for agents). Learning notes for subtasks 10252 and 10253 are in that doc.</p>
+
+            <p><strong>Velocity clamp (10063)</strong> — <code>clamp_twist_velocities</code> in
+            <code>litevla/actions/safety.py</code>, reusing <code>clamp_velocity</code> from Story 1017.
+            <em>Design:</em> standalone per-axis clamp with <code>was_clamped</code> flag.
+            <em>Risk:</em> NaN/Inf not validated (same as schema).</p>
+
+            <p><strong>Invalid-output STOP (10064)</strong> — <code>safe_command_from_text</code> calls
+            <code>parse_discrete_action</code>; on <code>None</code> returns <code>STOP</code> at
+            <code>(0.0, 0.0)</code> without raising.
+            <em>Design:</em> fail-safe at ROS publish boundary (RSK-02).
+            <em>Risk:</em> first embedded token still wins when multiple tokens present.</p>
+
+            <p><strong>Safety event logging (10065)</strong> — <code>SafetyEvent</code> /
+            <code>SafetyEventKind</code> on every <code>SafeCommand</code>; WARNING logs include
+            <code>original_text</code> on failure and clamp.
+            <em>Design:</em> structured events for tests + <code>logging</code> for live nodes.</p>
+
+            <p><strong>Integration</strong> — <code>scripts/run_dummy_pipeline.py</code> routes actions
+            through <code>safe_command_from_action</code> and demonstrates invalid-text fallback.</p>
+          </dd>
+          <dt>Data And Control Flow</dt>
+          <dd>
+            <pre><code class="language-text">VLA text ──> safe_command_from_text ──> SafeCommand ──> (linear_x, angular_z) ──> /cmd_vel</code></pre>
+            <p>
+              <strong>Contract:</strong> raw text or known <code>DiscreteAction</code> in; bounded velocities out.
+              <strong>Invariant:</strong> no parse failure propagates as an exception.
+              <strong>Trade-off:</strong> discrete-only MVP; JSON path deferred to Stories 1018/1020.
+            </p>
+          </dd>
+          <dt>ADR Notes</dt>
+          <dd>
+            <p><strong>ADR: Central safety gate</strong> — Accepted. Parser reports failure; safety gate
+            publishes <code>STOP</code> and logs. Rejected STOP inside parser and per-call-site
+            try/except around <code>action_to_twist</code>.</p>
+          </dd>
+          <dt>Verification Patterns</dt>
+          <dd>
+            <pre><code class="language-bash">pytest tests/test_action_safety.py -q
+python scripts/run_dummy_pipeline.py</code></pre>
+            <p>Contracts: axis clamp, valid text mapping, invalid text STOP, config clamp events, safety logging.</p>
+          </dd>
+          <dt>Open Questions</dt>
+          <dd>
+            <ul>
+              <li>Extend gate for JSON velocities (Story 1020)?</li>
+              <li>Latched e-stop on repeated parse failures in ROS node?</li>
+              <li>Rate-limit safety WARNING logs during baseline eval (Story 1027)?</li>
+            </ul>
+          </dd>
+        </dl>
+      </article>
+      <article class="task-card" id="story-1022">
+        <span class="status-pill">Planned</span>
+        <h3>Story 1022: Add command smoothing</h3>
+        <dl>
+          <dt>Intent</dt>
+          <dd>Reduce jerky command changes when VLA inference runs at ~5 Hz while the low-level controller expects smoother motion (see MVP risk RSK-05).</dd>
+          <dt>Planned scope</dt>
+          <dd>
+            <p>Interpolator between successive velocity targets at a higher rate (e.g. 100 Hz timer) before publishing <code>Twist</code>. Sits after the safety gate so smoothed values remain bounded.</p>
+          </dd>
+          <dt>Implementation Walkthrough</dt>
+          <dd class="update-note">Not started.</dd>
+          <dt>Verification Patterns</dt>
+          <dd class="update-note">Not run — story not implemented.</dd>
+        </dl>
+      </article>
+      </section>
+
+      <section id="adr-log" class="adr-card">
+        <h2>Epic ADR Log</h2>
+        <div class="adr-grid">
+          <article>
+            <h3>ADR: Discrete-first action interface</h3>
+            <p><strong>Status:</strong> Accepted (Story 1017)</p>
+            <p><strong>Context:</strong> MVP must stay beginner-friendly; continuous VLM velocities are explicitly deferred.</p>
+            <p><strong>Decision:</strong> Ship <code>litevla.actions</code> as the shared discrete contract; optional JSON path (1018/1020) is secondary.</p>
+            <p><strong>Consequences:</strong> Training data, prompts, and parser tests target five exact tokens; safety gate enforces bounds on mapped velocities.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA epic presentation. Update this file as the epic evolves.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
+</body>
+</html>

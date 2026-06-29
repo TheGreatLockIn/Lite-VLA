@@ -1,0 +1,93 @@
+@import url("doc.css");
+
+:root {
+  --max-width: 76rem;
+}
+
+.epic-grid,
+.task-grid,
+.adr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-md);
+}
+
+.epic-card,
+.task-card,
+.adr-card,
+.visual-card,
+.meta-card {
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.epic-card h2,
+.task-card h3,
+.adr-card h4,
+.visual-card h3,
+.meta-card h2 {
+  margin-top: 0;
+}
+
+.eyebrow,
+.status-pill {
+  display: inline-block;
+  margin: 0 0 var(--space-sm);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.status-pill {
+  padding: 0.15rem 0.5rem;
+  background: rgba(184, 96, 42, 0.1);
+  border: 1px solid rgba(184, 96, 42, 0.25);
+  border-radius: 999px;
+}
+
+.task-card {
+  margin: var(--space-lg) 0;
+}
+
+.task-card dl {
+  margin: 0;
+}
+
+.task-card dt {
+  margin-top: var(--space-md);
+  font-weight: 700;
+}
+
+.task-card dd {
+  margin: var(--space-xs) 0 0;
+}
+
+.task-list {
+  padding-left: 1.25rem;
+}
+
+.task-list li {
+  margin-bottom: var(--space-sm);
+}
+
+.mermaid {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-md);
+  overflow-x: auto;
+}
+
+.update-note {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: var(--space-md);
+}

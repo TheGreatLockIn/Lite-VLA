@@ -41,7 +41,7 @@ def test_jsonschema_validates_action_record() -> None:
         },
         "required": ["instruction", "action"],
     }
-    record = {"instruction": "move forward", "action": "FORWARD"}
+    record = {"instruction": "move forward", "action": "MOVE_FORWARD"}
     jsonschema.validate(instance=record, schema=schema)
 
 

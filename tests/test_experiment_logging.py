@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from litevla.experiment import (
     CONFIG_FILENAME,
     METADATA_FILENAME,
@@ -98,7 +97,9 @@ def test_save_helpers_write_expected_files(tmp_path: Path) -> None:
     assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["runtime"]["mode"] == "model"
 
 
-def test_dummy_pipeline_log_run_writes_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dummy_pipeline_log_run_writes_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from scripts.run_dummy_pipeline import run_dummy_pipeline
 
     monkeypatch.chdir(tmp_path)
@@ -121,4 +122,4 @@ def test_dummy_pipeline_log_run_writes_artifacts(tmp_path: Path, monkeypatch: py
     assert (run_dir / METADATA_FILENAME).is_file()
     metrics = json.loads((run_dir / METRICS_FILENAME).read_text(encoding="utf-8"))
     assert metrics["status"] == "success"
-    assert metrics["action_count"] == 4
+    assert metrics["action_count"] == 2
