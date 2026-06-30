@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from litevla.config import ConfigError, load_config
+from litevla.actions import InferenceAdapter
 from litevla.inference import InferenceWrapper
 from litevla.prompting import ALLOWED_ACTIONS
 
@@ -40,6 +41,7 @@ def evaluate_baseline(
         return 1
 
     wrapper = InferenceWrapper(config)
+    adapter = InferenceAdapter(wrapper, config)
 
     if not metadata_path.is_file():
         print(f"Error: Evaluation dataset metadata file not found at {metadata_path}", file=sys.stderr)
@@ -77,7 +79,7 @@ def evaluate_baseline(
             continue
 
         # Perform VLA inference
-        res = wrapper.infer(image, instruction, few_shot=few_shot)
+        res = adapter.adapt_inference(image, instruction, few_shot=few_shot)
         predicted = res["action"]
         success = res["success"]
         error_msg = res["error"]

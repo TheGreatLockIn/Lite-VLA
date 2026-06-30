@@ -231,19 +231,37 @@ Rel(validation, presentation, "summarized in")
         </dl>
       </article>
       <article class="task-card" id="story-1028">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1028: Connect baseline inference to action parser</h3>
         <dl>
           <dt>Intent</dt>
           <dd>Turn baseline model text into structured actions.</dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            Created the <code>InferenceAdapter</code> class in <code>litevla/actions/adapter.py</code>. 
+            It acts as a wrapper around the <code>InferenceWrapper</code>, intercepting its raw string predictions and executing them through the <code>safe_command_from_text</code> safety gate.
+            We registered and exported <code>InferenceAdapter</code> in <code>litevla/actions/__init__.py</code>, and integrated it into the evaluation loop of <code>scripts/evaluate_baseline.py</code> to ensure that all predictions are validated and clamped against configured safety bounds during runtime evaluations.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Inputs:</strong> OpenCV BGR image NumPy array <code>(H, W, 3)</code> + text instruction + config-bound limits (<code>safety.max_linear_vel</code> and <code>safety.max_angular_vel</code>).<br>
+            <strong>Outputs:</strong> A structured adapter result dictionary containing the <code>safe_command</code> object, timing latencies, raw output string, parse status, and predicted discrete action token.<br>
+            <strong>Flow:</strong> Image & Instruction ➔ Inference Wrapper ➔ Raw VLM text ➔ Parser ➔ Clamping ➔ Safe Command + Logging payload (containing <code>raw_output</code> and <code>parsed_action</code> fields).
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>ADR: Inference Adapter Layer</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> Raw VLM output can contain noisy formats, invalid words, or hallucinated movements that could crash the robot or violate configuration limits if executed directly.<br>
+            <strong>Decision:</strong> Establish a dedicated <code>InferenceAdapter</code> class connecting the VLM model execution output with the Epic 103 <code>safe_command_from_text</code> utility.
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Created a unit test suite in <code>tests/test_inference_adapter.py</code>. The tests verify successful parsing of clean actions, normalization of noisy tokens (e.g. <code>"turn_left. "</code>), fallback STOP command mapping for invalid outputs, exception-safe recovery mapping, and structured log message formatting. Verified that 100% of the unit tests and the baseline evaluation runner execute correctly:<br>
+            <pre><code>pytest tests/test_inference_adapter.py -v
+pytest
+python scripts/evaluate_baseline.py</code></pre>
+          </dd>
         </dl>
       </article>
       </section>

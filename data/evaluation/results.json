@@ -1,6 +1,6 @@
 {
   "summary": {
-    "evaluation_timestamp": "2026-06-28T21:29:19Z",
+    "evaluation_timestamp": "2026-06-30T18:10:08Z",
     "runtime_mode": "dummy",
     "model_path": "models/demo",
     "device": "cpu",
@@ -11,10 +11,10 @@
     "valid_action_rate": 1.0,
     "correct_action_rate": 0.25,
     "averages_ms": {
-      "preprocessing_ms": 2.5813650000031885,
-      "prompting_ms": 0.006110000015269179,
+      "preprocessing_ms": 2.4054249999608146,
+      "prompting_ms": 0.0064449995988979936,
       "inference_ms": 5.0,
-      "total_ms": 7.971610000038254
+      "total_ms": 7.746345000487054
     }
   },
   "runs": [
@@ -31,10 +31,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 22.30310000004465,
-        "prompting_ms": 0.004499999931795173,
+        "preprocessing_ms": 19.906200002878904,
+        "prompting_ms": 0.00809999619377777,
         "inference_ms": 5.0,
-        "total_ms": 27.57459999997991
+        "total_ms": 25.27150000241818
       }
     },
     {
@@ -50,10 +50,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.8697999998948944,
-        "prompting_ms": 0.0056999999742402,
+        "preprocessing_ms": 1.4015999986440875,
+        "prompting_ms": 0.012099997547920793,
         "inference_ms": 5.0,
-        "total_ms": 7.036700000071505
+        "total_ms": 6.686300002911594
       }
     },
     {
@@ -69,10 +69,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.0208000001057371,
-        "prompting_ms": 0.004999999873689376,
+        "preprocessing_ms": 0.960299999860581,
+        "prompting_ms": 0.0047000066842883825,
         "inference_ms": 5.0,
-        "total_ms": 6.5638000000944885
+        "total_ms": 6.208500002685469
       }
     },
     {
@@ -88,10 +88,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 0.9970999999495689,
-        "prompting_ms": 0.0041000000692292815,
+        "preprocessing_ms": 0.9686000048532151,
+        "prompting_ms": 0.006399997801054269,
         "inference_ms": 5.0,
-        "total_ms": 6.615300000021307
+        "total_ms": 6.5021000045817345
       }
     },
     {
@@ -107,10 +107,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.5533999999206571,
-        "prompting_ms": 0.005399999963628943,
+        "preprocessing_ms": 1.376100000925362,
+        "prompting_ms": 0.005800000508315861,
         "inference_ms": 5.0,
-        "total_ms": 7.070600000133709
+        "total_ms": 6.517800000438001
       }
     },
     {
@@ -126,10 +126,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.7119999999977153,
-        "prompting_ms": 0.004900000021734741,
+        "preprocessing_ms": 0.9552999981679022,
+        "prompting_ms": 0.005299996701069176,
         "inference_ms": 5.0,
-        "total_ms": 7.285299999921335
+        "total_ms": 6.42389999848092
       }
     },
     {
@@ -145,10 +145,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.092900000003283,
-        "prompting_ms": 0.0050999999530176865,
+        "preprocessing_ms": 1.0331000012229197,
+        "prompting_ms": 0.005399997462518513,
         "inference_ms": 5.0,
-        "total_ms": 6.164500000068074
+        "total_ms": 6.546600001456682
       }
     },
     {
@@ -164,10 +164,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.0058000000299216,
-        "prompting_ms": 0.004600000011123484,
+        "preprocessing_ms": 1.011399996059481,
+        "prompting_ms": 0.005100002454128116,
         "inference_ms": 5.0,
-        "total_ms": 6.303599999910148
+        "total_ms": 6.175599999551196
       }
     },
     {
@@ -183,10 +183,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 0.9565000000293367,
-        "prompting_ms": 0.005500000042957254,
+        "preprocessing_ms": 0.9669000064604916,
+        "prompting_ms": 0.004699999408330768,
         "inference_ms": 5.0,
-        "total_ms": 6.0267000001204
+        "total_ms": 6.305800001427997
       }
     },
     {
@@ -202,10 +202,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.3977999999497115,
-        "prompting_ms": 0.025300000061179162,
+        "preprocessing_ms": 1.2671000004047528,
+        "prompting_ms": 0.005599998985417187,
         "inference_ms": 5.0,
-        "total_ms": 6.586500000139495
+        "total_ms": 6.529100006446242
       }
     },
     {
@@ -221,10 +221,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.3335999999526393,
-        "prompting_ms": 0.004900000021734741,
+        "preprocessing_ms": 1.1515000005601905,
+        "prompting_ms": 0.005000001692678779,
         "inference_ms": 5.0,
-        "total_ms": 7.159600000022692
+        "total_ms": 6.318699997791555
       }
     },
     {
@@ -240,10 +240,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.2000000001535227,
-        "prompting_ms": 0.0050999999530176865,
+        "preprocessing_ms": 1.3779999935650267,
+        "prompting_ms": 0.006099995516706258,
         "inference_ms": 5.0,
-        "total_ms": 6.300600000031409
+        "total_ms": 6.7846999954781495
       }
     },
     {
@@ -259,10 +259,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.1878000000251632,
-        "prompting_ms": 0.005900000132896821,
+        "preprocessing_ms": 1.2819999974453822,
+        "prompting_ms": 0.008600000001024455,
         "inference_ms": 5.0,
-        "total_ms": 6.690500000104294
+        "total_ms": 6.899399995745625
       }
     },
     {
@@ -278,10 +278,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.3043999999808875,
-        "prompting_ms": 0.006200000143508078,
+        "preprocessing_ms": 1.1679000017466024,
+        "prompting_ms": 0.006900001608300954,
         "inference_ms": 5.0,
-        "total_ms": 6.606900000178939
+        "total_ms": 6.5484000006108545
       }
     },
     {
@@ -297,10 +297,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.7095000000608707,
-        "prompting_ms": 0.005000000101063051,
+        "preprocessing_ms": 1.924299998790957,
+        "prompting_ms": 0.010700001439545304,
         "inference_ms": 5.0,
-        "total_ms": 7.290499999953681
+        "total_ms": 7.4643999978434294
       }
     },
     {
@@ -316,10 +316,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 2.154399999881207,
-        "prompting_ms": 0.004900000021734741,
+        "preprocessing_ms": 1.8749999944702722,
+        "prompting_ms": 0.006099995516706258,
         "inference_ms": 5.0,
-        "total_ms": 7.492400000046473
+        "total_ms": 7.124899995687883
       }
     },
     {
@@ -335,10 +335,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 2.0199000000502565,
-        "prompting_ms": 0.005300000111674308,
+        "preprocessing_ms": 2.5910999975167215,
+        "prompting_ms": 0.005299996701069176,
         "inference_ms": 5.0,
-        "total_ms": 7.598099999995611
+        "total_ms": 7.946599995193537
       }
     },
     {
@@ -354,10 +354,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 2.1756000001005305,
-        "prompting_ms": 0.004199999921183917,
+        "preprocessing_ms": 2.306700000190176,
+        "prompting_ms": 0.006400005077011883,
         "inference_ms": 5.0,
-        "total_ms": 7.631400000036592
+        "total_ms": 7.5217000048724
       }
     },
     {
@@ -373,10 +373,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 1.9498999999996158,
-        "prompting_ms": 0.005999999984851456,
+        "preprocessing_ms": 2.1932000017841347,
+        "prompting_ms": 0.005399997462518513,
         "inference_ms": 5.0,
-        "total_ms": 7.192799999984345
+        "total_ms": 7.462300003680866
       }
     },
     {
@@ -392,10 +392,10 @@
       "success": true,
       "error": null,
       "timing_ms": {
-        "preprocessing_ms": 2.6829999999335996,
-        "prompting_ms": 0.004600000011123484,
+        "preprocessing_ms": 2.3922000036691315,
+        "prompting_ms": 0.005200003215577453,
         "inference_ms": 5.0,
-        "total_ms": 8.241799999950672
+        "total_ms": 7.688600002438761
       }
     }
   ]

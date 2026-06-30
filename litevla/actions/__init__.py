@@ -1,5 +1,6 @@
 """Discrete action vocabulary and velocity mapping for Lite-VLA."""
 
+from litevla.actions.adapter import InferenceAdapter
 from litevla.actions.parser import normalize_action_text, parse_discrete_action
 from litevla.actions.safety import (
     SafeCommand,
@@ -30,6 +31,7 @@ __all__ = [
     "DEFAULT_LINEAR_FORWARD",
     "DEFAULT_LINEAR_SLOW",
     "DiscreteAction",
+    "InferenceAdapter",
     "SafeCommand",
     "SafetyEvent",
     "SafetyEventKind",
