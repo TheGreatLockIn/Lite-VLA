@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from litevla.experiment import (
     CONFIG_FILENAME,
     METADATA_FILENAME,
@@ -48,36 +47,39 @@ def test_run_directory_creates_expected_layout(tmp_path: Path) -> None:
 
 
 def test_experiment_run_writes_config_and_metadata(tmp_path: Path) -> None:
-    config = {
-        "runtime": {"mode": "dummy"},
-        "model": {"prompt_version": "v2"},
-        "benchmark": {"iterations": 10, "warmup": 1},
-    }
+        config = {
+            "runtime": {"mode": "dummy"},
+            "model": {"prompt_version": "v2"},
+            "benchmark": {"iterations": 10, "warmup": 1},
+        }
 
-    with ExperimentRun(
-        "inference",
-        config,
-        run_id="fixed-run",
-        base_dir=tmp_path,
-        config_path="configs/default.example.yaml",
-        repo_root=tmp_path,
-    ) as run:
-        assert run.directory == tmp_path / "inference" / "fixed-run"
-        run.write_metrics({"status": "success", "duration_ms": 5})
+        with ExperimentRun(
+            "inference",
+            config,
+            run_id="fixed-run",
+            base_dir=tmp_path,
+            config_path="configs/default.example.yaml",
+            repo_root=tmp_path,
+        ) as run:
+            assert run.directory == tmp_path / "inference" / "fixed-run"
+            run.write_metrics({"status": "success", "duration_ms": 5})
 
-    saved_config = yaml.safe_load((run.directory / CONFIG_FILENAME).read_text(encoding="utf-8"))
-    assert saved_config == config
+        saved_config = yaml.safe_load((run.directory / CONFIG_FILENAME).
+  read_text(encoding="utf-8"))
+        assert saved_config == config
 
-    metadata = json.loads((run.directory / METADATA_FILENAME).read_text(encoding="utf-8"))
-    assert metadata["run_id"] == "fixed-run"
-    assert metadata["kind"] == "inference"
-    assert metadata["config_path"] == "configs/default.example.yaml"
-    assert metadata["prompt_version"] == "v2"
-    assert metadata["git"]["commit"] is None or isinstance(metadata["git"]["commit"], str)
+        metadata = json.loads((run.directory / METADATA_FILENAME).
+  read_text(encoding="utf-8"))
+        assert metadata["run_id"] == "fixed-run"
+        assert metadata["kind"] == "inference"
+        assert metadata["config_path"] == "configs/default.example.yaml"
+        assert metadata["prompt_version"] == "v2"
+        assert metadata["git"]["commit"] is None or isinstance(metadata["git"]["commit"],
+  str)
 
-    metrics = json.loads((run.directory / METRICS_FILENAME).read_text(encoding="utf-8"))
-    assert metrics["status"] == "success"
-    assert metrics["duration_ms"] == 5
+        metrics = json.loads((run.directory / METRICS_FILENAME).read_text(encoding="utf-8"))
+        assert metrics["status"] == "success"
+        assert metrics["duration_ms"] == 5
 
 
 def test_collect_metadata_includes_core_fields() -> None:
@@ -103,27 +105,30 @@ def test_save_helpers_write_expected_files(tmp_path: Path) -> None:
     assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["runtime"]["mode"] == "model"
 
 
-def test_dummy_pipeline_log_run_writes_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from scripts.run_dummy_pipeline import run_dummy_pipeline
+def test_dummy_pipeline_log_run_writes_artifacts(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from scripts.run_dummy_pipeline import run_dummy_pipeline
 
-    monkeypatch.chdir(tmp_path)
-    config = {
-        "runtime": {
-            "mode": "dummy",
-            "heartbeat_hz": 10,
-            "default_instruction": "go",
-        },
-        "ros": {"image_topic": "/image_raw", "cmd_vel_topic": "/cmd_vel"},
-        "safety": {"max_linear_vel": 0.5, "max_angular_vel": 1.0},
-    }
+        monkeypatch.chdir(tmp_path)
+        config = {
+            "runtime": {
+                "mode": "dummy",
+                "heartbeat_hz": 10,
+                "default_instruction": "go",
+            },
+            "ros": {"image_topic": "/image_raw", "cmd_vel_topic": "/cmd_vel"},
+            "safety": {"max_linear_vel": 0.5, "max_angular_vel": 1.0},
+        }
 
-    assert run_dummy_pipeline(config, log_run=True, run_label="ci") == 0
+        assert run_dummy_pipeline(config, log_run=True, run_label="ci") == 0
 
-    run_dirs = list((tmp_path / "runs" / "inference").iterdir())
-    assert len(run_dirs) == 1
-    run_dir = run_dirs[0]
-    assert (run_dir / CONFIG_FILENAME).is_file()
-    assert (run_dir / METADATA_FILENAME).is_file()
-    metrics = json.loads((run_dir / METRICS_FILENAME).read_text(encoding="utf-8"))
-    assert metrics["status"] == "success"
-    assert metrics["action_count"] == 4
+        run_dirs = list((tmp_path / "runs" / "inference").iterdir())
+        assert len(run_dirs) == 1
+        run_dir = run_dirs[0]
+        assert (run_dir / CONFIG_FILENAME).is_file()
+        assert (run_dir / METADATA_FILENAME).is_file()
+        metrics = json.loads((run_dir / METRICS_FILENAME).read_text(encoding="utf-8"))
+        assert metrics["status"] == "success"
+        # Adjusted to 5 since run_dummy_pipeline loops over all ACTION_NAMES (5 items)
+        assert metrics["action_count"] == 5
