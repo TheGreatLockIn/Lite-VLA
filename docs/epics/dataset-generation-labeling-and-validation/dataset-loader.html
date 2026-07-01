@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataset loader for training — Epic 105</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 105 · VLA-46 / Story 1034</p>
+      <h1>Dataset loader for training</h1>
+      <p class="doc-lead"><code>LiteVLADataset</code> — PyTorch <code>Dataset</code> over processed JSONL with optional image transforms.</p>
+    </header>
+    <main>
+      <section><h2>Executive summary</h2>
+        <p>Loads validated JSONL rows, opens repo-relative RGB images, returns dicts for DataLoader batching into Epic 106 fine-tuning.</p>
+      </section>
+      <section><h2>Usage</h2>
+        <pre><code class="language-python">from litevla.data.loader import LiteVLADataset
+
+dataset = LiteVLADataset("data/processed/v0.1.0/train.jsonl")
+sample = dataset[0]  # image, instruction, action, ...</code></pre>
+      </section>
+      <section><h2>Verification</h2>
+        <pre><code class="language-bash">pytest tests/test_dataset_loader.py -q</code></pre>
+      </section>
+    </main>
+    <footer class="doc-footer"><p>Lite-VLA · Epic 105</p></footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

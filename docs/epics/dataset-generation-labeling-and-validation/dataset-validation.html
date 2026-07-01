@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataset validation checks — Epic 105</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 105 · VLA-45 / Story 1033</p>
+      <h1>Dataset validation checks</h1>
+      <p class="doc-lead">Schema, image path, duplicate id, and label distribution checks with JSON report output.</p>
+    </header>
+    <main>
+      <section><h2>Executive summary</h2>
+        <p>VLA-45 validates processed JSONL before training: per-line schema errors, missing images, duplicate ids, and action/source distribution with imbalance warnings.</p>
+      </section>
+      <section><h2>CLI</h2>
+        <pre><code class="language-bash">python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train.jsonl
+python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check</code></pre>
+      </section>
+      <section><h2>Verification</h2>
+        <pre><code class="language-bash">pytest tests/test_dataset_validator.py -q</code></pre>
+      </section>
+    </main>
+    <footer class="doc-footer"><p>Lite-VLA · Epic 105</p></footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

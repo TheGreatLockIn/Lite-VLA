@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataset versioning and documentation — Epic 105</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 105 · VLA-47 / Story 1035</p>
+      <h1>Dataset versioning and documentation</h1>
+      <p class="doc-lead"><code>vMAJOR.MINOR.PATCH</code> directories with <code>validation_report.json</code> and <code>DATASET_CARD.md</code>.</p>
+    </header>
+    <main>
+      <section><h2>Executive summary</h2>
+        <p>VLA-47 packages validation stats and a human dataset card under <code>data/processed/&lt;version&gt;/</code> after build or validate.</p>
+      </section>
+      <section><h2>CLI</h2>
+        <pre><code class="language-bash">python scripts/build_starter_dataset.py --write-artifacts
+python scripts/validate_dataset.py --version v0.1.0 --write-artifacts</code></pre>
+      </section>
+      <section><h2>Verification</h2>
+        <pre><code class="language-bash">pytest tests/test_dataset_versioning.py -q</code></pre>
+      </section>
+    </main>
+    <footer class="doc-footer"><p>Lite-VLA · Epic 105</p></footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

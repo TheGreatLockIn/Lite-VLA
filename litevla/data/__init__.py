@@ -33,6 +33,21 @@ from litevla.data.label_review import (
     import_review_csv_to_jsonl,
     read_review_csv,
 )
+from litevla.data.validator import (
+    DatasetValidationReport,
+    ValidationIssue,
+    format_report_summary,
+    validate_dataset,
+    write_validation_report,
+)
+from litevla.data.versioning import (
+    build_version_artifacts,
+    is_valid_processed_version,
+    processed_dir,
+    render_dataset_card,
+    write_dataset_card,
+    write_dataset_stats,
+)
 from litevla.data.schema import (
     TrainingRecord,
     load_record_schema,
@@ -52,6 +67,17 @@ __all__ = [
     "export_jsonl_to_review_csv",
     "import_review_csv_to_jsonl",
     "read_review_csv",
+    "DatasetValidationReport",
+    "ValidationIssue",
+    "format_report_summary",
+    "validate_dataset",
+    "write_validation_report",
+    "build_version_artifacts",
+    "is_valid_processed_version",
+    "processed_dir",
+    "render_dataset_card",
+    "write_dataset_card",
+    "write_dataset_stats",
     "BuildResult",
     "BuildStats",
     "DEFAULT_RAW_EPISODES_DIR",

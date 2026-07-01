@@ -86,3 +86,32 @@ python scripts/label_review.py import --jsonl data/processed/v0.1.0/train.jsonl 
 
 Template: [`templates/label_review.csv`](templates/label_review.csv)  
 Task doc: [`labeling-workflow.md`](../docs/epics/dataset-generation-labeling-and-validation/labeling-workflow.md).
+
+## Validation (VLA-45)
+
+```bash
+python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train.jsonl
+python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check
+```
+
+Task doc: [`dataset-validation.md`](../docs/epics/dataset-generation-labeling-and-validation/dataset-validation.md).
+
+## Training loader (VLA-46)
+
+```python
+from litevla.data.loader import LiteVLADataset
+dataset = LiteVLADataset("data/processed/v0.1.0/train.jsonl")
+```
+
+Task doc: [`dataset-loader.md`](../docs/epics/dataset-generation-labeling-and-validation/dataset-loader.md).
+
+## Version artifacts (VLA-47)
+
+After build or validate:
+
+```bash
+python scripts/build_starter_dataset.py --write-artifacts
+# writes data/processed/v0.1.0/validation_report.json + DATASET_CARD.md
+```
+
+Task doc: [`dataset-versioning.md`](../docs/epics/dataset-generation-labeling-and-validation/dataset-versioning.md).

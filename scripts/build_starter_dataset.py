@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from litevla.data.builder import BuildResult, DatasetBuildError, build_starter_dataset
+from litevla.data.versioning import build_version_artifacts
 
 
 def _parse_args() -> argparse.Namespace:
@@ -47,6 +48,16 @@ def _parse_args() -> argparse.Namespace:
         "--skip-raw-episodes",
         action="store_true",
         help="Do not ingest data/raw/episodes (reference + synthetic only).",
+    )
+    parser.add_argument(
+        "--write-artifacts",
+        action="store_true",
+        help="After build, run validation and write DATASET_CARD.md + validation_report.json (VLA-47).",
+    )
+    parser.add_argument(
+        "--skip-image-check",
+        action="store_true",
+        help="Pass --skip-image-check to post-build validation (e.g. partial image checkout).",
     )
     return parser.parse_args()
 
@@ -84,6 +95,19 @@ def main() -> int:
         return 1
 
     _print_summary(result)
+
+    if args.write_artifacts:
+        artifacts = build_version_artifacts(
+            version=result.version,
+            train_jsonl=result.train_path,
+            val_jsonl=result.val_path,
+            check_images=not args.skip_image_check,
+        )
+        print(f"Artifacts: {artifacts['dataset_card']}")
+        if not artifacts["train_valid"]:
+            print("WARNING: train validation failed — see validation_report.json", file=sys.stderr)
+            return 1
+
     return 0
 
 

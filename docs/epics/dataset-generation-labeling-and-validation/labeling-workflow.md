@@ -134,4 +134,4 @@ Defends: CSV column contract, action validation, approved/corrected/rejected mer
 ## Open questions
 
 - **Val split review:** Export/import val.jsonl separately or review train only for MVP (current default: train).
-- **VLA-45:** Validator should flag rows still `pending` in a sidecar CSV and verify image paths post-import.
+- **Post-import validation:** Run `validate_dataset` on `train_reviewed.jsonl` after import (VLA-45).
