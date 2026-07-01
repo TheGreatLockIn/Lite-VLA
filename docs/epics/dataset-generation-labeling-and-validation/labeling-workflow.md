@@ -128,10 +128,12 @@ Defends: CSV column contract, action validation, approved/corrected/rejected mer
 
 - [dataset-schema.md](dataset-schema.md) (VLA-41 output contract)
 - [synthetic-starter-dataset.md](synthetic-starter-dataset.md) (VLA-43 builder input to review)
+- [dataset-validation.md](dataset-validation.md) (VLA-45 — run after import)
+- [dataset-versioning.md](dataset-versioning.md) (VLA-47 — release reviewed JSONL)
 - [action-schema.md](../action-interface-parser-and-safety-layer/action-schema.md) (Epic 103 action meanings)
 - [`data/templates/README.md`](../../../../data/templates/README.md)
 
 ## Open questions
 
 - **Val split review:** Export/import val.jsonl separately or review train only for MVP (current default: train).
-- **Post-import validation:** Run `validate_dataset` on `train_reviewed.jsonl` after import (VLA-45).
+- **Pending-row gate:** Cross-check `label_review.csv` for leftover `pending` rows before release (future VLA-45 extension).

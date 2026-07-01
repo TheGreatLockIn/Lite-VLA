@@ -161,16 +161,22 @@ python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl -
           <p><a href="dataset-validation.html">VLA-45 — task doc</a> (10099 · 10100 · 10101)</p>
           <dl>
             <dt>Intent</dt>
-            <dd>Detect missing images, invalid labels, malformed JSONL; emit summary report and distribution stats.</dd>
+            <dd>Automated quality gate on processed JSONL: collect-all-errors schema scan, optional image existence checks, duplicate-id detection, and action/source distribution with imbalance warnings.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
-                <li><code>litevla/data/validator.py</code> — <code>validate_dataset</code>, <code>DatasetValidationReport</code></li>
-                <li><code>scripts/validate_dataset.py</code></li>
+                <li><code>litevla/data/validator.py</code> — <code>validate_dataset</code>, <code>DatasetValidationReport</code>, issue codes (<code>schema_invalid</code>, <code>missing_image</code>, <code>action_imbalance</code>, …)</li>
+                <li><code>scripts/validate_dataset.py</code> — CLI with <code>--skip-image-check</code> and <code>--write-artifacts</code></li>
+                <li><code>resolve_image_path()</code> — shared repo-relative PNG resolution (same rule as VLA-46 loader)</li>
               </ul>
             </dd>
+            <dt>Data And Control Flow</dt>
+            <dd>JSONL → per-line <code>parse_training_record()</code> → optional filesystem image check → aggregated <code>DatasetValidationReport</code> → stdout summary or <code>validation_report.json</code> (VLA-47).</dd>
+            <dt>ADR Notes</dt>
+            <dd><strong>Collect-all-errors:</strong> Unlike <code>read_jsonl()</code>, validator returns every row error for QA. <strong>Imbalance as warning:</strong> &gt;50% single-action share warns but does not block <code>report.valid</code>.</dd>
             <dt>Verification Patterns</dt>
-            <dd><pre><code>pytest tests/test_dataset_validator.py -q</code></pre></dd>
+            <dd><pre><code>pytest tests/test_dataset_validator.py -q
+python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check</code></pre></dd>
           </dl>
         </article>
 
@@ -180,13 +186,19 @@ python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl -
           <p><a href="dataset-loader.html">VLA-46 — task doc</a> (10102 · 10103 · 10104)</p>
           <dl>
             <dt>Intent</dt>
-            <dd>PyTorch <code>Dataset</code> returning image, instruction, action for fine-tuning pipeline.</dd>
+            <dd>Bridge VLA-41 processed JSONL into Epic 106 fine-tuning via <code>torch.utils.data.Dataset</code> with PIL RGB load and optional transform hook.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
-                <li><code>litevla/data/loader.py</code> — <code>LiteVLADataset</code> with optional <code>transform</code></li>
+                <li><code>litevla/data/loader.py</code> — <code>LiteVLADataset</code> eager <code>read_jsonl()</code> at init</li>
+                <li><code>__getitem__</code> returns <code>image</code>, <code>instruction</code>, <code>action</code>, <code>id</code>, <code>source</code>, <code>metadata</code></li>
+                <li>Optional <code>transform</code> for torchvision/VLM preprocessing (owned by training script)</li>
               </ul>
             </dd>
+            <dt>Data And Control Flow</dt>
+            <dd><code>train.jsonl</code> → init parse all rows → <code>__getitem__(i)</code> loads PNG + returns dict → <code>DataLoader</code> batch → Epic 106 training loop.</dd>
+            <dt>ADR Notes</dt>
+            <dd><strong>Fail-fast at init:</strong> Corrupt JSONL fails before epoch 0. <strong>Transform hook only:</strong> No built-in ImageNet presets — Epic 106 owns VLM-specific normalization.</dd>
             <dt>Verification Patterns</dt>
             <dd><pre><code>pytest tests/test_dataset_loader.py -q</code></pre></dd>
           </dl>
@@ -198,16 +210,23 @@ python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl -
           <p><a href="dataset-versioning.html">VLA-47 — task doc</a> (10105 · 10106 · 10107)</p>
           <dl>
             <dt>Intent</dt>
-            <dd>Track dataset versions, validation stats, and human-readable dataset cards per release.</dd>
+            <dd>Package processed releases under <code>data/processed/vMAJOR.MINOR.PATCH/</code> with machine-readable validation reports and generated <code>DATASET_CARD.md</code>.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
-                <li><code>litevla/data/versioning.py</code> — <code>build_version_artifacts</code>, <code>DATASET_CARD.md</code></li>
-                <li><code>build_starter_dataset.py --write-artifacts</code></li>
+                <li><code>litevla/data/versioning.py</code> — <code>is_valid_processed_version</code>, <code>build_version_artifacts</code>, <code>render_dataset_card</code></li>
+                <li>Writes <code>validation_report.json</code>, optional <code>validation_report_val.json</code>, <code>DATASET_CARD.md</code></li>
+                <li><code>build_starter_dataset.py --write-artifacts</code> and <code>validate_dataset.py --version --write-artifacts</code></li>
+                <li><code>configs/default.example.yaml</code> — <code>data.processed_version</code></li>
               </ul>
             </dd>
+            <dt>Data And Control Flow</dt>
+            <dd>Version string validated → VLA-45 runs on train/val JSONL → reports serialized → markdown card rendered from live stats → release folder ready for Epic 106.</dd>
+            <dt>ADR Notes</dt>
+            <dd><strong>Semver folders:</strong> <code>v0.1.0</code> required (rejects bare <code>0.1.0</code>). <strong>Stats from validator:</strong> Artifacts are VLA-45 output, not ad-hoc builder counters.</dd>
             <dt>Verification Patterns</dt>
-            <dd><pre><code>pytest tests/test_dataset_versioning.py -q</code></pre></dd>
+            <dd><pre><code>pytest tests/test_dataset_versioning.py -q
+python scripts/validate_dataset.py --version v0.1.0 --write-artifacts --skip-image-check</code></pre></dd>
           </dl>
         </article>
       </section>
@@ -239,6 +258,16 @@ python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl -
             <h3>Validator before training (VLA-45)</h3>
             <p><strong>Status:</strong> Accepted</p>
             <p><strong>Decision:</strong> Non-throwing <code>validate_dataset</code> collects all issues; CI uses <code>--skip-image-check</code> on fixtures-only checkouts.</p>
+          </article>
+          <article>
+            <h3>Transform hook loader (VLA-46)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> <code>LiteVLADataset</code> returns PIL + dict; Epic 106 training script supplies VLM-specific <code>transform</code> and collator.</p>
+          </article>
+          <article>
+            <h3>Versioned processed releases (VLA-47)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> <code>vMAJOR.MINOR.PATCH</code> folders with VLA-45 reports and generated <code>DATASET_CARD.md</code>; config points training at one version id.</p>
           </article>
         </div>
       </section>

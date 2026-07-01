@@ -10,25 +10,122 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 105 · VLA-47 / Story 1035</p>
+      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-47 / Story 1035</p>
       <h1>Dataset versioning and documentation</h1>
-      <p class="doc-lead"><code>vMAJOR.MINOR.PATCH</code> directories with <code>validation_report.json</code> and <code>DATASET_CARD.md</code>.</p>
+      <p class="doc-lead">
+        Processed releases under <code>data/processed/vMAJOR.MINOR.PATCH/</code> with <code>validation_report.json</code> and <code>DATASET_CARD.md</code>.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#related">Related</a>
+      </nav>
     </header>
+
     <main>
-      <section><h2>Executive summary</h2>
-        <p>VLA-47 packages validation stats and a human dataset card under <code>data/processed/&lt;version&gt;/</code> after build or validate.</p>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          VLA-47 packages a <strong>processed dataset release</strong>: validated JSONL splits, optional augmented images, machine-readable <code>validation_report.json</code> (VLA-45), and human-readable <code>DATASET_CARD.md</code>. Version strings are validated before paths are constructed.
+        </p>
       </section>
-      <section><h2>CLI</h2>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">build_version_artifacts(version="v0.1.0", train_jsonl=..., val_jsonl=...)
+        │
+        ├── validation_report.json      (train stats)
+        ├── validation_report_val.json  (if val present)
+        └── DATASET_CARD.md             (human summary)</code></pre>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Convention</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Version id</td><td><code>v\d+\.\d+\.\d+</code> e.g. <code>v0.1.0</code></td></tr>
+              <tr><td>Stats</td><td><code>DatasetValidationReport.to_dict()</code></td></tr>
+              <tr><td>Card</td><td><code>render_dataset_card()</code> markdown</td></tr>
+              <tr><td>Config</td><td><code>configs/default.example.yaml</code> → <code>data.processed_version</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre><code class="language-text">data/processed/v0.1.0/
+├── train.jsonl
+├── val.jsonl
+├── images/
+├── validation_report.json
+├── validation_report_val.json
+└── DATASET_CARD.md</code></pre>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+        <h3>Version naming (10105)</h3>
+        <pre><code class="language-python">from litevla.data.versioning import processed_dir, is_valid_processed_version
+
+assert is_valid_processed_version("v0.1.0")
+path = processed_dir("v0.1.0")  # .../data/processed/v0.1.0</code></pre>
+        <h3>Stats + card (10106 · 10107)</h3>
+        <pre><code class="language-python">from litevla.data.versioning import build_version_artifacts
+
+result = build_version_artifacts(
+    version="v0.1.0",
+    train_jsonl="data/processed/v0.1.0/train.jsonl",
+    val_jsonl="data/processed/v0.1.0/val.jsonl",
+)</code></pre>
+        <h3>CLI</h3>
         <pre><code class="language-bash">python scripts/build_starter_dataset.py --write-artifacts
-python scripts/validate_dataset.py --version v0.1.0 --write-artifacts</code></pre>
+python scripts/validate_dataset.py --version v0.1.0 --write-artifacts
+python scripts/build_starter_dataset.py --write-artifacts --skip-image-check</code></pre>
       </section>
-      <section><h2>Verification</h2>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <h3>ADR: Semver-style folders (10105)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> <code>vMAJOR.MINOR.PATCH</code> under <code>data/processed/</code>; rejects <code>0.1.0</code> without <code>v</code>.</p>
+        <h3>ADR: Stats from validator (10106)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> Reports are VLA-45 output, not ad-hoc builder counters.</p>
+        <h3>ADR: Generated dataset card (10107)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> <code>DATASET_CARD.md</code> rendered from live validation reports.</p>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
         <pre><code class="language-bash">pytest tests/test_dataset_versioning.py -q</code></pre>
+        <p>Defends: version pattern, stats JSON, card markdown, <code>build_version_artifacts</code> end-to-end.</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li>Per-version <code>CHANGELOG.md</code> for human release notes (future).</li>
+          <li>Remote/object storage for large processed sets (future).</li>
+        </ul>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="dataset-validation.html">VLA-45 validator</a></li>
+          <li><a href="synthetic-starter-dataset.html">VLA-43 builder</a></li>
+          <li><a href="../../../data/README.md">data/README.md</a></li>
+        </ul>
       </section>
     </main>
-    <footer class="doc-footer"><p>Lite-VLA · Epic 105</p></footer>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 105 task documentation</p>
+    </footer>
   </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>

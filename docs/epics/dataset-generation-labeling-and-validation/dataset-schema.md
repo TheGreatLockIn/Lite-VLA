@@ -105,8 +105,11 @@ Defends: required fields, invalid action rejection, extra-key rejection, JSONL r
 - [simulation-data-capture.md](simulation-data-capture.md) (VLA-42 raw layer)
 - [synthetic-starter-dataset.md](synthetic-starter-dataset.md) (VLA-43 builder output)
 - [labeling-workflow.md](labeling-workflow.md) (VLA-44 human review)
+- [dataset-validation.md](dataset-validation.md) (VLA-45 schema gate)
+- [dataset-loader.md](dataset-loader.md) (VLA-46 training consumer)
+- [dataset-versioning.md](dataset-versioning.md) (VLA-47 release packaging)
 - [`data/README.md`](../../../../data/README.md) (folder layout)
 
 ## Open questions
 
-- **Image path convention:** Processed augmentations live under `data/processed/<version>/images/`; confirm loader resolves repo-relative paths the same way (VLA-46).
+- **Lazy JSONL for large corpora:** Current `read_jsonl` loads all rows; streaming index may be needed beyond ~10k examples (VLA-46 follow-up).

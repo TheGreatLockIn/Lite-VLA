@@ -10,25 +10,121 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 105 · VLA-46 / Story 1034</p>
+      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-46 / Story 1034</p>
       <h1>Dataset loader for training</h1>
-      <p class="doc-lead"><code>LiteVLADataset</code> — PyTorch <code>Dataset</code> over processed JSONL with optional image transforms.</p>
+      <p class="doc-lead">
+        <code>LiteVLADataset</code> — PyTorch <code>Dataset</code> over processed JSONL with optional image transforms for Epic 106 fine-tuning.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#decisions">Decisions</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#related">Related</a>
+      </nav>
     </header>
+
     <main>
-      <section><h2>Executive summary</h2>
-        <p>Loads validated JSONL rows, opens repo-relative RGB images, returns dicts for DataLoader batching into Epic 106 fine-tuning.</p>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          VLA-46 bridges processed JSONL (VLA-41) into Epic 106 fine-tuning. <code>LiteVLADataset</code> loads repo-relative RGB images with Pillow, returns instruction + Epic 103 action labels, and accepts an optional <code>transform</code> for torchvision/VLM preprocessing. Model-specific normalization stays in the training script, not the loader.
+        </p>
       </section>
-      <section><h2>Usage</h2>
+
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">train.jsonl ──&gt; read_jsonl() at init
+        │
+        ▼
+LiteVLADataset.__getitem__(i)
+        ├── PIL RGB image
+        ├── optional transform
+        └── { image, instruction, action, id, source, metadata }
+        │
+        ▼
+DataLoader batch ──&gt; Epic 106 training loop</code></pre>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Output key</th><th scope="col">Type</th><th scope="col">Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>image</code></td><td>PIL or tensor</td><td>RGB; after <code>transform</code> if set</td></tr>
+              <tr><td><code>instruction</code></td><td><code>str</code></td><td>VLA prompt text</td></tr>
+              <tr><td><code>action</code></td><td><code>str</code></td><td>Epic 103 token</td></tr>
+              <tr><td><code>id</code></td><td><code>str | None</code></td><td>Traceability</td></tr>
+              <tr><td><code>source</code></td><td><code>str</code></td><td><code>teleop</code>, <code>reference</code>, <code>synthetic</code>, <code>manual_review</code></td></tr>
+              <tr><td><code>episode_id</code></td><td><code>str | None</code></td><td>Groups capture session</td></tr>
+              <tr><td><code>metadata</code></td><td><code>dict</code></td><td>Review flags, sim stamps</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+        <h3>Dataset class (10102)</h3>
         <pre><code class="language-python">from litevla.data.loader import LiteVLADataset
 
 dataset = LiteVLADataset("data/processed/v0.1.0/train.jsonl")
-sample = dataset[0]  # image, instruction, action, ...</code></pre>
+sample = dataset[0]
+# sample["image"], sample["instruction"], sample["action"]</code></pre>
+        <ul>
+          <li><strong>Design note:</strong> <code>resolve_image_path()</code> matches VLA-45 validator resolution.</li>
+          <li><strong>Gotcha:</strong> Run <code>validate_dataset</code> before training to catch missing PNGs early.</li>
+        </ul>
+        <h3>Transform pipeline (10103)</h3>
+        <pre><code class="language-python">from torchvision import transforms
+
+preprocess = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+])
+dataset = LiteVLADataset(path, transform=preprocess)</code></pre>
+        <h3>DataLoader smoke (10104)</h3>
+        <pre><code class="language-python">from torch.utils.data import DataLoader
+batch = next(iter(DataLoader(dataset, batch_size=2)))</code></pre>
       </section>
-      <section><h2>Verification</h2>
+
+      <section id="decisions">
+        <h2>Engineering decisions</h2>
+        <h3>ADR: Fail-fast at init (10102)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> Constructor calls <code>read_jsonl()</code> — corrupt JSONL fails before training starts.</p>
+        <h3>ADR: Transform hook only (10103)</h3>
+        <p><strong>Status:</strong> Accepted<br>
+        <strong>Decision:</strong> No built-in ImageNet presets; Epic 106 owns VLM-specific preprocessing.</p>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
         <pre><code class="language-bash">pytest tests/test_dataset_loader.py -q</code></pre>
+        <p>Defends: PIL load, dict keys, DataLoader batching (when torch installed).</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li>Lazy loading for datasets &gt;10k rows (future).</li>
+          <li>Action tokenization / integer mapping owned by Epic 106.</li>
+        </ul>
+      </section>
+
+      <section id="related">
+        <h2>Related</h2>
+        <ul>
+          <li><a href="dataset-validation.html">VLA-45 validator</a></li>
+          <li><a href="dataset-schema.html">VLA-41 schema</a></li>
+          <li><a href="synthetic-starter-dataset.html">VLA-43 builder</a></li>
+        </ul>
       </section>
     </main>
-    <footer class="doc-footer"><p>Lite-VLA · Epic 105</p></footer>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 105 task documentation</p>
+    </footer>
   </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>

@@ -126,7 +126,7 @@ print(sum(1 for _ in read_jsonl(FIXTURES_PATH)))
       <section id="open-questions">
         <h2>Open questions</h2>
         <ul>
-          <li><strong>Image path convention:</strong> Processed augmentations live under <code>data/processed/&lt;version&gt;/images/</code>; confirm loader resolves repo-relative paths the same way (VLA-46).</li>
+          <li><strong>Lazy JSONL for large corpora:</strong> Current <code>read_jsonl</code> loads all rows; streaming index may be needed beyond ~10k examples (VLA-46 follow-up).</li>
         </ul>
       </section>
 
@@ -136,6 +136,10 @@ print(sum(1 for _ in read_jsonl(FIXTURES_PATH)))
           <li><a href="../action-interface-parser-and-safety-layer/action-schema.html">Epic 103 action schema</a></li>
           <li><a href="simulation-data-capture.html">VLA-42 — raw capture</a></li>
           <li><a href="synthetic-starter-dataset.html">VLA-43 — starter builder</a></li>
+          <li><a href="labeling-workflow.html">VLA-44 — human review</a></li>
+          <li><a href="dataset-validation.html">VLA-45 — schema gate</a></li>
+          <li><a href="dataset-loader.html">VLA-46 — training consumer</a></li>
+          <li><a href="dataset-versioning.html">VLA-47 — release packaging</a></li>
           <li><a href="../../../data/README.md">data/README.md</a> (folder layout)</li>
         </ul>
       </section>

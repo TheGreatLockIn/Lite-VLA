@@ -102,9 +102,10 @@ Defends: forward-fill logic, min record count, unique ids across split, schema v
 
 - [dataset-schema.md](dataset-schema.md) (VLA-41 output contract)
 - [simulation-data-capture.md](simulation-data-capture.md) (VLA-42 input)
+- [dataset-validation.md](dataset-validation.md) (VLA-45 — validate builder output)
+- [dataset-versioning.md](dataset-versioning.md) (VLA-47 — `--write-artifacts` after build)
 - [`data/reference_images/manifest.json`](../../../../data/reference_images/manifest.json)
 
 ## Open questions
 
-- **VLA-45 validator:** Will add image-existence checks and summary counts on the same JSONL paths.
 - **Real vs synthetic ratio:** Starter set is augmentation-heavy by design; rebalance when teleop volume grows.

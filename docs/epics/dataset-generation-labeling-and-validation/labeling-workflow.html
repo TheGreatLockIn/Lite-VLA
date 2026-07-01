@@ -21,7 +21,9 @@
         <a href="#guidelines">Guidelines</a> ·
         <a href="#checklist">Checklist</a> ·
         <a href="#implementation">Implementation</a> ·
-        <a href="#verification">Verification</a>
+        <a href="#verification">Verification</a> ·
+        <a href="#open-questions">Open questions</a> ·
+        <a href="#related">Related</a>
       </nav>
     </header>
 
@@ -117,11 +119,21 @@ python scripts/label_review.py import \
         <pre><code class="language-bash">pytest tests/test_label_review.py -q</code></pre>
       </section>
 
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li><strong>Val split review:</strong> Export/import val.jsonl separately or review train only for MVP (current default: train).</li>
+          <li><strong>Pending-row gate:</strong> Cross-check <code>label_review.csv</code> for leftover <code>pending</code> rows before release (future VLA-45 extension).</li>
+        </ul>
+      </section>
+
       <section id="related">
         <h2>Related</h2>
         <ul>
           <li><a href="dataset-schema.html">VLA-41 schema</a></li>
           <li><a href="synthetic-starter-dataset.html">VLA-43 builder</a></li>
+          <li><a href="dataset-validation.html">VLA-45 validator</a> (run after import)</li>
+          <li><a href="dataset-versioning.html">VLA-47 versioning</a> (release reviewed JSONL)</li>
           <li><a href="../action-interface-parser-and-safety-layer/action-schema.html">Epic 103 actions</a></li>
         </ul>
       </section>
