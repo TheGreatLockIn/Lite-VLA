@@ -9,6 +9,13 @@ from litevla.actions.safety import (
     safe_command_from_action,
     safe_command_from_text,
 )
+from litevla.actions.smoothing import (
+    CommandSmoother,
+    SmoothingConfig,
+    is_stop_bypass,
+    smoothing_config_from_mapping,
+    step_toward,
+)
 from litevla.actions.schema import (
     ACTION_NAMES,
     ACTION_VELOCITIES,
@@ -35,10 +42,15 @@ __all__ = [
     "SafetyEventKind",
     "action_to_twist",
     "clamp_twist_velocities",
+    "CommandSmoother",
+    "SmoothingConfig",
     "clamp_velocity",
+    "is_stop_bypass",
     "is_valid_action",
     "normalize_action_text",
     "parse_discrete_action",
     "safe_command_from_action",
     "safe_command_from_text",
+    "smoothing_config_from_mapping",
+    "step_toward",
 ]
