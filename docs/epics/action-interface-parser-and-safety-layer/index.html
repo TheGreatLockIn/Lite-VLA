@@ -24,7 +24,7 @@
         <p><strong>Context:</strong> The VLA model emits text. The robot needs bounded, repeatable velocity commands on ROS <code>/cmd_vel</code>. This epic owns everything between raw model output and a safe <code>geometry_msgs/Twist</code>.</p>
         <p><strong>Scope:</strong> Discrete and optional continuous action schemas, parsers that normalize noisy text, velocity clamps, fallback <code>STOP</code> on invalid output, and command smoothing between inference steps.</p>
         <p><strong>Success criteria:</strong> Invalid model output maps to <code>STOP</code>; velocity limits are enforced; parser has unit tests; the discrete action schema is documented and shared via <code>litevla.actions</code>.</p>
-        <p><strong>Current progress:</strong> Stories 1017, 1019, and 1021 (discrete path through safety gate) are <strong>complete</strong>. Stories 1018, 1020, and 1022 are planned — see each task card.</p>
+        <p><strong>Current progress:</strong> Stories 1017, 1019, 1021, and 1022 (discrete path through safety gate and smoothing) are <strong>complete</strong>. Stories 1018 and 1020 are planned — see each task card.</p>
       </section>
 
       <section id="epic-pipeline" class="visual-card">
@@ -42,7 +42,7 @@ flowchart TD
   VLA --> P --> S --> G --> M --> CV
   G --> CV
         </pre>
-        <p><strong>Implemented today:</strong> Stories 1017, 1019, and 1021 (<code>litevla.actions</code> through safety gate). <strong>Planned:</strong> JSON path, command smoothing.</p>
+        <p><strong>Implemented today:</strong> Stories 1017, 1019, 1021, and 1022 (<code>litevla.actions</code> through safety gate and smoothing). <strong>Planned:</strong> JSON path.</p>
       </section>
 
       <section id="stories">
@@ -267,19 +267,60 @@ python scripts/run_dummy_pipeline.py</code></pre>
         </dl>
       </article>
       <article class="task-card" id="story-1022">
-        <span class="status-pill">Planned</span>
+        <span class="status-pill">Complete</span>
         <h3>Story 1022: Add command smoothing</h3>
         <dl>
           <dt>Intent</dt>
           <dd>Reduce jerky command changes when VLA inference runs at ~5 Hz while the low-level controller expects smoother motion (see MVP risk RSK-05).</dd>
-          <dt>Planned scope</dt>
-          <dd>
-            <p>Interpolator between successive velocity targets at a higher rate (e.g. 100 Hz timer) before publishing <code>Twist</code>. Sits after the safety gate so smoothed values remain bounded.</p>
-          </dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not started.</dd>
+          <dd>
+            <p>Full walkthrough: <a href="command-smoothing.html">Command smoothing</a> (<code>command-smoothing.md</code> for agents). Learning notes for subtasks 10254 and 10255 are in that doc.</p>
+
+            <p><strong>Strategy (10066)</strong> — per-axis slew-rate limiter toward the latest safe target.
+            Rejected moving average (blends discrete jumps) and fixed lerp (restart complexity).
+            <em>Design:</em> dt-based stepping works at any heartbeat rate.</p>
+
+            <p><strong>Rate limiter (10067)</strong> — <code>step_toward</code> and <code>CommandSmoother</code> in
+            <code>litevla/actions/smoothing.py</code>.
+            <em>Design:</em> independent linear/angular axes; configurable <code>max_linear_rate</code> /
+            <code>max_angular_rate</code> (per second).
+            <em>Risk:</em> NaN/Inf not sanitized (same as schema/safety).</p>
+
+            <p><strong>STOP bypass (10068)</strong> — <code>is_stop_bypass</code> snaps to zero immediately for
+            <code>DiscreteAction.STOP</code>, including parse-failure STOP from the safety gate.
+            <em>Design:</em> bypass checks action label, not velocity magnitude.</p>
+
+            <p><strong>Integration</strong> — <code>scripts/run_dummy_pipeline.py</code> prints a smoothing ramp demo;
+            <code>heartbeat_controller.py</code> applies <code>CommandSmoother</code> each timer tick;
+            config <code>smoothing</code> section in <code>configs/default.example.yaml</code>.</p>
+          </dd>
+          <dt>Data And Control Flow</dt>
+          <dd>
+            <pre><code class="language-text">SafeCommand ──> CommandSmoother.step(dt) ──> smoothed SafeCommand ──> /cmd_vel
+STOP action ──> immediate (0.0, 0.0), reset state</code></pre>
+            <p>
+              <strong>Contract:</strong> clamped target in; rate-limited velocities out; STOP never delayed.
+              <strong>Trade-off:</strong> tune rates with <code>heartbeat_hz</code> — defaults reach nominal speeds in ~400 ms at 10 Hz.
+            </p>
+          </dd>
+          <dt>ADR Notes</dt>
+          <dd>
+            <p><strong>ADR: Per-axis slew-rate limiter</strong> — Accepted. Stateful smoother after safety gate.
+            Rejected moving average and fixed-duration lerp.</p>
+          </dd>
           <dt>Verification Patterns</dt>
-          <dd class="update-note">Not run — story not implemented.</dd>
+          <dd>
+            <pre><code class="language-bash">pytest tests/test_action_smoothing.py -q
+python scripts/run_dummy_pipeline.py</code></pre>
+            <p>Contracts: max delta per tick, ramp to target, STOP bypass, parse-failure STOP, disabled passthrough, mid-ramp retarget.</p>
+          </dd>
+          <dt>Open Questions</dt>
+          <dd>
+            <ul>
+              <li>Raise default <code>heartbeat_hz</code> when smoothing is enabled in sim launches?</li>
+              <li>Expose smoother state on <code>/litevla/diagnostics</code>?</li>
+            </ul>
+          </dd>
         </dl>
       </article>
       </section>
@@ -293,6 +334,13 @@ python scripts/run_dummy_pipeline.py</code></pre>
             <p><strong>Context:</strong> MVP must stay beginner-friendly; continuous VLM velocities are explicitly deferred.</p>
             <p><strong>Decision:</strong> Ship <code>litevla.actions</code> as the shared discrete contract; optional JSON path (1018/1020) is secondary.</p>
             <p><strong>Consequences:</strong> Training data, prompts, and parser tests target five exact tokens; safety gate enforces bounds on mapped velocities.</p>
+          </article>
+          <article>
+            <h3>ADR: Per-axis slew-rate limiter</h3>
+            <p><strong>Status:</strong> Accepted (Story 1022)</p>
+            <p><strong>Context:</strong> VLA inference at ~5 Hz causes step velocity changes; heartbeat runs faster.</p>
+            <p><strong>Decision:</strong> <code>CommandSmoother</code> with per-second rate limits and immediate STOP bypass after the safety gate.</p>
+            <p><strong>Consequences:</strong> Tune <code>smoothing.max_*_rate</code> with <code>heartbeat_hz</code>; ROS heartbeat owns smoother state.</p>
           </article>
         </div>
       </section>
