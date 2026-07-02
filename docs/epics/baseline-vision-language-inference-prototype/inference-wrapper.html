@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Baseline Inference Wrapper — Lite-VLA</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <h1>Baseline Inference Wrapper</h1>
+      <p class="doc-lead">Develop a model-agnostic python execution layer wrapping SmolVLM for deterministic, time-instrumented, and error-safe inference.</p>
+    </header>
+    <main>
+      <section>
+        <h2>Jira Task Info</h2>
+        <ul>
+          <li><strong>Story:</strong> VLA-38: Implement baseline inference wrapper</li>
+          <li><strong>Epic:</strong> Baseline Vision-Language Inference Prototype (VLA-5)</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>1. Executive Summary</h2>
+        <p>The inference wrapper module acts as a stable, model-agnostic layer that encapsulates the starter Vision-Language-Action (VLA) model (<code>SmolVLM-256M-Instruct</code>). It is architecturally responsible for transforming raw camera inputs and goal instruction commands into discrete action tokens, while isolating the rest of the control loop (e.g., ROS 2 nodes and safety filters) from Hugging Face library internals, tokenizer details, and tensor dimensions.</p>
+      </section>
+
+      <section>
+        <h2>2. API Contract and Data Flow</h2>
+        <p>Data flows from the camera and configuration inputs, through the preprocessor, prompt compiler, and VLM, to yield action decisions alongside timing metrics.</p>
+        
+        <pre class="mermaid">
+flowchart LR
+    Img[Camera BGR Array] --> Pre[ImagePreprocessor]
+    Pre --> PIL[RGB PIL Image]
+    Text[Text Instruction] --> Prompt[PromptFormatter]
+    Prompt --> Form[Formatted Prompt]
+    
+    PIL --> Infer[InferenceWrapper]
+    Form --> Infer
+    
+    Infer --> Out[Action & Latency Metrics]
+        </pre>
+
+        <h3>In-Memory Formats</h3>
+        <ul>
+          <li><strong>Input:</strong> Raw BGR image NumPy matrix (<code>numpy.ndarray</code>) of shape <code>(H, W, 3)</code>.</li>
+          <li><strong>Output:</strong> A structured dictionary containing:
+            <ul>
+              <li><code>action</code> (<code>str</code>): The predicted navigation command from the allowed action token set: <code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>STOP</code>, <code>SLOW_DOWN</code> (or <code>"STOP"</code> fallback).</li>
+              <li><code>timing</code> (<code>dict</code>): Floating point execution latencies in milliseconds:
+                <ul>
+                  <li><code>preprocessing_ms</code>: Latency of channel conversion and image resizing.</li>
+                  <li><code>prompting_ms</code>: Latency of formatting templates and loading few-shot arrays.</li>
+                  <li><code>inference_ms</code>: Latency of token generation and model forward execution.</li>
+                  <li><code>total_ms</code>: End-to-end wrapper latency.</li>
+                </ul>
+              </li>
+              <li><code>success</code> (<code>bool</code>): Operational status indicating successful model forward pass.</li>
+              <li><code>error</code> (<code>str</code> or <code>None</code>): Error string describing any runtime execution exceptions.</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>3. Implementation Breakdown</h2>
+        <p>The core logic resides in <code>litevla/inference.py</code>.</p>
+
+        <h3>Model Initialization &amp; Device Selection</h3>
+        <p>The wrapper reads settings from the configuration and selectively initializes PyTorch and Hugging Face weights to support both fast local CPU testing and high-speed GPU execution:</p>
+        <ul>
+          <li>If <code>runtime.mode</code> is set to <code>"dummy"</code>, it bypasses downloading or loading weights to save RAM/VRAM.</li>
+          <li>If <code>runtime.mode</code> is <code>"model"</code>, it resolves the hardware platform:
+            <ul>
+              <li><strong>CUDA:</strong> Loads model weights in <code>torch.bfloat16</code> to take advantage of GPU Tensor Cores.</li>
+              <li><strong>MPS (Apple Silicon):</strong> Loads model in <code>torch.float32</code>.</li>
+              <li><strong>CPU:</strong> Loads model in <code>torch.float32</code> to avoid conversion overhead.</li>
+            </ul>
+          </li>
+        </ul>
+
+        <pre><code class="language-python"># litevla/inference.py
+if self.runtime_mode == "model":
+    model_path = config.get("model", {}).get("path", "")
+    device_name = config.get("model", {}).get("device", "cpu")
+
+    # Determine device and torch_dtype
+    if device_name == "cuda" and torch.cuda.is_available():
+        self.device = torch.device("cuda")
+        self.torch_dtype = torch.bfloat16
+    elif device_name == "mps" and torch.backends.mps.is_available():
+        self.device = torch.device("mps")
+        self.torch_dtype = torch.float32
+    else:
+        self.device = torch.device("cpu")
+        self.torch_dtype = torch.float32
+
+    self.processor = AutoProcessor.from_pretrained(model_path)
+    self.model = AutoModelForImageTextToText.from_pretrained(
+        model_path,
+        torch_dtype=self.torch_dtype,
+        low_cpu_mem_usage=True
+    ).to(self.device)</code></pre>
+
+        <h3>Multimodal Few-Shot Preprocessing</h3>
+        <p>When <code>few_shot=True</code> is enabled, the wrapper loads reference image paths from <code>litevla/prompting.py</code>, preprocesses each historical frame through the cached <code>ImagePreprocessor</code>, converts them to PIL format, and appends the live query image to the end of the stack:</p>
+
+        <pre><code class="language-python"># litevla/inference.py
+if few_shot:
+    prompt_str, image_paths = self.prompt_formatter.format_few_shot_prompt(instruction)
+    images_list = []
+    for path in image_paths:
+        ref_bgr = cv2.imread(path)
+        if ref_bgr is None:
+            raise FileNotFoundError(f"Few-shot image path not found: {path}")
+        ref_processed = self.preprocessor.preprocess(ref_bgr)
+        if isinstance(ref_processed, bytes):
+            ref_pil = Image.open(io.BytesIO(ref_processed))
+        else:
+            ref_pil = Image.fromarray(ref_processed)
+        images_list.append(ref_pil)
+    images_list.append(query_pil)
+else:
+    prompt_str = self.prompt_formatter.format_prompt(instruction)
+    images_list = query_pil</code></pre>
+
+        <h3>Execution, Token Decoding &amp; Device-Safe Fallback</h3>
+        <p>The processor handles raw texts and images. The token generation parameters enforce <strong>greedy decoding</strong> (<code>do_sample=False</code>) to avoid non-deterministic behavior during real-time steering:</p>
+
+        <pre><code class="language-python"># litevla/inference.py
+inputs = self.processor(
+    text=prompt_str,
+    images=images_list,
+    return_tensors="pt"
+)
+
+# Move tensors to target device (handles both BatchEncoding and test dict mocks)
+if hasattr(inputs, "to"):
+    inputs = inputs.to(self.device)
+else:
+    inputs = {
+        k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+        for k, v in inputs.items()
+    }
+
+# Generate output tokens
+max_new_tokens = self.config.get("model", {}).get("max_tokens", 32)
+generated_ids = self.model.generate(
+    **inputs,
+    max_new_tokens=max_new_tokens,
+    do_sample=False
+)
+
+# Decode response and slice input tokens
+input_len = inputs["input_ids"].shape[1]
+action = self.processor.batch_decode(
+    generated_ids[:, input_len:],
+    skip_special_tokens=True
+)[0].strip()</code></pre>
+
+        <h3>Risks and Gotchas</h3>
+        <ul>
+          <li><strong>Mock Dictionary Attributes:</strong> Standard mock libraries dynamically reply to <code>.to()</code> call checks, creating fake sub-mocks. The codebase uses <code>isinstance(v, torch.Tensor)</code> to prevent this mock leakage.</li>
+          <li><strong>CPU Data Conversion Overhead:</strong> Loading <code>bfloat16</code> on CPU triggers massive conversion slowdowns; hence, <code>torch.float32</code> is strictly enforced for non-GPU targets.</li>
+          <li><strong>Reference Image Missing Checks:</strong> If the reference few-shot images under <code>data/examples/</code> are missing, the loop immediately fails. The wrapper logs the specific path error and recovers.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>4. Engineering Decisions</h2>
+        
+        <h3>ADR: Model Class Binding</h3>
+        <ul>
+          <li><strong>Status:</strong> Accepted</li>
+          <li><strong>Context:</strong> The system needs a flexible model loader. While <code>AutoModelForVision2Seq</code> is common in modern VLM setups, the installed version of <code>transformers</code> only exposes <code>AutoModelForImageTextToText</code> for models derived from <code>Idefics3</code> (like SmolVLM).</li>
+          <li><strong>Decision:</strong> Adopt <code>AutoModelForImageTextToText</code> inside the loading phase to maintain direct compatibility with the local package stack.</li>
+        </ul>
+
+        <h3>ADR: Safety Recovery Boundary</h3>
+        <ul>
+          <li><strong>Status:</strong> Accepted</li>
+          <li><strong>Context:</strong> If a memory spike or CUDA exception crashes the model during robot control, letting the script panic would result in the robot maintaining its last velocity command indefinitely, risking collisions.</li>
+          <li><strong>Decision:</strong> Wrap the model call in a top-level exception handler. In the event of any crash, log the traceback and return a clean dictionary with <code>action: "STOP"</code>, <code>success: False</code>, allowing the ROS controller to command immediate deceleration.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>5. Verification Patterns</h2>
+        <p>Unit tests are implemented in <a href="file:///C:/Projects/Lite-VLA/tests/test_inference.py">tests/test_inference.py</a> and cover:</p>
+        <ul>
+          <li><strong>Dummy Mode Integrity:</strong> Verifies zero-shot and few-shot pipeline runs, timing extraction, and deterministic action mappings.</li>
+          <li><strong>Config Mismatch Rejection:</strong> Ensures empty model configurations fail during initialization.</li>
+          <li><strong>Model Execution flow:</strong> Uses mocks to inspect correct tokenization arguments, greedy generation properties, and batch decoding.</li>
+          <li><strong>OOM Catching &amp; Safe Fallback:</strong> Feeds runtime exceptions to check that the wrapper catches errors and falls back to <code>"STOP"</code>.</li>
+        </ul>
+
+        <h3>Run Command</h3>
+        <pre><code class="language-bash">.venv\Scripts\pytest tests/test_inference.py -v</code></pre>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA documentation</p>
+    </footer>
+  </div>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
+</body>
+</html>

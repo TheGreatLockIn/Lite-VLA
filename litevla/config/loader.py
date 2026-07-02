@@ -36,6 +36,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "device": "cpu",
         "max_tokens": 32,
         "context_length": 2048,
+        "prompt_version": "v1",
     },
     "ros": {
         "image_topic": "/image_raw",

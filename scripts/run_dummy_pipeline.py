@@ -43,7 +43,6 @@ def run_dummy_pipeline(
 ) -> int:
     runtime = config["runtime"]
     ros_cfg = config["ros"]
-    safety = config["safety"]
 
     if runtime["mode"] != "dummy":
         print(
@@ -51,7 +50,6 @@ def run_dummy_pipeline(
             file=sys.stderr,
         )
         return 1
-
     sequence = runtime.get("action_sequence") or list(DEFAULT_ACTION_SEQUENCE)
     if not sequence:
         sequence = list(ACTION_NAMES)
@@ -66,7 +64,6 @@ def run_dummy_pipeline(
         print(f"  heartbeat:   {runtime['heartbeat_hz']} Hz")
         print(f"  subscribe:   {ros_cfg['image_topic']}")
         print(f"  publish:     {ros_cfg['cmd_vel_topic']}")
-        print(f"  sequence:    {list(sequence)}")
         print()
 
         safety = config["safety"]

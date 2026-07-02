@@ -1,0 +1,402 @@
+{
+  "summary": {
+    "evaluation_timestamp": "2026-06-30T18:10:08Z",
+    "runtime_mode": "dummy",
+    "model_path": "models/demo",
+    "device": "cpu",
+    "few_shot": false,
+    "total_evaluated": 20,
+    "valid_action_count": 20,
+    "correct_action_count": 5,
+    "valid_action_rate": 1.0,
+    "correct_action_rate": 0.25,
+    "averages_ms": {
+      "preprocessing_ms": 2.4054249999608146,
+      "prompting_ms": 0.0064449995988979936,
+      "inference_ms": 5.0,
+      "total_ms": 7.746345000487054
+    }
+  },
+  "runs": [
+    {
+      "image_id": "eval_01",
+      "image_path": "data/evaluation/eval_01.png",
+      "instruction": "go to the red block",
+      "expected_action": "MOVE_FORWARD",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": true,
+      "source_image": "red_cone_centered.png",
+      "variation_type": "original",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 19.906200002878904,
+        "prompting_ms": 0.00809999619377777,
+        "inference_ms": 5.0,
+        "total_ms": 25.27150000241818
+      }
+    },
+    {
+      "image_id": "eval_02",
+      "image_path": "data/evaluation/eval_02.png",
+      "instruction": "go to the red block",
+      "expected_action": "MOVE_FORWARD",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": true,
+      "source_image": "red_cone_centered.png",
+      "variation_type": "brightness_high",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.4015999986440875,
+        "prompting_ms": 0.012099997547920793,
+        "inference_ms": 5.0,
+        "total_ms": 6.686300002911594
+      }
+    },
+    {
+      "image_id": "eval_03",
+      "image_path": "data/evaluation/eval_03.png",
+      "instruction": "go to the red block",
+      "expected_action": "MOVE_FORWARD",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": true,
+      "source_image": "red_cone_centered.png",
+      "variation_type": "contrast_low",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 0.960299999860581,
+        "prompting_ms": 0.0047000066842883825,
+        "inference_ms": 5.0,
+        "total_ms": 6.208500002685469
+      }
+    },
+    {
+      "image_id": "eval_04",
+      "image_path": "data/evaluation/eval_04.png",
+      "instruction": "go to the red block",
+      "expected_action": "MOVE_FORWARD",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": true,
+      "source_image": "red_cone_centered.png",
+      "variation_type": "gaussian_blur",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 0.9686000048532151,
+        "prompting_ms": 0.006399997801054269,
+        "inference_ms": 5.0,
+        "total_ms": 6.5021000045817345
+      }
+    },
+    {
+      "image_id": "eval_05",
+      "image_path": "data/evaluation/eval_05.png",
+      "instruction": "go to the red block",
+      "expected_action": "MOVE_FORWARD",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": true,
+      "source_image": "red_cone_centered.png",
+      "variation_type": "sensor_noise",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.376100000925362,
+        "prompting_ms": 0.005800000508315861,
+        "inference_ms": 5.0,
+        "total_ms": 6.517800000438001
+      }
+    },
+    {
+      "image_id": "eval_06",
+      "image_path": "data/evaluation/eval_06.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_LEFT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_left.png",
+      "variation_type": "original",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 0.9552999981679022,
+        "prompting_ms": 0.005299996701069176,
+        "inference_ms": 5.0,
+        "total_ms": 6.42389999848092
+      }
+    },
+    {
+      "image_id": "eval_07",
+      "image_path": "data/evaluation/eval_07.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_LEFT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_left.png",
+      "variation_type": "brightness_high",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.0331000012229197,
+        "prompting_ms": 0.005399997462518513,
+        "inference_ms": 5.0,
+        "total_ms": 6.546600001456682
+      }
+    },
+    {
+      "image_id": "eval_08",
+      "image_path": "data/evaluation/eval_08.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_LEFT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_left.png",
+      "variation_type": "contrast_low",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.011399996059481,
+        "prompting_ms": 0.005100002454128116,
+        "inference_ms": 5.0,
+        "total_ms": 6.175599999551196
+      }
+    },
+    {
+      "image_id": "eval_09",
+      "image_path": "data/evaluation/eval_09.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_LEFT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_left.png",
+      "variation_type": "gaussian_blur",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 0.9669000064604916,
+        "prompting_ms": 0.004699999408330768,
+        "inference_ms": 5.0,
+        "total_ms": 6.305800001427997
+      }
+    },
+    {
+      "image_id": "eval_10",
+      "image_path": "data/evaluation/eval_10.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_LEFT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_left.png",
+      "variation_type": "sensor_noise",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.2671000004047528,
+        "prompting_ms": 0.005599998985417187,
+        "inference_ms": 5.0,
+        "total_ms": 6.529100006446242
+      }
+    },
+    {
+      "image_id": "eval_11",
+      "image_path": "data/evaluation/eval_11.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_RIGHT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_right.png",
+      "variation_type": "original",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.1515000005601905,
+        "prompting_ms": 0.005000001692678779,
+        "inference_ms": 5.0,
+        "total_ms": 6.318699997791555
+      }
+    },
+    {
+      "image_id": "eval_12",
+      "image_path": "data/evaluation/eval_12.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_RIGHT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_right.png",
+      "variation_type": "brightness_high",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.3779999935650267,
+        "prompting_ms": 0.006099995516706258,
+        "inference_ms": 5.0,
+        "total_ms": 6.7846999954781495
+      }
+    },
+    {
+      "image_id": "eval_13",
+      "image_path": "data/evaluation/eval_13.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_RIGHT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_right.png",
+      "variation_type": "contrast_low",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.2819999974453822,
+        "prompting_ms": 0.008600000001024455,
+        "inference_ms": 5.0,
+        "total_ms": 6.899399995745625
+      }
+    },
+    {
+      "image_id": "eval_14",
+      "image_path": "data/evaluation/eval_14.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_RIGHT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_right.png",
+      "variation_type": "gaussian_blur",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.1679000017466024,
+        "prompting_ms": 0.006900001608300954,
+        "inference_ms": 5.0,
+        "total_ms": 6.5484000006108545
+      }
+    },
+    {
+      "image_id": "eval_15",
+      "image_path": "data/evaluation/eval_15.png",
+      "instruction": "go to the red block",
+      "expected_action": "TURN_RIGHT",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "red_cone_right.png",
+      "variation_type": "sensor_noise",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.924299998790957,
+        "prompting_ms": 0.010700001439545304,
+        "inference_ms": 5.0,
+        "total_ms": 7.4643999978434294
+      }
+    },
+    {
+      "image_id": "eval_16",
+      "image_path": "data/evaluation/eval_16.png",
+      "instruction": "go to the red block",
+      "expected_action": "STOP",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "stop_barrier_close.png",
+      "variation_type": "original",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 1.8749999944702722,
+        "prompting_ms": 0.006099995516706258,
+        "inference_ms": 5.0,
+        "total_ms": 7.124899995687883
+      }
+    },
+    {
+      "image_id": "eval_17",
+      "image_path": "data/evaluation/eval_17.png",
+      "instruction": "go to the red block",
+      "expected_action": "STOP",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "stop_barrier_close.png",
+      "variation_type": "brightness_high",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 2.5910999975167215,
+        "prompting_ms": 0.005299996701069176,
+        "inference_ms": 5.0,
+        "total_ms": 7.946599995193537
+      }
+    },
+    {
+      "image_id": "eval_18",
+      "image_path": "data/evaluation/eval_18.png",
+      "instruction": "go to the red block",
+      "expected_action": "STOP",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "stop_barrier_close.png",
+      "variation_type": "contrast_low",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 2.306700000190176,
+        "prompting_ms": 0.006400005077011883,
+        "inference_ms": 5.0,
+        "total_ms": 7.5217000048724
+      }
+    },
+    {
+      "image_id": "eval_19",
+      "image_path": "data/evaluation/eval_19.png",
+      "instruction": "go to the red block",
+      "expected_action": "STOP",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "stop_barrier_close.png",
+      "variation_type": "gaussian_blur",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 2.1932000017841347,
+        "prompting_ms": 0.005399997462518513,
+        "inference_ms": 5.0,
+        "total_ms": 7.462300003680866
+      }
+    },
+    {
+      "image_id": "eval_20",
+      "image_path": "data/evaluation/eval_20.png",
+      "instruction": "go to the red block",
+      "expected_action": "STOP",
+      "predicted_action": "MOVE_FORWARD",
+      "is_valid_token": true,
+      "is_correct_action": false,
+      "source_image": "stop_barrier_close.png",
+      "variation_type": "sensor_noise",
+      "success": true,
+      "error": null,
+      "timing_ms": {
+        "preprocessing_ms": 2.3922000036691315,
+        "prompting_ms": 0.005200003215577453,
+        "inference_ms": 5.0,
+        "total_ms": 7.688600002438761
+      }
+    }
+  ]
+}

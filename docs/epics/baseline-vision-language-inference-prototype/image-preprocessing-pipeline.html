@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Preprocessing Pipeline — Lite-VLA</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <h1>Image Preprocessing Pipeline</h1>
+      <p class="doc-lead">Resize, color-convert, and compress camera frames for local VLM inference.</p>
+    </header>
+    <main>
+      <section>
+        <h2>Jira Task Info</h2>
+        <ul>
+          <li><strong>Story:</strong> VLA-36: Create image preprocessing pipeline</li>
+          <li><strong>Epic:</strong> Baseline Vision-Language Inference Prototype (VLA-5)</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>1. Intent &amp; Context</h2>
+        <p>To prepare raw simulation camera frames (typically high-resolution BGR images from Webots or ROS <code>/image_raw</code>) for the <code>SmolVLM-256M-Instruct</code> vision model. The preprocessor standardizes visual inputs by performing:</p>
+        <ul>
+          <li>BGR to RGB color-space conversion.</li>
+          <li>Resizing to specified target dimensions.</li>
+          <li>Optional color depth/grayscale reduction.</li>
+          <li>In-memory JPEG/PNG compression to match the format expected by the <code>llama-cpp-python</code> / <code>clip.cpp</code> visual handler.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>2. Configuration Settings</h2>
+        <p>The preprocessing behavior is validated against the schema and loaded via <code>configs/default.example.yaml</code>:</p>
+        <pre><code class="language-yaml">preprocessing:
+  resize_width: 512
+  resize_height: 512
+  color_format: rgb
+  encoding: jpeg</code></pre>
+      </section>
+
+      <section>
+        <h2>3. Core Interface &amp; Implementation</h2>
+        <p>The core logic resides in <code>litevla/preprocessing.py</code>.</p>
+        <h3>ImagePreprocessor Class</h3>
+        <ul>
+          <li>
+            <code>__init__(self, config: dict)</code>: Sets parameters and validates dimensions, color formats, and encoding options.
+            <ul>
+              <li><em>Validation Logic:</em> Ensures <code>resize_width</code> and <code>resize_height</code> are positive integers (minimum <code>16</code>). It verifies that <code>color_format</code> is one of <code>rgb</code>, <code>bgr</code>, or <code>gray</code>, and that <code>encoding</code> is one of <code>jpeg</code>, <code>png</code>, or <code>none</code>. Invalid values raise a <code>PreprocessingError</code> immediately during node startup.</li>
+            </ul>
+          </li>
+          <li>
+            <code>preprocess(self, image: np.ndarray) -> bytes | np.ndarray</code>: Processes the BGR image numpy array. Returns standard file bytes (JPEG/PNG) or a raw preprocessed numpy array.
+            <ul>
+              <li><em>Validation:</em> Checks that the input image is a 3-channel (<code>H</code>, <code>W</code>, <code>3</code>) NumPy array.</li>
+              <li><em>Color Space Handling:</em> Converts colors using OpenCV (<code>cv2.cvtColor</code>). Swapping channels from BGR to RGB is essential because the pre-trained vision encoder (SigLIP) was trained on RGB images. If skipped, colors like Red and Blue are inverted, causing model control errors. Grayscale reduces the array to a single intensity channel.</li>
+              <li><em>Resizing:</em> Scales the image using bilinear interpolation to the target shape (e.g. <code>512x512</code> or <code>224x224</code>).</li>
+              <li><em>In-Memory Compression:</em> Compresses the processed array into a byte stream based on the <code>encoding</code> format:
+                <ul>
+                  <li><strong><code>jpeg</code>:</strong> Lossy compression. Produces a very small byte footprint in RAM, maximizing transfer speed to the model engine. This is the default.</li>
+                  <li><strong><code>png</code>:</strong> Lossless compression. Retains absolute pixel quality at the cost of a larger memory footprint.</li>
+                  <li><strong><code>none</code>:</strong> Bypasses compression and returns the raw processed NumPy array (useful for offline testing or native PyTorch pipelines).</li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>4. Technical Decisions &amp; ADR Notes</h2>
+        <div class="adr-grid" style="display: grid; gap: 1rem; margin-top: 1rem;">
+          <article style="background: var(--color-surface); padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius);">
+            <h3>ADR: In-Memory Compression</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Context:</strong> The <code>llama-cpp-python</code> LLaVA handler requires image files or raw file bytes (JPEG/PNG) to feed into the underlying C++ vision projector (<code>clip.cpp</code>). It cannot directly ingest raw NumPy arrays.</p>
+            <p><strong>Decision:</strong> The preprocessor compresses NumPy arrays into <code>.jpg</code>/<code>.png</code> buffers using <code>cv2.imencode</code> in RAM, avoiding SSD write wear and reducing latency.</p>
+            <p><strong>Consequences:</strong> Returns a <code>bytes</code> object representing the raw data of a JPEG/PNG file. This stream can be loaded directly by <code>llama-cpp-python</code> in RAM, enabling ultra-fast real-time control (5-10 Hz) with zero disk I/O.</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. Validation &amp; Unit Tests</h2>
+        <p>Tests are located in <code>tests/test_preprocessing.py</code>:</p>
+        <ul>
+          <li><strong><code>test_preprocessor_init_with_defaults</code></strong>: Confirms fallback parameters are applied when configuration section is empty or missing.</li>
+          <li><strong><code>test_preprocessor_init_invalid_configs</code></strong>: Ensures that invalid sizes (e.g. negative) or unsupported formats throw clean exceptions during instantiation.</li>
+          <li><strong><code>test_preprocessing_resize_and_color_rgb</code></strong>: Verifies that a <code>640x480</code> BGR image is resized to <code>224x224</code> and that color channels are swapped correctly. It asserts color coordinates to ensure top/bottom half colors are swapped to RGB format.</li>
+          <li><strong><code>test_preprocessing_gray</code></strong>: Confirms color reduction to grayscale outputs a 2D array.</li>
+          <li><strong><code>test_preprocessing_encoding_jpeg</code></strong>: Validates the in-memory compression logic. It passes the image through the preprocessor with <code>encoding: "jpeg"</code>, asserts that a <code>bytes</code> object is returned, and attempts to decode it using <code>cv2.imdecode</code> to verify the resulting bytes form a valid, uncorrupted JPEG image.</li>
+          <li><strong><code>test_preprocessing_input_validation</code></strong>: Asserts that incorrect input types or shapes are caught and raise a <code>PreprocessingError</code>.</li>
+        </ul>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA documentation</p>
+    </footer>
+  </div>
+</body>
+</html>

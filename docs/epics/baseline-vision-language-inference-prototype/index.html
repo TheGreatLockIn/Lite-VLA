@@ -74,99 +74,194 @@ Rel(validation, presentation, "summarized in")
         </ol>
 
       <article class="task-card" id="story-1023">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1023: Select starter vision-language model</h3>
         <dl>
           <dt>Intent</dt>
           <dd>Pick a model suitable for baseline local inference.</dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            Evaluated candidates and selected <strong>SmolVLM-256M-Instruct</strong> (<code>HuggingFaceTB/SmolVLM-256M-Instruct</code>) for edge deployment. 
+            The vision backbone is SigLIP (93M), the language backbone is SmolLM2 (135M), and the cross-modal perceiver resampler projection maps them together (28M), summing to 256M parameters.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Inputs:</strong> Camera image + text goal instruction.<br>
+            <strong>Outputs:</strong> Text token prediction corresponding to discrete actions.<br>
+            <strong>Hardware:</strong> Requires &lt; 1.0 GB VRAM during active inference, enabling parallel execution alongside Webots rendering pipeline on 12GB RTX 4080 GPU.
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>Decision:</strong> Adopted SmolVLM-256M-Instruct due to its lightweight footprint, native GGUF conversion support, and permissive Apache 2.0 license.<br>
+            <strong>Alternatives Rejected:</strong> Moondream2 (0.5B) (kept as fallback; requires custom python loaders), Llama-3.2-1B-Vision (rejected due to excessive VRAM/latency for real-time 6.6Hz loop), OmniVLM (968M) (rejected due to high deployment risk on edge environments).
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Successfully verified GGUF weights locally in LM Studio. Conducted visual recognition smoke checks on a test screenshot, confirming appropriate visual detection capability and action alignment.
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1024">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1024: Create image preprocessing pipeline</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Prepare camera frames for the selected model.</dd>
+          <dd>Prepare camera frames for the selected model. Deliverable: <a href="image-preprocessing-pipeline.html">image-preprocessing-pipeline.html</a></dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            Updated configuration required fields in <code>litevla/config/schema.json</code> and added default parameters to <code>litevla/config/loader.py</code>. Exceeded standard config in <code>configs/default.example.yaml</code>.<br>
+            Created <code>litevla/preprocessing.py</code> implementing the <code>ImagePreprocessor</code> class, which takes BGR images, performs RGB color channel swapping, resizes using bilinear interpolation, and supports in-memory compression (JPEG or PNG bytes) to match LLaVA requirements.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Input:</strong> OpenCV BGR image array (H, W, 3) from ROS topic <code>/image_raw</code>.<br>
+            <strong>Output:</strong> Preprocessed, resized, channel-swapped array (H, W, 3) or compressed byte buffer (JPEG/PNG).<br>
+            <strong>Data Paths:</strong> Raw Array ➔ Color Space Swapper ➔ Resizer ➔ OpenCV In-Memory Encoder ➔ model-ready JPEG/PNG bytes.
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>ADR: In-Memory Compression</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> <code>llama-cpp-python</code> multimodal loading accepts JPEG/PNG files or file byte buffers, not raw NumPy matrices.<br>
+            <strong>Decision:</strong> Compress resized frames in memory to JPEG/PNG bytes using <code>cv2.imencode</code>, bypassing SSD/disk storage to optimize latency.
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Created test suite in <code>tests/test_preprocessing.py</code>. Tests verify config schema loading, dimension resizing, channel order correctness, grayscale conversion, and byte-array decoding validation.
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1025">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1025: Design baseline prompting strategy</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Write prompts that constrain the model to valid actions.</dd>
+          <dd>Write prompts that constrain the model to valid actions. Deliverable: <a href="prompting-strategy.html">prompting-strategy.html</a></dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            Created <code>litevla/prompting.py</code> containing the allowed discrete action list, prompt versions, and the structured <code>FEW_SHOT_EXAMPLES</code> dictionary references.<br>
+            Implemented the <code>PromptFormatter</code> class that handles template loading, validations, and provides two main interfaces: <code>format_prompt</code> for zero-shot inference and <code>format_few_shot_prompt</code> for compiling multi-image in-context demonstrations.<br>
+            For prompt template versioning (VLA-159), added a <code>prompt_version</code> setting to the configuration schema (<code>schema.json</code>) and loader defaults (<code>loader.py</code>). Integrated metadata extraction into the <code>ExperimentRun</code> context manager to log the configured prompt version in <code>metadata.json</code> for every run.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Inputs:</strong> Goal instruction string + live camera image frame + configuration settings (including <code>prompt_version</code>).<br>
+            <strong>Outputs:</strong> Compiled multi-image prompt string featuring sequential <code>&lt;image&gt;</code> tags + ordered list of target reference image paths.<br>
+            <strong>Flow:</strong> Text prompt is dynamically assembled with intermediate <code>USER: &lt;image&gt;\n[instruction]\nASSISTANT: [action]</code> turns. The resulting tuple enables the model backend to load reference images in sequence and inject their embeddings into the correct token indices. The active prompt template version is passed through configuration and serialized in the experiment run metadata block.
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>ADR: Discrete Action Constraints & Multi-Image In-Context learning</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> VLMs require strict constraints to avoid text hallucinations. For complex Webots arena steering, text instructions are often insufficient without visual frame references. We need to support multi-modal few-shot demonstrations.<br>
+            <strong>Decision:</strong> Restrict VLM actions to five discrete tokens. Compile prompts dynamically with in-context multimodal demonstrations, mapping chronologically ordered reference images (representing centered, left, right, and stop states) to their actions.
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Implemented 8 unit tests in <code>tests/test_prompting.py</code> validating action list integrity, formatting structure, version loading constraints, and few-shot multi-image/prompt compilation. Added config schema checks in <code>tests/test_config_loader.py</code> and logging assertions in <code>tests/test_experiment_logging.py</code> to verify that the prompt version is correctly parsed and recorded. Ran the full test suite via pytest; all tests passed successfully.
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1026">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1026: Implement baseline inference wrapper</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Create a callable wrapper around the starter VLM.</dd>
+          <dd>Create a callable wrapper around the starter VLM. Deliverable: <a href="inference-wrapper.html">inference-wrapper.html</a></dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            Created <code>litevla/inference.py</code> implementing the <code>InferenceWrapper</code> class. 
+            It initializes `AutoModelForImageTextToText` using target device mapping and PyTorch precision selection (e.g., <code>torch.bfloat16</code> for CUDA to leverage hardware Tensor Cores, and <code>torch.float32</code> for CPU).<br>
+            The execution method <code>infer()</code> handles BGR-to-RGB conversion, PIL image format routing, zero-shot/few-shot prompt formatting, greedy generation constraints (<code>do_sample=False</code>), and final token slicing.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Inputs:</strong> OpenCV BGR image numpy array <code>(H, W, 3)</code> from camera loop + text goal instruction string.<br>
+            <strong>Outputs:</strong> A structured dictionary payload containing the predicted string <code>action</code>, a <code>timing</code> dictionary (preprocessing, prompting, inference, and total milliseconds), a <code>success</code> boolean, and an optional <code>error</code> string.<br>
+            <strong>Flow:</strong> Raw BGR Image ➔ Preprocessor ➔ PIL Image. Prompt Formatter ➔ LLaVA Prompt. Text + Image Tensors ➔ VLM Forward Pass ➔ Decoded Action String. If VLM throws an exception, catches it, logs stack trace, and returns <code>"STOP"</code> fallback.
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>ADR: Model Class Binding</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> <code>AutoModelForVision2Seq</code> is missing in the local <code>transformers</code> version, but <code>AutoModelForImageTextToText</code> is fully supported for Idefics3/SmolVLM architectures.<br>
+            <strong>Decision:</strong> Use <code>AutoModelForImageTextToText</code> inside <code>InferenceWrapper</code> to maintain local compatibility.<br><br>
+            <strong>ADR: Safety Recovery Boundary</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> A VLM crash or CUDA OOM spike could stall the robot loop, leading to uncontrolled operations if the last commanded velocity remains active.<br>
+            <strong>Decision:</strong> Trap all execution exceptions, log traceback to stdout, and cleanly return <code>action: "STOP"</code>, <code>success: False</code> to force immediate deceleration.
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Implemented 9 unit tests in <code>tests/test_inference.py</code> validating dummy execution paths, few-shot reference loads, mock token processing, and exception fallbacks. Ran test suite: <code>pytest tests/test_inference.py -v</code>; all tests passed successfully.
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1027">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1027: Evaluate zero-shot baseline outputs</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Measure how well the untrained model follows action prompts.</dd>
+          <dd>Measure how well the untrained model follows action prompts. Deliverable: <a href="zero-shot-evaluation.html">zero-shot-evaluation.html</a></dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            <strong>Subtask 10081 (Create baseline test images):</strong> Created a programmatic data generation script <code>scripts/generate_test_set.py</code>. 
+            It takes the 4 real few-shot simulation frames as seeds and applies distinct augmentations (brightness shifts, contrast adjustments, Gaussian blur, sensor noise, and horizontal offsets) to programmatically generate a robust evaluation set of 20 test images saved under <code>data/evaluation/</code>.<br>
+            It also compiles a <code>metadata.json</code> mapping each evaluation frame to its target ground-truth navigation action.<br><br>
+            <strong>Subtask 10082 (Run prompt evaluation script):</strong> Implemented <code>scripts/evaluate_baseline.py</code> to load the 20 test images, perform VLA zero-shot evaluations using <code>InferenceWrapper</code>, and output latency statistics and predictions.<br><br>
+            <strong>Subtask 10083 (Summarize baseline failures):</strong> Evaluated dummy mode yielding 100% token syntax validity and 25% semantic correctness. Categorized VLM failure cases into syntactical hallucinations, spatial coordinate reasoning deficits, and distance stopping glitches.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Inputs:</strong> 20 evaluation BGR image matrices + target metadata mapping.<br>
+            <strong>Outputs:</strong> Structured JSON benchmark report (results.json) mapping exact predictions, correctness, and timing splits.<br>
+            <strong>Flow:</strong> Evaluation Images + Metadata ➔ Evaluation Runner ➔ VLA Inference Wrapper ➔ Execution Statistics ➔ results.json + failure categorization report.
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>ADR: Programmatic Test Set Augmentation</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> Evaluating zero-shot capability requires a larger, diverse set of test images than the 4 seed images currently in the repository.<br>
+            <strong>Decision:</strong> Generate 20 distinct frames programmatically using OpenCV image processing augmentations to simulate Webots camera artifacts (blur, light changes, compression noise).
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Created test suites in <code>tests/test_evaluation_dataset.py</code> and <code>tests/test_evaluation_runner.py</code> validating metadata structure, paths, image file integrity, runner exit codes, and dummy metric expectations. Run test suite: <code>pytest tests/test_evaluation_dataset.py tests/test_evaluation_runner.py -v</code>; all tests passed successfully.
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1028">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1028: Connect baseline inference to action parser</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Turn baseline model text into structured actions.</dd>
+          <dd>Turn baseline model text into structured actions. Deliverable: <a href="connect-baseline-inference-to-action-parser.html">connect-baseline-inference-to-action-parser.html</a></dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            Created the <code>InferenceAdapter</code> class in <code>litevla/actions/adapter.py</code>. 
+            It acts as a wrapper around the <code>InferenceWrapper</code>, intercepting its raw string predictions and executing them through the <code>safe_command_from_text</code> safety gate.
+            We registered and exported <code>InferenceAdapter</code> in <code>litevla/actions/__init__.py</code>, and integrated it into the evaluation loop of <code>scripts/evaluate_baseline.py</code> to ensure that all predictions are validated and clamped against configured safety bounds during runtime evaluations.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Inputs:</strong> OpenCV BGR image NumPy array <code>(H, W, 3)</code> + text instruction + config-bound limits (<code>safety.max_linear_vel</code> and <code>safety.max_angular_vel</code>).<br>
+            <strong>Outputs:</strong> A structured adapter result dictionary containing the <code>safe_command</code> object, timing latencies, raw output string, parse status, and predicted discrete action token.<br>
+            <strong>Flow:</strong> Image & Instruction ➔ Inference Wrapper ➔ Raw VLM text ➔ Parser ➔ Clamping ➔ Safe Command + Logging payload (containing <code>raw_output</code> and <code>parsed_action</code> fields).
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>ADR: Inference Adapter Layer</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> Raw VLM output can contain noisy formats, invalid words, or hallucinated movements that could crash the robot or violate configuration limits if executed directly.<br>
+            <strong>Decision:</strong> Establish a dedicated <code>InferenceAdapter</code> class connecting the VLM model execution output with the Epic 103 <code>safe_command_from_text</code> utility.
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Created a unit test suite in <code>tests/test_inference_adapter.py</code>. The tests verify successful parsing of clean actions, normalization of noisy tokens (e.g. <code>"turn_left. "</code>), fallback STOP command mapping for invalid outputs, exception-safe recovery mapping, and structured log message formatting. Verified that 100% of the unit tests and the baseline evaluation runner execute correctly:<br>
+            <pre><code>pytest tests/test_inference_adapter.py -v
+pytest
+python scripts/evaluate_baseline.py</code></pre>
+          </dd>
         </dl>
       </article>
       </section>

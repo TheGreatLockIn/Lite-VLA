@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteVLA-Edge System Architecture Summary</title>
+  <link rel="stylesheet" href="styles/doc.css">
+  <style>
+    /* Scoped layout styles using project's Warm Neutral palette */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: var(--space-md);
+      margin: var(--space-lg) 0;
+    }
+
+    .card {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: var(--space-md) var(--space-lg);
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .card:hover {
+      border-color: var(--color-accent);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(44, 40, 37, 0.05);
+    }
+
+    .card h3 {
+      margin-top: 0;
+      color: var(--color-text);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: var(--space-xs);
+    }
+
+    .card-tag {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 0.15rem 0.4rem;
+      border-radius: var(--radius);
+      background-color: var(--color-code-bg);
+      color: var(--color-muted);
+    }
+
+    .card ul {
+      list-style-type: none;
+      padding-left: 0;
+      margin-bottom: 0;
+    }
+
+    .card li {
+      margin-bottom: var(--space-sm);
+      padding-left: 1.2rem;
+      position: relative;
+      font-size: 0.9rem;
+    }
+
+    .card li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      color: var(--color-accent);
+      font-weight: bold;
+    }
+
+    /* Diagram Styles */
+    .diagram-container {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: var(--space-lg);
+      margin: var(--space-lg) 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .diagram-flow {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: var(--space-sm);
+      width: 100%;
+    }
+
+    .flow-node {
+      background-color: var(--color-bg);
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: var(--space-sm) var(--space-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 130px;
+      text-align: center;
+      font-size: 0.85rem;
+      transition: border-color 0.2s ease;
+    }
+
+    .flow-node:hover {
+      border-color: var(--color-accent);
+    }
+
+    .flow-node .node-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--color-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: var(--space-xs);
+    }
+
+    .flow-node .node-value {
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    .flow-node.highlight {
+      border-color: var(--color-accent);
+      background-color: rgba(184, 96, 42, 0.04);
+    }
+
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      color: var(--color-muted);
+    }
+
+    .flow-arrow::after {
+      content: "→";
+      font-weight: bold;
+      font-size: 1.2rem;
+    }
+
+    @media (max-width: 768px) {
+      .diagram-flow {
+        flex-direction: column;
+        gap: var(--space-xs);
+      }
+      .flow-arrow::after {
+        content: "↓";
+      }
+    }
+
+    /* Badges */
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.15rem 0.4rem;
+      border-radius: var(--radius);
+      display: inline-block;
+    }
+
+    .badge-check {
+      background-color: rgba(44, 160, 44, 0.1);
+      color: #1e5a1e;
+      border: 1px solid rgba(44, 160, 44, 0.2);
+    }
+
+    .badge-modified {
+      background-color: rgba(184, 96, 42, 0.1);
+      color: var(--color-accent);
+      border: 1px solid rgba(184, 96, 42, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-shell">
+    
+    <header class="doc-header">
+      <h1>LiteVLA-Edge System Architecture Summary</h1>
+      <p class="doc-lead">A systems-oriented breakdown of on-device VLA control for embedded robotics</p>
+      <div class="doc-nav">
+        <a href="../README.md">← Back to README</a>
+      </div>
+    </header>
+
+    <main>
+      <!-- SECTION 1: Core Components -->
+      <section>
+        <h2>1. Core System Components</h2>
+        <p>The LiteVLA-Edge system is composed of five primary functional blocks:</p>
+        
+        <div class="card-grid">
+          <!-- Component 1: Perception -->
+          <div class="card">
+            <h3>Perception & Processing <span class="card-tag">Front-End</span></h3>
+            <ul>
+              <li><strong>Sensor Ingestion</strong>: Pulls camera streams (RGB frames) from the robot's physical/simulated environment.</li>
+              <li><strong>Visual Encoder</strong>: Processes raw frames into normalized visual tokens using a vision encoder network (SigLIP).</li>
+              <li><strong>Instruction Encoder</strong>: Tokenizes and embeds natural language commands alongside visual tokens.</li>
+            </ul>
+          </div>
+
+          <!-- Component 2: Inference -->
+          <div class="card">
+            <h3>VLA Model Inference <span class="card-tag">Core Brain</span></h3>
+            <ul>
+              <li><strong>Backbone Model</strong>: Compact Multimodal Transformer (TBD: SmolVLM-256M or similar small VLM).</li>
+              <li><strong>LoRA Adapter</strong>: A frozen base model paired with low-rank adapters ($r=8, \alpha=8$) trained to output robot actions.</li>
+              <li><strong>llama.cpp Engine</strong>: Local execution engine running fully GPU-offloaded 4-bit quantized GGUF weights (`Q4_K_M`) for optimized inference.</li>
+            </ul>
+          </div>
+
+          <!-- Component 3: Parser -->
+          <div class="card">
+            <h3>Action Parser <span class="card-tag">Bridge</span></h3>
+            <ul>
+              <li><strong>Token Capture</strong>: Isolates target action tokens from the model's text output stream.</li>
+              <li><strong>Numerical Mapping</strong>: Maps discrete tokens or structured coordinates to linear ($v$) and angular ($\omega$) velocity values.</li>
+              <li><strong>Format Translation</strong>: Packages values into standard messages for publishing.</li>
+            </ul>
+          </div>
+
+          <!-- Component 4: Safety Override -->
+          <div class="card">
+            <h3>Safety Override <span class="card-tag">Guardrails</span></h3>
+            <ul>
+              <li><strong>Velocity Clamp</strong>: Checks values against physical constraints to prevent unsafe or extreme motor commands.</li>
+              <li><strong>Parsing Fallback</strong>: Automatically overrides unrecognized model outputs, transforming them instantly into a safe <code>STOP</code>.</li>
+              <li><strong>Manual Override</strong>: Monitored input triggers that immediately disconnect VLA control in favor of human control.</li>
+            </ul>
+          </div>
+
+          <!-- Component 5: Controller -->
+          <div class="card">
+            <h3>ROS 2 Simulation Controller <span class="card-tag">Actuation</span></h3>
+            <ul>
+              <li><strong>ROS 2 Publisher</strong>: Translates actions into standard <code>geometry_msgs/Twist</code> messages published on the <code>/cmd_vel</code> topic.</li>
+              <li><strong>Decoupled Control Loop</strong>: Runs a low-level heartbeat (100 Hz) to smooth out inputs from the high-level VLA (~6.6 Hz).</li>
+              <li><strong>Simulation Interface</strong>: ROS 2 nodes communicate with Webots/simulation using the <code>webots_ros2</code> package to control joint and wheel motors.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 2: System Data Flow -->
+      <section>
+        <h2>2. System Data Flow</h2>
+        <p>The runtime loop operates as a closed-loop perception-action cycle:</p>
+        
+        <div class="diagram-container">
+          <div class="diagram-flow">
+            <div class="flow-node highlight">
+              <span class="node-label">Inputs</span>
+              <span class="node-value">RGB + Text</span>
+            </div>
+            <div class="flow-arrow"></div>
+            
+            <div class="flow-node">
+              <span class="node-label">Tokenizer</span>
+              <span class="node-value">Visual & Text</span>
+            </div>
+            <div class="flow-arrow"></div>
+            
+            <div class="flow-node highlight">
+              <span class="node-label">Model (INT4)</span>
+              <span class="node-value">SmolVLM-256M</span>
+            </div>
+            <div class="flow-arrow"></div>
+            
+            <div class="flow-node">
+              <span class="node-label">Parser</span>
+              <span class="node-value">Action Decoder</span>
+            </div>
+            <div class="flow-arrow"></div>
+            
+            <div class="flow-node highlight">
+              <span class="node-label">Safety Gate</span>
+              <span class="node-value">Clamp & Fallback</span>
+            </div>
+            <div class="flow-arrow"></div>
+            
+            <div class="flow-node">
+              <span class="node-label">Publisher</span>
+              <span class="node-value">/cmd_vel (Twist)</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 3: Claims vs. Implementation Goals -->
+      <section>
+        <h2>3. Paper Claims vs. Project Implementation Goals</h2>
+        <p>The project balances replication of the paper's core architecture with practical constraints of a local simulation setup.</p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Dimension</th>
+                <th>Paper Claims & Results</th>
+                <th>Our Project Implementation Goals</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Hardware</strong></td>
+                <td>NVIDIA Jetson AGX Orin (64GB) / Orin NX.<br>Runs fully local and offline.</td>
+                <td>RTX 4080 Laptop GPU (Linux, ROS 2 installed) handles both training, inference, and Webots simulation loop.</td>
+                <td><span class="badge badge-modified">Modified Strategy</span></td>
+              </tr>
+              <tr>
+                <td><strong>Latency & Hz</strong></td>
+                <td>Mean end-to-end latency of **150.5 ms** (~6.64 Hz).<br>Extremely low jitter ($\sigma = 0.13$ ms).</td>
+                <td>Target closed-loop control in simulation at a stable **6 to 10 Hz** rate.</td>
+                <td><span class="badge badge-check">Matched Target</span></td>
+              </tr>
+              <tr>
+                <td><strong>VLM Model</strong></td>
+                <td>Distilled SmolVLM-256M backbone.<br>Converted to 4-bit (Q4_K_M) GGUF.</td>
+                <td>Compact VLM backbone (TBD: SmolVLM-256M or similar).</td>
+                <td><span class="badge badge-check">Matched Target</span></td>
+              </tr>
+              <tr>
+                <td><strong>Fine-Tuning</strong></td>
+                <td>Supervised image-to-action fine-tuning in FP32 using LoRA ($r=8, \alpha=8$).</td>
+                <td>Utilize LoRA fine-tuning in FP32.</td>
+                <td><span class="badge badge-check">Matched Target</span></td>
+              </tr>
+              <tr>
+                <td><strong>Control Middleware</strong></td>
+                <td>Fully integrated ROS 2 middleware publishing Twist velocity vectors.</td>
+                <td>Fully integrated ROS 2 workspace linking Webots nodes via <code>webots_ros2</code>.</td>
+                <td><span class="badge badge-check">Matched Target</span></td>
+              </tr>
+              <tr>
+                <td><strong>Action Space</strong></td>
+                <td>Continuous control coordinates (linear velocity $v$, angular velocity $\omega$).</td>
+                <td>Start with a discrete action vocabulary (e.g. `MOVE_FORWARD`, `STOP`) for easy parsing.</td>
+                <td><span class="badge badge-modified">Simplified MVP Path</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="doc-footer">
+      <p>Lite-VLA Systems Architecture Manual | Prepared for the Lite-VLA Project Group</p>
+    </footer>
+  </div>
+</body>
+</html>
