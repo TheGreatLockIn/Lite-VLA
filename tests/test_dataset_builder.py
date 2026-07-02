@@ -10,7 +10,11 @@ from PIL import Image
 
 from litevla.data.builder import (
     DatasetBuildError,
+    _apply_augmentation,
+    _augmentation_rng,
+    augment_reference_records,
     build_starter_dataset,
+    compute_variants_per_image,
     load_reference_manifest,
     parse_frame_stamp,
     records_from_raw_episode,
@@ -189,3 +193,81 @@ def test_load_reference_manifest() -> None:
     )
     assert len(manifest.entries) == 4
     assert manifest.entries[0].action == "MOVE_FORWARD"
+
+
+def test_compute_variants_per_image_respects_cap() -> None:
+    assert compute_variants_per_image(
+        base_count=1,
+        current_total=1,
+        min_records=200,
+        max_variants_per_image=25,
+        explicit_variants=None,
+    ) == 25
+
+
+def test_compute_variants_per_image_scales_with_multiple_bases() -> None:
+    assert compute_variants_per_image(
+        base_count=4,
+        current_total=4,
+        min_records=200,
+        max_variants_per_image=25,
+        explicit_variants=None,
+    ) == 49
+
+
+def test_apply_augmentation_changes_pixels() -> None:
+    base = Image.new("RGB", (64, 48), color=(120, 80, 40))
+    rng = _augmentation_rng(42, "scene_a", 0)
+    aug = _apply_augmentation(base, 0, rng)
+    import numpy as np
+
+    diff = np.abs(np.asarray(base, dtype=int) - np.asarray(aug, dtype=int)).mean()
+    assert diff > 5.0
+
+
+def test_augment_reference_records_per_image_cap(tmp_path: Path) -> None:
+    ref_dir = tmp_path / "data" / "reference_images"
+    ref_dir.mkdir(parents=True)
+    _write_png(ref_dir / "scene_a.png")
+    base = [
+        TrainingRecord(
+            image_path="data/reference_images/scene_a.png",
+            instruction="Move.",
+            action="MOVE_FORWARD",
+            timestamp="2026-06-24T12:00:00+00:00",
+            source="reference",
+            id="ref_001",
+        )
+    ]
+    out_dir = tmp_path / "data" / "processed" / "v0.1.0" / "images"
+    rows = augment_reference_records(
+        base,
+        output_images_dir=out_dir,
+        variants_per_image=3,
+        seed=1,
+        repo_root=tmp_path,
+    )
+    assert len(rows) == 3
+    assert len(list(out_dir.glob("scene_a_aug_*.png"))) == 3
+
+
+def test_build_starter_dataset_fails_when_cap_blocks_min_records(tmp_path: Path) -> None:
+    ref_dir = tmp_path / "data" / "reference_images"
+    manifest_path = ref_dir / "manifest.json"
+    _write_manifest(manifest_path)
+    _write_png(ref_dir / "scene_a.png")
+
+    with pytest.raises(DatasetBuildError, match="Missing reference PNGs"):
+        build_starter_dataset(
+            version="v0.1.0",
+            min_records=200,
+            val_ratio=0.1,
+            seed=7,
+            reference_manifest_path=manifest_path,
+            reference_images_dir=ref_dir,
+            raw_episodes_dir=tmp_path / "data" / "raw" / "episodes",
+            processed_root=tmp_path / "data" / "processed",
+            repo_root=tmp_path,
+            include_raw_episodes=False,
+            max_variants_per_image=25,
+        )

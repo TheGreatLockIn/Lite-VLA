@@ -162,5 +162,5 @@ python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --sk
 
 ## Open questions
 
-- **Pending review rows:** Validator does not read sidecar CSV; future work could cross-check `label_review.csv` for leftover `pending` status.
+- **Pending review rows:** Pass `--review-csv` to `validate_dataset()` / CLI to fail release when any row is still `pending` (implemented 2026-07-02).
 - **Val split in CI:** Validate `val.jsonl` separately in release pipeline (supported via `build_version_artifacts`).

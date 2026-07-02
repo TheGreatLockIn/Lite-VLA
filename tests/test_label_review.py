@@ -9,9 +9,11 @@ import pytest
 from litevla.data.label_review import (
     LabelReviewError,
     apply_reviews_to_records,
+    bulk_approve_review_csv,
     export_jsonl_to_review_csv,
     import_review_csv_to_jsonl,
     read_review_csv,
+    validate_review_csv_no_pending,
 )
 from litevla.data.schema import FIXTURES_PATH, TrainingRecord, read_jsonl, write_jsonl
 
@@ -137,3 +139,20 @@ def test_fixture_template_csv_is_valid() -> None:
     rows = read_review_csv(FIXTURE_CSV)
     assert len(rows) == 2
     assert all(r.review_status == "pending" for r in rows)
+
+
+def test_bulk_approve_review_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "review.csv"
+    export_jsonl_to_review_csv(FIXTURES_PATH, csv_path)
+    updated = bulk_approve_review_csv(csv_path, reviewer="bot")
+    assert updated == 6
+    rows = read_review_csv(csv_path)
+    assert all(row.review_status == "approved" for row in rows)
+
+
+def test_validate_review_csv_no_pending(tmp_path: Path) -> None:
+    csv_path = tmp_path / "review.csv"
+    export_jsonl_to_review_csv(FIXTURES_PATH, csv_path)
+    assert validate_review_csv_no_pending(csv_path)
+    bulk_approve_review_csv(csv_path, reviewer="bot")
+    assert validate_review_csv_no_pending(csv_path) == []

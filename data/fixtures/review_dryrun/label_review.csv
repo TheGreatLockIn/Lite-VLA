@@ -1,0 +1,7 @@
+id,image_path,instruction,action_proposed,action_reviewed,review_status,reviewer,review_notes,reviewed_at
+ref_001,data/reference_images/red_cone_centered.png,Move toward the red cube.,MOVE_FORWARD,,approved,Raj Dangi,clear forward scene,2026-06-24T14:00:00+00:00
+ref_002,data/reference_images/red_cone_left.png,Turn left until you see the red cube.,TURN_LEFT,,approved,Raj Dangi,left offset correct,2026-06-24T14:00:01+00:00
+ref_003,data/reference_images/red_cone_right.png,Turn right until you see the red cube.,TURN_RIGHT,,pending,,,
+ref_004,data/reference_images/stop_barrier_close.png,Stop when close to the red cube.,STOP,SLOW_DOWN,corrected,Raj Dangi,still approaching target,2026-06-24T14:00:02+00:00
+syn_001,data/processed/v0.1.0/images/synthetic_slow_approach.png,Move toward the red cube.,SLOW_DOWN,,rejected,Raj Dangi,duplicate augmentation,2026-06-24T14:00:03+00:00
+tel_001,data/raw/episodes/20260624T120000Z/frames/42_000000000.png,Move toward the red cube.,MOVE_FORWARD,,approved,Raj Dangi,teleop row ok,2026-06-24T14:00:04+00:00

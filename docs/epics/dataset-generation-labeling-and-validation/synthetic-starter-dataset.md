@@ -54,9 +54,11 @@ def _action_at_sim_time(commands, sim_ns):
 
 ### Augmentation (`augment_reference_records`)
 
-Deterministic Pillow transforms (brightness, contrast, crop, occasional blur) keyed by variant index + seed. Writes PNGs to `processed/<version>/images/` with `source: synthetic`.
+Label-preserving Pillow transforms per reference pose: photometric jitter (brightness, contrast, color, sharpness), random crop/resize (82–97% FOV), Gaussian blur, sensor noise, and occasional JPEG compression. Each variant uses a stable `(seed, image_stem, variant)` RNG.
 
-- **ADR (10093):** Augment curated reference frames, not teleop trajectories, to hit 200 rows before large-scale collection.
+Synthetic variants are **capped** (default 25 per reference PNG via `--max-variants-per-image`) so the builder cannot fabricate 200 near-duplicates from a single missing checkout. If reference + raw rows plus capped augmentation still fall below `--min-records`, the CLI fails and lists missing manifest PNGs.
+
+- **ADR (10093):** Augment curated reference frames, not teleop trajectories, to pad the starter set before large-scale collection — not as a substitute for capturing all four reference poses.
 
 ### Orchestrator (`build_starter_dataset`)
 
@@ -73,8 +75,11 @@ python scripts/build_starter_dataset.py \
   --version v0.1.0 \
   --min-records 200 \
   --val-ratio 0.1 \
-  --seed 42
+  --seed 42 \
+  --max-variants-per-image 25
 ```
+
+Requires all four reference PNGs listed in `manifest.json` (or enough raw episodes) to reach `--min-records`; augmentation alone will not pad from a single image.
 
 ## Engineering decisions
 

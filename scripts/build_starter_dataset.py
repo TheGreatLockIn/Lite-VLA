@@ -30,6 +30,12 @@ def _parse_args() -> argparse.Namespace:
         help="Augmented PNGs per reference image (auto-computed to reach min-records if omitted).",
     )
     parser.add_argument(
+        "--max-variants-per-image",
+        type=int,
+        default=25,
+        help="Upper bound on synthetic variants per reference PNG (default: 25).",
+    )
+    parser.add_argument(
         "--reference-manifest",
         default="data/reference_images/manifest.json",
         help="Reference image label manifest.",
@@ -85,6 +91,7 @@ def main() -> int:
             val_ratio=args.val_ratio,
             seed=args.seed,
             variants_per_image=args.variants_per_image,
+            max_variants_per_image=args.max_variants_per_image,
             reference_manifest_path=args.reference_manifest,
             reference_images_dir=args.reference_images_dir,
             raw_episodes_dir=args.raw_episodes_dir,

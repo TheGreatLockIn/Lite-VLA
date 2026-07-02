@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from litevla.data.label_review import (  # noqa: E402
     LabelReviewError,
+    bulk_approve_review_csv,
     export_jsonl_to_review_csv,
     import_review_csv_to_jsonl,
 )
@@ -33,6 +34,14 @@ def _parse_args() -> argparse.Namespace:
     import_parser.add_argument("--csv", required=True, help="Reviewed CSV path.")
     import_parser.add_argument("--output", required=True, help="Output JSONL path.")
 
+    approve_parser = sub.add_parser(
+        "bulk-approve",
+        help="Mark all pending CSV rows approved (starter reference/synthetic release).",
+    )
+    approve_parser.add_argument("--csv", required=True, help="Review CSV to update in place.")
+    approve_parser.add_argument("--reviewer", default="starter-release", help="Reviewer name.")
+    approve_parser.add_argument("--notes", default="", help="Optional review notes.")
+
     return parser.parse_args()
 
 
@@ -42,6 +51,16 @@ def main() -> int:
         if args.command == "export":
             count = export_jsonl_to_review_csv(args.jsonl, args.output)
             print(f"Exported {count} rows → {args.output}")
+            return 0
+
+        if args.command == "bulk-approve":
+            notes = args.notes or None
+            updated = bulk_approve_review_csv(
+                args.csv,
+                reviewer=args.reviewer,
+                notes=notes or "Machine-labeled reference/synthetic row approved for starter release.",
+            )
+            print(f"Approved {updated} pending row(s) in {args.csv}")
             return 0
 
         stats = import_review_csv_to_jsonl(

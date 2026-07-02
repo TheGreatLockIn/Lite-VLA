@@ -27,6 +27,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--version", help="Processed version id (e.g. v0.1.0) for stats + dataset card.")
     parser.add_argument("--repo-root", default=str(ROOT), help="Repo root for resolving image paths.")
     parser.add_argument("--skip-image-check", action="store_true", help="Do not require PNG files on disk.")
+    parser.add_argument(
+        "--review-csv",
+        help="Optional label review CSV; fail validation if any matching rows are still pending.",
+    )
     parser.add_argument("--output", help="Write JSON validation report to this path.")
     parser.add_argument(
         "--write-artifacts",
@@ -64,7 +68,12 @@ def main() -> int:
         print("Error: pass --jsonl or --train (or --version --write-artifacts).", file=sys.stderr)
         return 1
 
-    report = validate_dataset(jsonl_path, repo_root=repo_root, check_images=check_images)
+    report = validate_dataset(
+        jsonl_path,
+        repo_root=repo_root,
+        check_images=check_images,
+        review_csv_path=args.review_csv,
+    )
     print(format_report_summary(report))
 
     if args.output:

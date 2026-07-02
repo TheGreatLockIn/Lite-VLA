@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 
+import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
 
 from litevla.data.episode import read_episode_json
@@ -19,6 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REFERENCE_MANIFEST = REPO_ROOT / "data" / "reference_images" / "manifest.json"
 DEFAULT_RAW_EPISODES_DIR = REPO_ROOT / "data" / "raw" / "episodes"
 DEFAULT_PROCESSED_ROOT = REPO_ROOT / "data" / "processed"
+DEFAULT_MAX_VARIANTS_PER_IMAGE = 25
 FRAME_STAMP_RE = re.compile(r"^(\d+)_(\d{9})\.png$")
 
 # Map raw episode source → training record source.
@@ -226,26 +229,78 @@ def records_from_reference_manifest(
     return records, skipped
 
 
+def _augmentation_rng(seed: int, stem: str, variant: int) -> random.Random:
+    """Stable per-(seed, image, variant) RNG for reproducible augmentations."""
+    payload = f"{seed}:{stem}:{variant}".encode()
+    digest = hashlib.sha256(payload).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
 def _apply_augmentation(image: Image.Image, variant: int, rng: random.Random) -> Image.Image:
-    """Deterministic-ish augmentations keyed by ``variant`` and ``rng``."""
+    """Label-preserving augmentations for fixed-pose reference frames."""
+    del variant  # entropy comes from ``rng``; index only names output files.
     out = image.convert("RGB")
-    brightness = 0.85 + (variant % 7) * 0.05 + rng.uniform(-0.03, 0.03)
-    contrast = 0.85 + (variant % 5) * 0.06 + rng.uniform(-0.03, 0.03)
-    out = ImageEnhance.Brightness(out).enhance(brightness)
-    out = ImageEnhance.Contrast(out).enhance(contrast)
-
-    if variant % 4 == 0:
-        out = out.filter(ImageFilter.GaussianBlur(radius=0.6 + (variant % 3) * 0.2))
-
     width, height = out.size
-    crop_pct = 0.04 + (variant % 5) * 0.01
-    crop_w = max(1, int(width * crop_pct))
-    crop_h = max(1, int(height * crop_pct))
-    left = (variant * 17) % max(1, crop_w + 1)
-    top = (variant * 23) % max(1, crop_h + 1)
-    out = out.crop((left, top, width - crop_w + left, height - crop_h + top))
-    out = out.resize((width, height), Image.Resampling.BILINEAR)
+
+    out = ImageEnhance.Brightness(out).enhance(rng.uniform(0.65, 1.35))
+    out = ImageEnhance.Contrast(out).enhance(rng.uniform(0.70, 1.30))
+    out = ImageEnhance.Color(out).enhance(rng.uniform(0.75, 1.25))
+    out = ImageEnhance.Sharpness(out).enhance(rng.uniform(0.55, 1.65))
+
+    scale = rng.uniform(0.82, 0.97)
+    crop_w = max(1, int(width * scale))
+    crop_h = max(1, int(height * scale))
+    max_left = max(0, width - crop_w)
+    max_top = max(0, height - crop_h)
+    left = rng.randint(0, max_left)
+    top = rng.randint(0, max_top)
+    out = out.crop((left, top, left + crop_w, top + crop_h))
+    out = out.resize((width, height), Image.Resampling.LANCZOS)
+
+    if rng.random() < 0.75:
+        radius = rng.uniform(0.4, 1.6)
+        out = out.filter(ImageFilter.GaussianBlur(radius=radius))
+
+    arr = np.asarray(out, dtype=np.int16)
+    sigma = rng.uniform(2.0, 14.0)
+    noise = np.random.default_rng(rng.randint(0, 2**32 - 1)).normal(0.0, sigma, arr.shape)
+    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    out = Image.fromarray(arr)
+
+    if rng.random() < 0.35:
+        quality = int(rng.uniform(55, 92))
+        from io import BytesIO
+
+        buffer = BytesIO()
+        out.save(buffer, format="JPEG", quality=quality)
+        buffer.seek(0)
+        out = Image.open(buffer).convert("RGB")
+
     return out
+
+
+def compute_variants_per_image(
+    *,
+    base_count: int,
+    current_total: int,
+    min_records: int,
+    max_variants_per_image: int,
+    explicit_variants: int | None,
+) -> int:
+    """How many synthetic variants to emit per reference image."""
+    if base_count <= 0:
+        return 0
+    needed = max(0, min_records - current_total)
+    if needed == 0:
+        return 0
+    auto_variants = (needed + base_count - 1) // base_count
+    per_image = max(auto_variants, 1)
+    if explicit_variants is not None:
+        per_image = max(explicit_variants, 0)
+    # Hard cap only when a single reference image would dominate the dataset.
+    if base_count == 1:
+        return min(per_image, max_variants_per_image)
+    return min(per_image, max(max_variants_per_image, auto_variants))
 
 
 def augment_reference_records(
@@ -261,7 +316,6 @@ def augment_reference_records(
         return []
 
     output_images_dir.mkdir(parents=True, exist_ok=True)
-    rng = random.Random(seed)
     augmented: list[TrainingRecord] = []
 
     for base in base_records:
@@ -272,7 +326,8 @@ def augment_reference_records(
         stem = Path(base.image_path).stem
 
         for variant in range(variants_per_image):
-            aug_image = _apply_augmentation(image, variant, rng)
+            variant_rng = _augmentation_rng(seed, stem, variant)
+            aug_image = _apply_augmentation(image, variant, variant_rng)
             out_name = f"{stem}_aug_{variant:03d}.png"
             out_path = output_images_dir / out_name
             aug_image.save(out_path, format="PNG")
@@ -348,6 +403,7 @@ def build_starter_dataset(
     val_ratio: float = 0.1,
     seed: int = 42,
     variants_per_image: int | None = None,
+    max_variants_per_image: int = DEFAULT_MAX_VARIANTS_PER_IMAGE,
     reference_manifest_path: str | Path | None = None,
     reference_images_dir: str | Path | None = None,
     raw_episodes_dir: str | Path | None = None,
@@ -380,10 +436,13 @@ def build_starter_dataset(
         stats.raw_episode = raw_count
 
     if len(all_records) < min_records:
-        base_count = max(stats.reference_base, 1)
-        needed = min_records - len(all_records)
-        auto_variants = (needed + base_count - 1) // base_count
-        per_image = variants_per_image if variants_per_image is not None else max(auto_variants, 1)
+        per_image = compute_variants_per_image(
+            base_count=max(stats.reference_base, 1),
+            current_total=len(all_records),
+            min_records=min_records,
+            max_variants_per_image=max_variants_per_image,
+            explicit_variants=variants_per_image,
+        )
         synthetic = augment_reference_records(
             reference_records,
             output_images_dir=images_out,
@@ -395,9 +454,21 @@ def build_starter_dataset(
         stats.synthetic_augmented = len(synthetic)
 
     if len(all_records) < min_records:
+        missing = [
+            entry.filename
+            for entry in manifest.entries
+            if not (images_dir / entry.filename).is_file()
+        ]
+        hint = (
+            f" Missing reference PNGs: {', '.join(missing)}."
+            if missing
+            else ""
+        )
         raise DatasetBuildError(
-            f"Only {len(all_records)} records produced; need at least {min_records}. "
-            "Add reference PNGs under data/reference_images/ or capture raw episodes."
+            f"Only {len(all_records)} records produced; need at least {min_records}."
+            f"{hint} "
+            f"Augmentation is capped at {max_variants_per_image} variants/image — "
+            "capture all reference frames (data/reference_images/) or raw episodes (VLA-42)."
         )
 
     for record in all_records:

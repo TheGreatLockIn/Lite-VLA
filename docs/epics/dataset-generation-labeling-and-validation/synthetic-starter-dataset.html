@@ -81,19 +81,19 @@ data/raw/episodes/*/             ──&gt; records_from_raw_episode (forward-fi
         </ul>
 
         <h3>Augmentation (<code>augment_reference_records</code>)</h3>
-        <p>Deterministic Pillow transforms (brightness, contrast, crop, occasional blur) keyed by variant index + seed. Writes PNGs to <code>processed/&lt;version&gt;/images/</code> with <code>source: synthetic</code>.</p>
-        <p><strong>ADR (10093):</strong> Augment curated reference frames, not teleop trajectories, to hit 200 rows before large-scale collection.</p>
+        <p>Label-preserving Pillow transforms: photometric jitter, 82–97% random crop/resize, blur, Gaussian noise, occasional JPEG compression. Stable per-(seed, image, variant) RNG. Writes PNGs to <code>processed/&lt;version&gt;/images/</code> with <code>source: synthetic</code>.</p>
+        <p><strong>ADR (10093):</strong> Augment curated reference frames, not teleop trajectories. Cap 25 variants/image when only one reference PNG exists; scale up when multiple poses are present.</p>
 
         <h3>Orchestrator (<code>build_starter_dataset</code>)</h3>
-        <p>Auto-computes <code>variants_per_image</code> when reference + raw count is below <code>min_records</code>:</p>
-        <pre><code class="language-python">auto_variants = (needed + base_count - 1) // base_count</code></pre>
+        <p>Auto-computes <code>variants_per_image</code> when reference + raw count is below <code>min_records</code>. Fails with missing-PNG list if cap prevents reaching <code>--min-records</code>.</p>
 
         <h3>CLI (<code>scripts/build_starter_dataset.py</code>)</h3>
         <pre><code class="language-bash">python scripts/build_starter_dataset.py \
   --version v0.1.0 \
   --min-records 200 \
   --val-ratio 0.1 \
-  --seed 42</code></pre>
+  --seed 42 \
+  --max-variants-per-image 25</code></pre>
       </section>
 
       <section id="decisions">

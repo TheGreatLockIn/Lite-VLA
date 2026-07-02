@@ -114,3 +114,13 @@ def test_write_validation_report(tmp_path: Path) -> None:
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["record_count"] == 6
     assert "action_counts" in data
+
+
+def test_validate_review_csv_pending_is_error(tmp_path: Path) -> None:
+    from litevla.data.label_review import export_jsonl_to_review_csv
+
+    csv_path = tmp_path / "review.csv"
+    export_jsonl_to_review_csv(FIXTURES_PATH, csv_path)
+    report = validate_dataset(FIXTURES_PATH, check_images=False, review_csv_path=csv_path)
+    assert not report.valid
+    assert any(issue.code == "review_pending" for issue in report.issues)

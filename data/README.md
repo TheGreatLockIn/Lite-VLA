@@ -55,11 +55,13 @@ Task doc: [`simulation-data-capture.md`](../docs/epics/dataset-generation-labeli
 
 ## Processed starter dataset (VLA-43)
 
-Build train/val JSONL locally (requires reference PNGs or raw episodes):
+Build train/val JSONL locally (requires **all four** reference PNGs in `reference_images/` or enough VLA-42 raw episodes):
 
 ```bash
 python scripts/build_starter_dataset.py
 ```
+
+Augmentation pads the starter set (max 25 variants per reference image by default) but cannot reach 200 rows from a single PNG.
 
 Output:
 
@@ -81,7 +83,15 @@ Export processed JSONL to CSV, review in a spreadsheet, merge back:
 ```bash
 python scripts/label_review.py export --jsonl data/processed/v0.1.0/train.jsonl --output data/processed/v0.1.0/label_review.csv
 # edit CSV: review_status, action_reviewed, reviewer, notes
+# OR bulk-approve machine-labeled starter rows:
+python scripts/label_review.py bulk-approve --csv data/processed/v0.1.0/label_review.csv --reviewer "Your Name"
 python scripts/label_review.py import --jsonl data/processed/v0.1.0/train.jsonl --csv data/processed/v0.1.0/label_review.csv --output data/processed/v0.1.0/train_reviewed.jsonl
+```
+
+Full release pipeline (build → review → validate → smoke):
+
+```bash
+./scripts/run_dataset_release.sh
 ```
 
 Template: [`templates/label_review.csv`](templates/label_review.csv)  
@@ -90,7 +100,8 @@ Task doc: [`labeling-workflow.md`](../docs/epics/dataset-generation-labeling-and
 ## Validation (VLA-45)
 
 ```bash
-python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train.jsonl
+python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl
+python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl --review-csv data/processed/v0.1.0/label_review.csv
 python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check
 ```
 
@@ -100,7 +111,13 @@ Task doc: [`dataset-validation.md`](../docs/epics/dataset-generation-labeling-an
 
 ```python
 from litevla.data.loader import LiteVLADataset
-dataset = LiteVLADataset("data/processed/v0.1.0/train.jsonl")
+dataset = LiteVLADataset("data/processed/v0.1.0/train_reviewed.jsonl")
+```
+
+Smoke test (validates + loads one batch when torch is installed):
+
+```bash
+python scripts/smoke_dataset_loader.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl
 ```
 
 Task doc: [`dataset-loader.md`](../docs/epics/dataset-generation-labeling-and-validation/dataset-loader.md).

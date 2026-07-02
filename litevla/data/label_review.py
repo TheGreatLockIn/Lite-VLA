@@ -247,6 +247,53 @@ def apply_reviews_to_records(
     return out, stats
 
 
+def validate_review_csv_no_pending(
+    csv_path: str | Path,
+    *,
+    jsonl_path: str | Path | None = None,
+) -> list[str]:
+    """Return ids still marked ``pending`` in a review CSV (VLA-45 release gate)."""
+    rows = read_review_csv(csv_path)
+    pending = [row.id for row in rows if row.review_status == "pending"]
+    if jsonl_path is not None:
+        jsonl_ids = {
+            record.id
+            for record in read_jsonl(jsonl_path)
+            if record.id
+        }
+        pending = [row_id for row_id in pending if row_id in jsonl_ids]
+    return pending
+
+
+def bulk_approve_review_csv(
+    csv_path: str | Path,
+    *,
+    reviewer: str,
+    notes: str = "Machine-labeled reference/synthetic row approved for starter release.",
+    reviewed_at: str | None = None,
+) -> int:
+    """Mark every ``pending`` row as ``approved`` in place. Returns rows updated."""
+    path = Path(csv_path)
+    rows = read_review_csv(path)
+    ts = reviewed_at or _utc_now_iso()
+    updated = 0
+    for row in rows:
+        if row.review_status != "pending":
+            continue
+        row.review_status = "approved"
+        row.reviewer = reviewer
+        row.review_notes = notes
+        row.reviewed_at = ts
+        updated += 1
+    if updated:
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(REVIEW_COLUMNS))
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row.to_csv_dict())
+    return updated
+
+
 def import_review_csv_to_jsonl(
     *,
     jsonl_path: str | Path,

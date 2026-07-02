@@ -24,7 +24,22 @@
         <p><strong>Context:</strong> LiteVLA-Edge assumes curated demonstrations; the team must define how examples are captured, stored, validated, and loaded for fine-tuning on beginner-friendly hardware.</p>
         <p><strong>Scope:</strong> Training record schema, simulation capture, starter dataset builder, labeling workflow, validator, PyTorch loader, versioning docs.</p>
         <p><strong>Success criteria:</strong> Stable schema; ≥200 labeled examples; loader runs in training script; quality report catches bad rows.</p>
-        <p><strong>Status:</strong> Complete through VLA-47. Epic 105 ready for Epic 106 fine-tuning integration.</p>
+        <p><strong>Status:</strong> Code complete for VLA-41–47. Processed release <code>v0.1.0</code> built locally (200 rows, balanced across four Epic 103 actions). Epic 105 API is ready for Epic 106; teleop raw capture and VLM training transforms remain external.</p>
+      </section>
+
+      <section id="blockers" class="meta-card">
+        <h2>External dependencies (not Epic 105 code)</h2>
+        <table>
+          <thead><tr><th>Item</th><th>Owner</th><th>Why still open</th></tr></thead>
+          <tbody>
+            <tr><td>VLA-42 teleop raw episodes</td><td>Raj (interactive)</td><td><code>run_episode_capture.sh</code> needs TTY + Webots GUI; no <code>data/raw/episodes/</code> on disk yet.</td></tr>
+            <tr><td><code>SLOW_DOWN</code> training examples</td><td>Dataset content</td><td>Reference manifest has four poses (no slow-approach frame); validator warns only.</td></tr>
+            <tr><td><code>stop_barrier_close.png</code> re-capture</td><td>Webots</td><td>Headless capture timed out; placeholder generated from centered crop until Webots batch works.</td></tr>
+            <tr><td>VLM <code>transform</code> + training loop</td><td>Purshottam / Epic 106</td><td><code>LiteVLADataset</code> ready; <code>ml/</code> fine-tuning script not wired.</td></tr>
+            <tr><td>Image preprocessing spec (resize, normalize)</td><td>Purshottam / Epic 104</td><td>Loader accepts optional <code>transform</code>; model-specific pipeline not committed.</td></tr>
+            <tr><td>Noisy-text <code>parse_discrete_action</code></td><td>Yashraj / Epic 103</td><td>Dataset uses exact <code>parse_action()</code> tokens only; runtime parser is inference-time.</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <section id="epic-flow" class="visual-card">
@@ -126,7 +141,11 @@ flowchart LR
             </dd>
             <dt>Verification Patterns</dt>
             <dd><pre><code>pytest tests/test_dataset_builder.py -q
-python scripts/build_starter_dataset.py</code></pre></dd>
+python scripts/build_starter_dataset.py --write-artifacts
+# v0.1.0 (2026-07-02): reference=4, synthetic=196, train=180, val=20
+# Actions balanced: MOVE_FORWARD/TURN_LEFT ~46, STOP/TURN_RIGHT ~44 each (train)</code></pre></dd>
+            <dt>ADR Notes</dt>
+            <dd><strong>Augmentation cap (10093):</strong> Single-reference builds capped at 25 variants/image; with ≥2 reference poses auto-scales to reach <code>--min-records</code>. Richer photometric + crop/noise aug in <code>_apply_augmentation</code>.</dd>
           </dl>
         </article>
 
@@ -151,7 +170,10 @@ python scripts/build_starter_dataset.py</code></pre></dd>
             <dd><strong>CSV for review, JSONL for training:</strong> Spreadsheet UX for humans; schema validation on import.</dd>
             <dt>Verification Patterns</dt>
             <dd><pre><code>pytest tests/test_label_review.py -q
-python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl --output /tmp/review.csv</code></pre></dd>
+python scripts/label_review.py export --jsonl data/processed/v0.1.0/train.jsonl --output data/processed/v0.1.0/label_review.csv
+python scripts/label_review.py bulk-approve --csv data/processed/v0.1.0/label_review.csv
+python scripts/label_review.py import ... --output data/processed/v0.1.0/train_reviewed.jsonl
+# v0.1.0: 180 approved → source manual_review</code></pre></dd>
           </dl>
         </article>
 
@@ -176,7 +198,7 @@ python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl -
             <dd><strong>Collect-all-errors:</strong> Unlike <code>read_jsonl()</code>, validator returns every row error for QA. <strong>Imbalance as warning:</strong> &gt;50% single-action share warns but does not block <code>report.valid</code>.</dd>
             <dt>Verification Patterns</dt>
             <dd><pre><code>pytest tests/test_dataset_validator.py -q
-python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check</code></pre></dd>
+python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl --review-csv data/processed/v0.1.0/label_review.csv</code></pre></dd>
           </dl>
         </article>
 
@@ -200,7 +222,8 @@ python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --sk
             <dt>ADR Notes</dt>
             <dd><strong>Fail-fast at init:</strong> Corrupt JSONL fails before epoch 0. <strong>Transform hook only:</strong> No built-in ImageNet presets — Epic 106 owns VLM-specific normalization.</dd>
             <dt>Verification Patterns</dt>
-            <dd><pre><code>pytest tests/test_dataset_loader.py -q</code></pre></dd>
+            <dd><pre><code>pytest tests/test_dataset_loader.py -q
+python scripts/smoke_dataset_loader.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl</code></pre></dd>
           </dl>
         </article>
 
@@ -246,8 +269,8 @@ python scripts/validate_dataset.py --version v0.1.0 --write-artifacts --skip-ima
           </article>
           <article>
             <h3>Augment to 200 rows (VLA-43)</h3>
-            <p><strong>Status:</strong> Accepted</p>
-            <p><strong>Decision:</strong> Pillow variants on reference PNGs until teleop volume is sufficient.</p>
+            <p><strong>Status:</strong> Accepted (updated 2026-07-02)</p>
+            <p><strong>Decision:</strong> Pillow variants on reference PNGs until teleop volume is sufficient; cap single-image dominance (25 variants when only one reference exists); scale per-image variants when multiple reference poses are present.</p>
           </article>
           <article>
             <h3>CSV review round-trip (VLA-44)</h3>
@@ -268,6 +291,11 @@ python scripts/validate_dataset.py --version v0.1.0 --write-artifacts --skip-ima
             <h3>Versioned processed releases (VLA-47)</h3>
             <p><strong>Status:</strong> Accepted</p>
             <p><strong>Decision:</strong> <code>vMAJOR.MINOR.PATCH</code> folders with VLA-45 reports and generated <code>DATASET_CARD.md</code>; config points training at one version id.</p>
+          </article>
+          <article>
+            <h3>One-command release (VLA-43–47)</h3>
+            <p><strong>Status:</strong> Accepted</p>
+            <p><strong>Decision:</strong> <code>scripts/run_dataset_release.sh</code> chains build → review export → bulk-approve → import → validate with pending gate → version artifacts → loader smoke.</p>
           </article>
         </div>
       </section>

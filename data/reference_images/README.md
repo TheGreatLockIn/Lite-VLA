@@ -21,6 +21,8 @@ python scripts/build_starter_dataset.py
 
 after capturing the four PNGs above.
 
+**Note (2026-07-02):** If Webots headless capture times out, `red_cone_left.png` / `red_cone_right.png` may be copied from `block_positions/`; `stop_barrier_close.png` may be a centered-crop placeholder until `./ros_ws/scripts/capture_block_reference_images.sh close` succeeds.
+
 ## Recommended: capture by driving (simulation motion)
 
 ```bash

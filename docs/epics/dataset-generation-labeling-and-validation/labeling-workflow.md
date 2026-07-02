@@ -99,6 +99,11 @@ python scripts/label_review.py import \
   --jsonl data/processed/v0.1.0/train.jsonl \
   --csv data/processed/v0.1.0/label_review.csv \
   --output data/processed/v0.1.0/train_reviewed.jsonl
+
+# Starter release (reference + synthetic only — not for teleop rows):
+python scripts/label_review.py bulk-approve \
+  --csv data/processed/v0.1.0/label_review.csv \
+  --reviewer "Your Name"
 ```
 
 ## Engineering decisions
@@ -136,4 +141,4 @@ Defends: CSV column contract, action validation, approved/corrected/rejected mer
 ## Open questions
 
 - **Val split review:** Export/import val.jsonl separately or review train only for MVP (current default: train).
-- **Pending-row gate:** Cross-check `label_review.csv` for leftover `pending` rows before release (future VLA-45 extension).
+- **Pending-row gate:** Cross-check `label_review.csv` via `validate_dataset(..., review_csv_path=...)` or CLI `--review-csv` before release.

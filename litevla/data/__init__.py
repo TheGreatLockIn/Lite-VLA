@@ -29,9 +29,11 @@ from litevla.data.label_review import (
     LabelReviewError,
     REVIEW_COLUMNS,
     apply_reviews_to_records,
+    bulk_approve_review_csv,
     export_jsonl_to_review_csv,
     import_review_csv_to_jsonl,
     read_review_csv,
+    validate_review_csv_no_pending,
 )
 from litevla.data.validator import (
     DatasetValidationReport,
@@ -64,9 +66,11 @@ __all__ = [
     "LabelReviewError",
     "REVIEW_COLUMNS",
     "apply_reviews_to_records",
+    "bulk_approve_review_csv",
     "export_jsonl_to_review_csv",
     "import_review_csv_to_jsonl",
     "read_review_csv",
+    "validate_review_csv_no_pending",
     "DatasetValidationReport",
     "ValidationIssue",
     "format_report_summary",

@@ -16,6 +16,8 @@ from litevla.data.schema import (
     parse_training_record,
 )
 
+from litevla.data.label_review import LabelReviewError, validate_review_csv_no_pending
+
 IMBALANCE_WARNING_RATIO = 0.5
 
 
@@ -94,6 +96,7 @@ def validate_dataset(
     check_images: bool = True,
     require_unique_ids: bool = True,
     warn_on_imbalance: bool = True,
+    review_csv_path: str | Path | None = None,
 ) -> DatasetValidationReport:
     """Validate a processed JSONL dataset and return a summary report."""
     file_path = Path(jsonl_path)
@@ -230,6 +233,39 @@ def validate_dataset(
                     message=f"No examples for: {', '.join(missing_actions)}.",
                 )
             )
+
+    if review_csv_path is not None:
+        csv_file = Path(review_csv_path)
+        if not csv_file.is_file():
+            report.add_issue(
+                ValidationIssue(
+                    severity="error",
+                    code="review_csv_missing",
+                    message=f"Review CSV not found: {csv_file}",
+                )
+            )
+        else:
+            try:
+                pending_ids = validate_review_csv_no_pending(csv_file, jsonl_path=file_path)
+            except LabelReviewError as exc:
+                report.add_issue(
+                    ValidationIssue(
+                        severity="error",
+                        code="review_csv_invalid",
+                        message=str(exc),
+                    )
+                )
+            else:
+                if pending_ids:
+                    preview = ", ".join(pending_ids[:5])
+                    suffix = f" (+{len(pending_ids) - 5} more)" if len(pending_ids) > 5 else ""
+                    report.add_issue(
+                        ValidationIssue(
+                            severity="error",
+                            code="review_pending",
+                            message=f"{len(pending_ids)} review row(s) still pending: {preview}{suffix}.",
+                        )
+                    )
 
     return report
 
