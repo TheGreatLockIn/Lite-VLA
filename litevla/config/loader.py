@@ -49,6 +49,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_linear_vel": 0.5,
         "max_angular_vel": 1.0,
     },
+    "smoothing": {
+        "enabled": True,
+        "max_linear_rate": 0.5,
+        "max_angular_rate": 1.5,
+    },
     "benchmark": {
         "iterations": 100,
         "warmup": 5,

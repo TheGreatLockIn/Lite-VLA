@@ -11,7 +11,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from litevla_bridge.action_schema import DiscreteAction
+from litevla_bridge.action_schema import CommandSmoother, DiscreteAction, SmoothingConfig, is_stop_bypass
 from litevla_bridge.cmd_vel_publisher import CmdVelPublisher
 from litevla_bridge.heartbeat_utils import (
     build_diagnostics,
@@ -38,6 +38,9 @@ class HeartbeatController(Node):
         self.declare_parameter("max_angular_vel", 0.6)
         self.declare_parameter("require_frame", True)
         self.declare_parameter("control_mode", "dummy")
+        self.declare_parameter("smoothing_enabled", True)
+        self.declare_parameter("max_linear_rate", 0.5)
+        self.declare_parameter("max_angular_rate", 1.5)
 
         self._heartbeat_hz = float(self.get_parameter("heartbeat_hz").value)
         if self._heartbeat_hz <= 0:
@@ -55,6 +58,14 @@ class HeartbeatController(Node):
         self._last_frame_time: float | None = None
         self._last_publish_stamp = ""
         self._timed_out = True
+        self._heartbeat_period = 1.0 / self._heartbeat_hz
+        self._smoother = CommandSmoother(
+            SmoothingConfig(
+                enabled=bool(self.get_parameter("smoothing_enabled").value),
+                max_linear_rate=float(self.get_parameter("max_linear_rate").value),
+                max_angular_rate=float(self.get_parameter("max_angular_rate").value),
+            )
+        )
 
         self._cmd_vel = CmdVelPublisher(
             self,
@@ -107,11 +118,7 @@ class HeartbeatController(Node):
             frame_timeout_sec=self._frame_timeout,
             require_frame=self._require_frame,
         )
-        linear, angular = select_velocities(
-            self._desired_linear,
-            self._desired_angular,
-            timed_out=self._timed_out,
-        )
+        linear, angular = self._select_output_velocities()
         self._cmd_vel.publish_twist(linear, angular)
         stamp = self.get_clock().now().to_msg()
         self._last_publish_stamp = f"{stamp.sec}.{stamp.nanosec:09d}"
@@ -127,9 +134,30 @@ class HeartbeatController(Node):
             timed_out=self._timed_out,
         )
         payload["control_mode"] = self._control_mode
+        payload["smoothing_enabled"] = self._smoother.config.enabled
         diag = String()
         diag.data = json.dumps(payload)
         self._diagnostics_pub.publish(diag)
+
+
+    def _select_output_velocities(self) -> tuple[float, float]:
+        if self._timed_out or is_stop_bypass(self._current_action):
+            self._smoother.reset()
+            return 0.0, 0.0
+
+        if not self._smoother.config.enabled:
+            return select_velocities(
+                self._desired_linear,
+                self._desired_angular,
+                timed_out=False,
+            )
+
+        return self._smoother.step_velocities(
+            target_linear=self._desired_linear,
+            target_angular=self._desired_angular,
+            action=self._current_action,
+            dt=self._heartbeat_period,
+        )
 
     def _on_diag_log(self) -> None:
         now = self._now()

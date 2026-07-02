@@ -14,6 +14,8 @@ def test_example_config_loads() -> None:
     assert config["runtime"]["mode"] == "dummy"
     assert config["ros"]["image_topic"] == "/image_raw"
     assert config["ros"]["cmd_vel_topic"] == "/cmd_vel"
+    assert config["smoothing"]["enabled"] is True
+    assert config["smoothing"]["max_linear_rate"] == 0.5
 
 
 def test_default_config_loads_when_path_omitted() -> None:

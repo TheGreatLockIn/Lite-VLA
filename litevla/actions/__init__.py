@@ -1,4 +1,5 @@
-"""Discrete action vocabulary and velocity mapping for Lite-VLA."""
+"""Discrete action vocabulary and velocity mapping for Lite-
+  VLA."""
 
 from litevla.actions.adapter import InferenceAdapter
 from litevla.actions.parser import normalize_action_text, parse_discrete_action
@@ -9,6 +10,13 @@ from litevla.actions.safety import (
     clamp_twist_velocities,
     safe_command_from_action,
     safe_command_from_text,
+)
+from litevla.actions.smoothing import (
+    CommandSmoother,
+    SmoothingConfig,
+    is_stop_bypass,
+    smoothing_config_from_mapping,
+    step_toward,
 )
 from litevla.actions.schema import (
     ACTION_NAMES,
@@ -37,10 +45,15 @@ __all__ = [
     "SafetyEventKind",
     "action_to_twist",
     "clamp_twist_velocities",
+    "CommandSmoother",
+    "SmoothingConfig",
     "clamp_velocity",
+    "is_stop_bypass",
     "is_valid_action",
     "normalize_action_text",
     "parse_discrete_action",
     "safe_command_from_action",
     "safe_command_from_text",
+    "smoothing_config_from_mapping",
+    "step_toward",
 ]

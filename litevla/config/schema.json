@@ -148,6 +148,26 @@
         }
       }
     },
+    "smoothing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, rate-limit velocity changes between inference steps."
+        },
+        "max_linear_rate": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum linear velocity change (m/s per second)."
+        },
+        "max_angular_rate": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum angular velocity change (rad/s per second)."
+        }
+      }
+    },
     "benchmark": {
       "type": "object",
       "additionalProperties": false,

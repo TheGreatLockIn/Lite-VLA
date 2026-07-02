@@ -15,9 +15,23 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from litevla.actions import ACTION_NAMES, safe_command_from_action, safe_command_from_text
+from litevla.actions import (
+    ACTION_NAMES,
+    CommandSmoother,
+    SmoothingConfig,
+    safe_command_from_action,
+    safe_command_from_text,
+    smoothing_config_from_mapping,
+)
 from litevla.config import ConfigError, example_config_path, load_config
 from litevla.experiment import ExperimentRun
+
+DEFAULT_ACTION_SEQUENCE: tuple[str, ...] = (
+    "MOVE_FORWARD",
+    "MOVE_FORWARD",
+    "TURN_LEFT",
+    "STOP",
+)
 
 
 def run_dummy_pipeline(
@@ -36,6 +50,9 @@ def run_dummy_pipeline(
             file=sys.stderr,
         )
         return 1
+    sequence = runtime.get("action_sequence") or list(DEFAULT_ACTION_SEQUENCE)
+    if not sequence:
+        sequence = list(ACTION_NAMES)
 
     def _execute(experiment: ExperimentRun | None) -> int:
         if experiment is not None:
@@ -71,6 +88,30 @@ def run_dummy_pipeline(
             f"fallback demo: invalid text -> {fallback.action.value} "
             f"(linear={fallback.linear_x:.3f}, angular={fallback.angular_z:.3f})"
         )
+
+        smoothing_cfg = smoothing_config_from_mapping(config.get("smoothing"))
+        heartbeat_hz = float(runtime["heartbeat_hz"])
+        dt = 1.0 / heartbeat_hz if heartbeat_hz > 0 else 0.1
+        smoother = CommandSmoother(smoothing_cfg)
+        print()
+        print(
+            f"smoothing demo: enabled={smoothing_cfg.enabled} "
+            f"heartbeat={heartbeat_hz:.1f} Hz dt={dt:.3f}s "
+            f"rates=({smoothing_cfg.max_linear_rate}, {smoothing_cfg.max_angular_rate})"
+        )
+        for action_name in sequence:
+            target = safe_command_from_action(
+                action_name,
+                max_linear_vel=safety["max_linear_vel"],
+                max_angular_vel=safety["max_angular_vel"],
+            )
+            steps = 1 if target.action.value == "STOP" else 5
+            for step in range(steps):
+                command = smoother.step(target, dt=dt)
+                print(
+                    f"  step {step + 1}/{steps} action={action_name:13s} "
+                    f"linear={command.linear_x:.3f} m/s  angular={command.angular_z:.3f} rad/s"
+                )
 
         if experiment is not None:
             experiment.write_metrics(
