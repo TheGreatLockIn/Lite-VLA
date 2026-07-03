@@ -143,6 +143,39 @@ The `litevla_bridge` package holds camera, velocity, dummy-action, heartbeat, an
 
 Match the folder boundaries above when adding new code. If you are unsure where something belongs, check `docs/` for conventions or open a discussion before introducing a new top-level directory.
 
+### Syncing agent rules and doc tooling
+
+Agent instructions and shared doc tooling can be updated on **any branch**. When someone changes these files, they commit and push to their branch and tell teammates which branch to pull from — no need to merge `main` or copy files by hand.
+
+**Shared files** (sync these paths as a set):
+
+| Path | Purpose |
+|------|---------|
+| `AGENTS.md` | Root agent contract |
+| `docs/AGENTS.md` | Cross-cutting doc conventions |
+| `docs/epics/AGENTS.md` | Epic walkthrough and task-doc framework |
+| `docs/styles/` | Shared doc CSS (`doc.css`, `presentation.css`, `prism-litevla.css`) |
+| `docs/scripts/doc-code.js` | Code-panel initializer for human HTML docs |
+
+**Pull the latest from a teammate's branch** while staying on your own feature branch (replace `<branch-name>` with the branch they gave you):
+
+```bash
+git fetch origin <branch-name>
+
+git checkout origin/<branch-name> -- \
+  AGENTS.md \
+  docs/AGENTS.md \
+  docs/epics/AGENTS.md \
+  docs/styles/ \
+  docs/scripts/
+```
+
+This replaces only the paths above. Your feature code (`litevla/`, `tests/`, epic task docs, etc.) is untouched. The synced files are staged — use them locally in Cursor without committing them on your feature branch if you prefer to keep the PR focused on code.
+
+**When you change any of these files**, commit and push to your branch, then tell teammates the branch name so they can run the commands above. Open a PR to `main` when the updates are ready for everyone.
+
+Epic walkthroughs and Jira task docs (`docs/epics/<epic>/`) stay on feature branches with the code they document — they are not part of this shared file set.
+
 ### CI checks
 
 Every pull request runs automated checks via [GitHub Actions](.github/workflows/ci.yml):
