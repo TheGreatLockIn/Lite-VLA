@@ -8,6 +8,48 @@
 
 VLA-43 implements the **Layer A → Layer B compiler**: it ingests reference Webots frames, optional VLA-42 raw episodes, and Pillow augmentations to produce ≥200 validated `TrainingRecord` rows under `data/processed/<version>/train.jsonl` and `val.jsonl`. Every row passes VLA-41 schema validation before write. The CLI is `scripts/build_starter_dataset.py`.
 
+## Mental model
+
+Think of the builder as a **compiler from messy logs to training rows**.
+
+It exists because raw capture and reference poses are not yet image-instruction-action tuples — someone must align timestamps, copy paths into repo-relative form, and reject bad rows before Epic 106 touches them.
+
+The key engineering tension is **quantity vs diversity**: the MVP needs ≥200 rows to unblock training, but augmentation must not pretend one PNG is an entire dataset.
+
+A beginner mistake is expecting augmentation alone to hit 200 rows from a single missing reference checkout, or using nearest-neighbor label matching across time.
+
+A senior engineer watches for **forward-fill semantics** — labels inherit the last command at or before frame sim time, never a future command.
+
+## Backstory: why this exists
+
+Epic 106 fine-tuning cannot wait for hundreds of teleop hours. The naive solution is hand-labeling 200 PNGs in a spreadsheet.
+
+That breaks at scale (no sim-stamp join for teleop), invites label drift, and duplicates validation logic outside the schema gate.
+
+So this design chooses an automated builder with three ingest paths (reference manifest, raw episodes, capped augmentation), deterministic train/val split, and `validate_record_dict` on every emitted row.
+
+## Prerequisites
+
+- VLA-41 training record contract: [dataset-schema.md](dataset-schema.md)
+- VLA-42 raw layout (optional input): [simulation-data-capture.md](simulation-data-capture.md)
+
+## Vocabulary
+
+| Term | Meaning in this project |
+|------|-------------------------|
+| **Reference manifest** | `data/reference_images/manifest.json` — curated poses with instructions |
+| **Forward-fill** | Frame at time T gets latest command with sim_stamp ≤ T |
+| **Augmentation variant** | Pillow-transformed copy of a reference image; same action label |
+| **`BuildStats`** | Counts reference, synthetic, raw, and skipped-missing-image rows |
+| **`min_records`** | Default 200 — Jira success threshold for starter set |
+
+## Guided code reading
+
+1. `data/reference_images/manifest.json` — four pose entries and instructions.
+2. `litevla/data/builder.py` — `records_from_reference_manifest`, `records_from_raw_episode`, `augment_reference_records`, `build_starter_dataset`.
+3. `scripts/build_starter_dataset.py` — CLI flags (`--min-records`, `--seed`, `--max-variants-per-image`).
+4. `tests/test_dataset_builder.py` — forward-fill and split contracts.
+
 ## API contract and data flow
 
 ```text
@@ -36,39 +78,46 @@ data/raw/episodes/*/             ──> records_from_raw_episode (forward-fill 
 | Output paths | Gitignored under `data/processed/`; rebuild locally |
 | Augmentation | Only from reference base images — not raw teleop frames |
 
+### Naive approach vs chosen approach
+
+| Approach | Why it seems attractive | Why we did or did not choose it |
+|----------|-------------------------|----------------------------------|
+| Nearest-neighbor label join | Simple timestamp math | Can assign a **future** action to a past frame |
+| Augment teleop trajectories | More “real” diversity | Risk of unrealistic pose/action pairs for MVP |
+| Uncapped duplication from one PNG | Fast 200 rows | Collapses diversity; capped at 25 variants/image |
+| Forward-fill + reference augment | More code | Matches how operators hold an action between key changes |
+
 ## Implementation breakdown
 
-### Reference ingest (`records_from_reference_manifest`)
+### Raw episode join — forward-fill by sim time
 
-Reads committed `data/reference_images/manifest.json`; skips missing PNGs (gitignored images) and counts them in `BuildStats.skipped_missing_image`.
-
-### Raw episode join (`records_from_raw_episode`)
+**Snippet** (`litevla/data/builder.py`):
 
 ```python
 def _action_at_sim_time(commands, sim_ns):
     # Return latest command row where sim_stamp <= frame sim_ns
+    ...
 ```
 
-- **Design note:** Frames at 11.5s inherit `MOVE_FORWARD` if that was the last command at 10s — matches “what was the robot trying to do when this frame was taken?”
-- **Gotcha:** Exact timestamp matches are rare; forward-fill is intentional, not nearest-neighbor.
+**What to notice:** Commands arrive on transitions; frames at ~5 Hz inherit the active command.
 
-### Augmentation (`augment_reference_records`)
+**Why it is written this way:** Answers “what was the robot trying to do when this frame was taken?”
 
-Label-preserving Pillow transforms per reference pose: photometric jitter (brightness, contrast, color, sharpness), random crop/resize (82–97% FOV), Gaussian blur, sensor noise, and occasional JPEG compression. Each variant uses a stable `(seed, image_stem, variant)` RNG.
+**Risks and gotchas:** Exact timestamp matches are rare; do not expect 1:1 frame:command rows.
 
-Synthetic variants are **capped** (default 25 per reference PNG via `--max-variants-per-image`) so the builder cannot fabricate 200 near-duplicates from a single missing checkout. If reference + raw rows plus capped augmentation still fall below `--min-records`, the CLI fails and lists missing manifest PNGs.
+---
 
-- **ADR (10093):** Augment curated reference frames, not teleop trajectories, to pad the starter set before large-scale collection — not as a substitute for capturing all four reference poses.
+### Augmentation — capped, label-preserving variants
 
-### Orchestrator (`build_starter_dataset`)
+Photometric jitter, crop/resize, blur, noise, occasional JPEG compression. RNG seeded per `(seed, image_stem, variant)`.
 
-Auto-computes `variants_per_image` when reference + raw count is below `min_records`:
+Default `--max-variants-per-image 25` prevents one reference PNG from dominating 200 rows.
 
-```python
-auto_variants = (needed + base_count - 1) // base_count
-```
+**Risks and gotchas:** Builder fails below `--min-records` if reference PNGs are missing locally (gitignored) — check `BuildStats.skipped_missing_image`.
 
-### CLI (`scripts/build_starter_dataset.py`)
+---
+
+### Orchestrator and CLI
 
 ```bash
 python scripts/build_starter_dataset.py \
@@ -79,29 +128,51 @@ python scripts/build_starter_dataset.py \
   --max-variants-per-image 25
 ```
 
-Requires all four reference PNGs listed in `manifest.json` (or enough raw episodes) to reach `--min-records`; augmentation alone will not pad from a single image.
-
 ## Engineering decisions
 
-**ADR: Forward-fill labels (10094)**  
-Status: Accepted  
-Context: Commands log on action transitions; frames arrive at ~5 Hz.  
-Decision: Each frame gets the most recent command at or before its sim stamp.  
-Alternatives rejected: Nearest-neighbor (can label a frame with a future action).
+```text
+ADR: Forward-fill labels (10094)
+Status: Accepted
+Context: Commands log on action transitions; frames arrive at ~5 Hz.
+Decision: Each frame gets the most recent command at or before its sim stamp.
+Alternatives Rejected: Nearest-neighbor (can label with a future action).
+```
 
-**ADR: Seed split (10095)**  
-Status: Accepted  
-Decision: `random.Random(seed).shuffle` then slice; reject duplicate ids before split.  
+```text
+ADR: Seed split (10095)
+Status: Accepted
+Decision: random.Random(seed).shuffle then slice; reject duplicate ids before split.
 Consequences: Reproducible train/val across machines with same inputs.
+```
 
-## Verification patterns
+## Verification patterns and failure modes
 
 ```bash
 pytest tests/test_dataset_builder.py -q
 python scripts/build_starter_dataset.py   # requires reference PNGs locally
 ```
 
-Defends: forward-fill logic, min record count, unique ids across split, schema validation on build.
+| Symptom | Likely cause | Investigation | Fix |
+|---------|--------------|---------------|-----|
+| Build fails below 200 rows | Missing reference PNGs | CLI lists skipped images | Copy/generate four reference frames |
+| Duplicate `id` error | Re-run without new ids | Grep train.jsonl | Clear processed dir or fix id generator |
+| All rows `synthetic` | No raw episodes | Check `data/raw/episodes/` | Capture teleop or rely on reference+aug |
+| Val overlap with train | Split bug or duplicate ids | Run validator duplicate check | Rebuild with clean ids |
+
+## Engineering principle taught by this task
+
+**Treat dataset construction as a typed compiler.** Ingest heterogeneous sources, apply explicit join semantics, validate each output row, and fail the build loudly when inputs cannot satisfy the contract.
+
+## Active learning checks
+
+1. Why forward-fill instead of nearest-neighbor timestamp matching?
+2. Why cap augmentation per reference image?
+3. What happens to a frame captured 0.3s after the last command transition?
+4. Which `source` values appear in output for teleop vs reference vs augmented rows?
+
+## Open questions
+
+- **Real vs synthetic ratio:** Starter set is augmentation-heavy by design; rebalance when teleop volume grows.
 
 ## Related
 
@@ -110,7 +181,3 @@ Defends: forward-fill logic, min record count, unique ids across split, schema v
 - [dataset-validation.md](dataset-validation.md) (VLA-45 — validate builder output)
 - [dataset-versioning.md](dataset-versioning.md) (VLA-47 — `--write-artifacts` after build)
 - [`data/reference_images/manifest.json`](../../../../data/reference_images/manifest.json)
-
-## Open questions
-
-- **Real vs synthetic ratio:** Starter set is augmentation-heavy by design; rebalance when teleop volume grows.
