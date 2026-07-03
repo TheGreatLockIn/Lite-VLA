@@ -3,170 +3,152 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Zero-Shot Baseline Evaluation — Lite-VLA</title>
+  <title>Zero-shot baseline evaluation — Epic 104</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
-      <h1>Zero-Shot Baseline Evaluation</h1>
-      <p class="doc-lead">Evaluate the untrained SmolVLM on augmented steering scenarios to establish baseline syntax rates, semantic accuracy, and pipeline latency metrics.</p>
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 104 · VLA-161 / Story 1027</p>
+      <h1>Zero-shot baseline evaluation</h1>
+      <p class="doc-lead">
+        Benchmark pipeline for unfine-tuned SmolVLM — 20-image augmented set,
+        syntax vs semantic metrics, and latency splits in <code>results.json</code>.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#learning">Learning</a>
+      </nav>
     </header>
+
     <main>
-      <section>
-        <h2>Jira Task Info</h2>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          Zero-shot evaluation measures how well <strong>unfine-tuned</strong> SmolVLM follows discrete prompts
+          on a fixed 20-image set. <code>generate_test_set.py</code> builds augmentations;
+          <code>evaluate_baseline.py</code> runs <code>InferenceAdapter</code> and writes benchmark JSON.
+        </p>
+        <p>
+          Separate <strong>valid action rate</strong> (syntax) from <strong>correct action rate</strong> (semantics)
+          before investing in dataset collection or LoRA.
+        </p>
+      </section>
+
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p><strong>Regression exam for the VLA stack</strong> — not a safety certificate.</p>
         <ul>
-          <li><strong>Story:</strong> VLA-161: Evaluate zero-shot baseline outputs</li>
-          <li><strong>Epic:</strong> Baseline Vision-Language Inference Prototype (VLA-5)</li>
+          <li><strong>Beginner mistake:</strong> celebrating 100% valid rate with poor semantic accuracy.</li>
+          <li><strong>Senior watchpoint:</strong> dummy vs model mode; adapter vs raw strings; failure categories A/B/C.</li>
         </ul>
       </section>
 
-      <section>
-        <h2>1. Executive Summary</h2>
-        <p>The zero-shot evaluation module measures how well the untrained, starter vision-language-action (VLA) model (<code>SmolVLM-256M-Instruct</code>) follows our discrete prompting constraints and produces steering decisions. By running the model over a controlled, augmented test dataset, we establish baseline metrics (syntax accuracy, semantic correctness, and latencies) prior to dataset collection and fine-tuning.</p>
-      </section>
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">generate_test_set.py → metadata.json + images/
+evaluate_baseline.py → adapter per record → results.json</code></pre>
 
-      <section>
-        <h2>2. Dataset Structure and Augmentations</h2>
-        <p>The evaluation set contains <strong>20 images</strong> programmatically generated via <code>scripts/generate_test_set.py</code> using the 4 real Webots simulation frames as seeds. Each seed maps to 5 distinct variations simulating typical robotic camera artifacts:</p>
-        <ul>
-          <li><strong>Original:</strong> Unmodified BGR frame.</li>
-          <li><strong>Brightness High:</strong> Scaled pixel intensities (adding a constant beta value) simulating bright arena spotlights.</li>
-          <li><strong>Contrast Low:</strong> Blended colors simulating light glare or dusty camera lenses.</li>
-          <li><strong>Gaussian Blur:</strong> Convolution filter (9x9 kernel) simulating motion blur and defocus.</li>
-          <li><strong>Sensor Noise:</strong> Gaussian noise (sigma=18) added to BGR channels simulating sensor compression.</li>
-        </ul>
-
-        <h3>Target Distribution</h3>
+        <h3>Metrics</h3>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>Original Seed File</th>
-                <th>Variation Types</th>
-                <th>Target Ground-Truth Action</th>
-                <th>Count</th>
-              </tr>
+              <tr><th scope="col">Metric</th><th scope="col">Definition</th></tr>
             </thead>
             <tbody>
-              <tr>
-                <td><code>red_cone_centered.png</code></td>
-                <td>original, bright, low-contrast, blur, noise</td>
-                <td><code>MOVE_FORWARD</code></td>
-                <td>5</td>
-              </tr>
-              <tr>
-                <td><code>red_cone_left.png</code></td>
-                <td>original, bright, low-contrast, blur, noise</td>
-                <td><code>TURN_LEFT</code></td>
-                <td>5</td>
-              </tr>
-              <tr>
-                <td><code>red_cone_right.png</code></td>
-                <td>original, bright, low-contrast, blur, noise</td>
-                <td><code>TURN_RIGHT</code></td>
-                <td>5</td>
-              </tr>
-              <tr>
-                <td><code>stop_barrier_close.png</code></td>
-                <td>original, bright, low-contrast, blur, noise</td>
-                <td><code>STOP</code></td>
-                <td>5</td>
-              </tr>
+              <tr><td>Valid action rate</td><td>% in five allowed tokens after normalization</td></tr>
+              <tr><td>Correct action rate</td><td>% matching <code>expected_action</code></td></tr>
+              <tr><td>Latency splits</td><td>Mean preprocessing, prompting, inference, total ms</td></tr>
             </tbody>
           </table>
         </div>
-        <p>The dataset metadata is compiled in <a href="file:///C:/Projects/Lite-VLA/data/evaluation/metadata.json">metadata.json</a>.</p>
+
+        <h3>20-image distribution</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Seed</th><th scope="col">Expected action</th><th scope="col">Variations</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>red_cone_centered.png</code></td><td><code>MOVE_FORWARD</code></td><td>×5 augmentations</td></tr>
+              <tr><td><code>red_cone_left.png</code></td><td><code>TURN_LEFT</code></td><td>×5</td></tr>
+              <tr><td><code>red_cone_right.png</code></td><td><code>TURN_RIGHT</code></td><td>×5</td></tr>
+              <tr><td><code>stop_barrier_close.png</code></td><td><code>STOP</code></td><td>×5</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>3. Evaluation Runner</h2>
-        <p>The evaluation loop is implemented in <code>scripts/evaluate_baseline.py</code>.</p>
-        <pre class="mermaid">
-flowchart LR
-    Meta[metadata.json] --> Read[Read Records]
-    Read --> Loop[Loop 20 Images]
-    Loop --> Wrapper[InferenceWrapper]
-    Wrapper --> Compare[Compare Predictions]
-    Compare --> JSON[results.json]
-        </pre>
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
 
-        <h3>Metrics Definitions</h3>
+        <h3>Failure categories</h3>
         <ul>
-          <li><strong>Valid Action Rate (Syntax Accuracy):</strong> The percentage of generated model tokens that belong strictly to the 5 allowed action commands: <code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>STOP</code>, <code>SLOW_DOWN</code> (ignoring case/whitespace).</li>
-          <li><strong>Correct Action Rate (Semantic Accuracy):</strong> The percentage of generated model tokens that match the exact expected ground-truth steering decision.</li>
-          <li><strong>Latency Splits:</strong> The average execution time in milliseconds for the pipeline stages: preprocessing, prompting, model inference, and overall total loop.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>4. Failure Categories Summary</h2>
-        <p>Through zero-shot testing, VLA model errors are classified into three primary categories:</p>
-
-        <h3>A. Syntactical Hallucinations (Syntax Failures)</h3>
-        <p><strong>Description:</strong> The model outputs explanation text, punctuation, quotes, or markdown instead of the raw action token (e.g. <em><code>"I should TURN_LEFT to reach the block."</code></em> or <em><code>"action: STOP"</code></em>).</p>
-        <p><strong>Cause:</strong> Pretrained VLMs are trained to be conversational assistants and have a high bias toward formatting and natural language responses, which overrides the system prompt's format constraints.</p>
-        <p><strong>Impact:</strong> Prevents the ROS action parser node from reading the command, requiring safe STOP fallbacks.</p>
-
-        <h3>B. Spatial Reasoning Deficits (Semantic Failures)</h3>
-        <p><strong>Description:</strong> The model selects a wrong directional action (e.g. predicting <code>TURN_RIGHT</code> when the target red block is clearly on the left).</p>
-        <p><strong>Cause:</strong> SmolVLM-256M-Instruct has a lightweight visual encoder (<code>SigLIP-93M</code>) that struggles with fine-grained spatial coordination and coordinate offsets without custom tuning.</p>
-        <p><strong>Impact:</strong> Causes the robot to steer away from the target object.</p>
-
-        <h3>C. Distance and Safety Glitches</h3>
-        <p><strong>Description:</strong> The model predicts <code>MOVE_FORWARD</code> when the target obstacle is directly blocking the front camera (distance threshold underflow).</p>
-        <p><strong>Cause:</strong> Pretrained language components do not inherently map the visual size of the obstacle to the concept of depth or stopping limits.</p>
-        <p><strong>Impact:</strong> Leads to physical collisions in the simulation.</p>
-      </section>
-
-      <section>
-        <h2>5. Engineering Decisions</h2>
-        <h3>ADR: Augmentation-based Test Dataset</h3>
-        <ul>
-          <li><strong>Status:</strong> Accepted</li>
-          <li><strong>Context:</strong> To compute meaningful baseline rates, evaluating against only the 4 seed images is insufficient. However, collecting 20 separate manual frames from Webots is slow and error-prone.</li>
-          <li><strong>Decision:</strong> Apply standard computer vision augmentations (blur, contrast, brightness, noise) to the 4 seed images. This generates 20 distinct scenarios that test the model's robustness to visual camera artifacts.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>6. Verification Patterns</h2>
-        <p>Unit tests are implemented in <a href="file:///C:/Projects/Lite-VLA/tests/test_evaluation_runner.py">tests/test_evaluation_runner.py</a> and cover:</p>
-        <ul>
-          <li>Clean runner execution and exit code handling.</li>
-          <li>JSON structure and schema verification of the output benchmark report.</li>
-          <li>Semantic correctness checks (dummy mode yields exactly 25% semantic accuracy and 100% valid token rate).</li>
+          <li><strong>A. Syntactical hallucination</strong> — prose instead of tokens</li>
+          <li><strong>B. Spatial deficit</strong> — wrong turn direction</li>
+          <li><strong>C. Distance glitch</strong> — forward into close obstacle</li>
         </ul>
 
-        <h3>Run Commands</h3>
-        <pre><code class="language-bash"># 1. Generate Dataset
-.venv\Scripts\python scripts/generate_test_set.py
+        <pre><code class="language-python">res = adapter.adapt_inference(image, instruction, few_shot=few_shot)
+predicted = res["action"]</code></pre>
 
-# 2. Execute Evaluation
-.venv\Scripts\python scripts/evaluate_baseline.py
+        <h3>Engineering decisions</h3>
+        <pre><code class="language-text">ADR: Augmentation-based test dataset — Accepted
+4 seeds × 5 CV transforms → repeatable 20-image golden set.</code></pre>
+      </section>
 
-# 3. Execute Unit Tests
-.venv\Scripts\pytest tests/test_evaluation_dataset.py tests/test_evaluation_runner.py -v</code></pre>
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">python scripts/generate_test_set.py
+python scripts/evaluate_baseline.py
+pytest tests/test_evaluation_dataset.py tests/test_evaluation_runner.py -v</code></pre>
+
+        <h3>Failure modes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">Fix</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Metadata not found</td><td>Skipped generator</td><td>Run <code>generate_test_set.py</code></td></tr>
+              <tr><td>Semantic 25% in dummy</td><td>Expected heuristic mode</td><td>Use <code>runtime.mode: model</code></td></tr>
+              <tr><td>Valid rate 0%</td><td>Conversational outputs</td><td>Tighten prompts</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="learning">
+        <h2>Engineering principle taught by this task</h2>
+        <p>Measure before you train — separate format compliance, task accuracy, and latency.</p>
+
+        <h3>Active learning checks</h3>
+        <ol>
+          <li>Why report syntax and semantic accuracy separately?</li>
+          <li>Why no <code>SLOW_DOWN</code> in the golden set?</li>
+          <li>Why adapter output for <code>predicted</code>?</li>
+        </ol>
+
+        <h3>Open questions</h3>
+        <ul>
+          <li>Store <code>raw_output</code> per row in <code>results.json</code>?</li>
+          <li>When to add live Webots frames without breaking regression?</li>
+        </ul>
       </section>
     </main>
+
     <footer class="doc-footer">
-      <p>Lite-VLA documentation</p>
+      <p>Lite-VLA · Epic 104 · <code>zero-shot-evaluation.md</code> is the agent source of truth.</p>
     </footer>
   </div>
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: "base",
-      themeVariables: {
-        background: "#FAF8F5",
-        primaryColor: "#F0EDE8",
-        primaryBorderColor: "#D4CFC7",
-        primaryTextColor: "#2C2825",
-        lineColor: "#B8602A",
-        textColor: "#2C2825"
-      }
-    });
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

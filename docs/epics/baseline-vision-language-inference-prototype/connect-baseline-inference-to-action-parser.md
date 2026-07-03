@@ -1,141 +1,259 @@
-# connect-baseline-inference-to-action-parser
-**Jira Key:** [VLA-1028](https://yashrajmote2001.atlassian.net/browse/VLA-1028)
-**Epic:** Baseline Vision-Language Inference Prototype (VLA-5)
+# Connect baseline inference to action parser
+
+**Epic:** Baseline Vision-Language Inference Prototype (104) · **Jira:** VLA-1028 / Story 1028
+
 **Human-readable version (browser):** [`connect-baseline-inference-to-action-parser.html`](connect-baseline-inference-to-action-parser.html)
 
----
+## Executive summary
 
-## 1. Executive Summary
-The model-to-action adapter connects raw text predictions outputted by the Vision-Language-Action (VLA) model wrapper to the discrete action parser and safety layer. It acts as an integration gateway that bridges Epic 104 (Inference Prototype) with Epic 103 (Action Schema and Safety Gate). The adapter is architecturally responsible for parsing noisy VLA string tokens into standard robot actions, enforcing maximum configuration-specified velocity bounds, logging raw and parsed results for observability, and guaranteeing safe fallback `STOP` behavior under runtime execution failures.
+`litevla.actions.InferenceAdapter` bridges Epic 104 (VLM text output) and Epic 103 (discrete parser + safety gate). It calls `InferenceWrapper.infer()`, passes the raw string through `safe_command_from_text()`, and returns bounded `(linear_x, angular_z)` velocities with parse status, observability logs, and preserved timing metadata.
 
----
+Without this adapter, every script would re-wire "model string → parser → clamp" and drift on safety bounds. The evaluation runner and future ROS bridges should use one path so baseline metrics reflect the same safety behavior as deployment.
 
-## 2. API Contract and Data Flow
-The adapter coordinates inputs from the camera frames and navigation instructions, executes visual model inference, parses the output text, and clamps resulting twist components.
+## Mental model
+
+Think of this module as a **translator between probabilistic language and deterministic motion**.
+
+It exists because VLMs output unconstrained text while the robot loop consumes clamped SI velocities and enumerated safety events.
+
+The key engineering tension is **trust boundaries**: the wrapper optimistically returns model text; the adapter assumes text is hostile until parsed and clamped.
+
+A beginner mistake is connecting wrapper output directly to `/cmd_vel` because the string sometimes looks like `MOVE_FORWARD`.
+
+A senior engineer watches for **double STOP paths** (wrapper error vs parse failure), **config safety limits**, and **logs that pair raw vs parsed tokens**.
+
+## Backstory: why this exists
+
+Before this adapter, `evaluate_baseline.py` compared raw model strings to labels — useful for syntax metrics but disconnected from the safety layer teammates already built in Epic 103.
+
+The naive solution is calling `parse_action` inline in the eval script.
+
+That breaks because ROS nodes, notebooks, and CI would each duplicate parser imports, max velocity reads, and logging format — and a parser fix might ship to tests but not evaluation.
+
+So this design chooses **`InferenceAdapter.adapt_inference()`** as the single integration point wrapping `safe_command_from_text()`.
+
+This pattern appears in real systems as an **anti-corruption layer** between ML output and actuation APIs.
+
+## Prerequisites
+
+- Epic 103 [`action-schema.md`](../action-interface-parser-and-safety-layer/action-schema.md) — tokens and nominal velocities.
+- Epic 103 discrete parser and `safe_command_from_text` (safety gate).
+- [`inference-wrapper.md`](inference-wrapper.md) — `infer()` return shape.
+
+## Concept primer / vocabulary
+
+| Term | Meaning in this project |
+|------|-------------------------|
+| Raw VLM output | Unparsed string from `InferenceWrapper` — may include noise, case drift, or prose. |
+| `SafeCommand` | Dataclass from safety gate: action enum, clamped velocities, audit `events`. |
+| `parse_status` | First event kind string (e.g. `ok`, `parse_failure`) for metrics and logs. |
+| `max_linear_vel` / `max_angular_vel` | Config safety ceilings (m/s, rad/s) applied after nominal mapping. |
+| Contract | Adapter promises: image + instruction → dict with `safe_command`, parse metadata, timings; parse failures → STOP velocities, not exceptions. |
+
+## Guided code reading
+
+Read these in order:
+
+1. `litevla/actions/adapter.py` — entire file is short; note config read in `__init__`.
+2. `litevla/actions/safety.py` — what `safe_command_from_text` does on garbage input.
+3. `scripts/evaluate_baseline.py` — adapter replaces direct wrapper calls for predicted labels.
+4. `tests/test_inference_adapter.py` — valid, noisy, invalid, and exception paths.
+
+While reading, ask:
+- Does adapter re-raise wrapper failures?
+- Where are velocity limits sourced?
+- What gets logged for operators?
+
+## File and artifact index
+
+| File or artifact | What it is | Why it matters | First thing to inspect |
+|------------------|------------|----------------|------------------------|
+| `litevla/actions/adapter.py` | Adapter class | Epic 104 ↔ 103 bridge | `adapt_inference` |
+| `litevla/actions/__init__.py` | Public exports | `InferenceAdapter` import path | Re-exports |
+| `litevla/actions/safety.py` | Safety gate | Parses text + clamps velocities | `safe_command_from_text` |
+| `scripts/evaluate_baseline.py` | Baseline benchmark | Uses adapter in eval loop | `adapter.adapt_inference` call |
+| `tests/test_inference_adapter.py` | Integration tests | End-to-end text → SafeCommand | Fallback tests |
+
+## API contract and data flow
+
+### Task-local flow
 
 ```text
-Camera BGR Array ──┐
-                   ├──> [InferenceWrapper] ──> Raw Text Output ──┐
-Text Instruction ──┘                                             ├──> [InferenceAdapter] ──> SafeCommand (Bounded Twist Velocities)
-                                                                 │
-Configuration Safety Bounds ─────────────────────────────────────┘
+BGR image + instruction
+        │
+        ├──> InferenceWrapper.infer() ──> raw_text, timing, success, error
+        │
+        ├──> safe_command_from_text(raw_text, max_linear_vel, max_angular_vel)
+        │         ├──> parser (normalize token)
+        │         ├──> action_to_twist (nominal velocities)
+        │         └──> clamp per config
+        │
+        └──> dict: safe_command, action, parse_status, raw_output, timing, ...
 ```
 
-### Data Contract Formats
-- **Input:**
-  - `image` (`numpy.ndarray`): OpenCV BGR frame from the camera topic.
-  - `instruction` (`str`): Goal text navigation command.
-  - `few_shot` (`bool`): In-context few-shot example flag.
-- **Output:** A structured dictionary containing:
-  - `safe_command` (`SafeCommand`): Dataclass containing:
-    - `linear_x` (`float`): Bounded linear velocity.
-    - `angular_z` (`float`): Bounded angular velocity.
-    - `action` (`DiscreteAction`): Mapped enum token.
-    - `original_text` (`str` or `None`): Pre-parsed string token.
-    - `events` (`tuple`): Array of safety decisions (e.g. `ok`, `parse_failure`, `velocity_clamped`).
-  - `action` (`str`): String representation of the parsed discrete action.
-  - `parse_status` (`str`): Reason code (e.g. `"ok"`, `"parse_failure"`).
-  - `raw_output` (`str`): Unparsed VLM text generated by the model.
-  - `success` (`bool`): True if model inference ran successfully.
-  - `timing` (`dict`): Floating point timing splits (preprocessing, prompting, inference, total).
-  - `error` (`str` or `None`): Error traceback string if execution failed.
+### Contract
 
----
+| Surface | Rule |
+|---------|------|
+| **Input** | Same as wrapper: BGR image, instruction, optional `few_shot` |
+| **Config** | Reads `safety.max_linear_vel`, `safety.max_angular_vel` (defaults 0.5, 1.0) |
+| **Output** | `safe_command` (`SafeCommand`), string `action`, `parse_status`, `raw_output`, `success`, `timing`, `error` |
+| **Invariant** | Parser failure yields `STOP` with zero velocities — never uncaught `ValueError` to caller |
+| **Observability** | INFO log line with `raw_output` and `parsed_action` |
 
-## 3. Implementation Breakdown
-The core logic resides in [`litevla/actions/adapter.py`](file:///C:/Projects/Lite-VLA/litevla/actions/adapter.py) and is exported in [`litevla/actions/__init__.py`](file:///C:/Projects/Lite-VLA/litevla/actions/__init__.py).
+## Naive approach vs chosen approach
 
-### Adapter Logic and Parsing Flow
-The `InferenceAdapter` class receives an initialized `InferenceWrapper` instance and reads configuration-bound parameters during instantiation:
+| Approach | Why it seems attractive | Why we did or did not choose it |
+|----------|-------------------------|---------------------------------|
+| Eval compares raw strings only | Simpler metrics | Hides safety-layer behavior users will ship |
+| Parser inside ROS node | One less class | Duplicates bounds and logging across entrypoints |
+| Wrapper returns SafeCommand | Single call site | Couples Hugging Face code to ROS safety types |
+| Dedicated InferenceAdapter | Extra indirection | One tested integration; eval matches runtime |
+| Re-raise on wrapper error | Surfaces ML failures | Caller might skip STOP; adapter preserves safe_cmd |
+
+## Implementation breakdown
+
+### Construction and safety bounds
+
+**Snippet** (`litevla/actions/adapter.py`):
 
 ```python
-# litevla/actions/adapter.py
 class InferenceAdapter:
     def __init__(self, wrapper: InferenceWrapper, config: dict):
         self.wrapper = wrapper
         self.config = config
-        
-        # Read bounds
         safety_cfg = config.get("safety", {})
         self.max_linear_vel = safety_cfg.get("max_linear_vel", 0.5)
         self.max_angular_vel = safety_cfg.get("max_angular_vel", 1.0)
 ```
 
-During execution, it calls `wrapper.infer()`, forwards the string result to `safe_command_from_text()`, and records debugging observations:
+**What to notice:** Adapter does not own the wrapper lifecycle — inject for tests with mocks.
+
+**Why it is written this way:** Dependency injection keeps unit tests fast (mock wrapper, real parser).
+
+**Risks and gotchas:** Defaults 0.5 / 1.0 differ from MVP nominal 0.2 m/s forward — clamp still applies via gate.
+
+---
+
+### adapt_inference orchestration
+
+**Snippet:**
 
 ```python
-# litevla/actions/adapter.py
-def adapt_inference(self, image: Any, instruction: str, few_shot: bool = False) -> dict[str, Any]:
-    # 1. Run model inference
-    infer_res = self.wrapper.infer(image, instruction, few_shot=few_shot)
-    raw_text = infer_res["action"]
+infer_res = self.wrapper.infer(image, instruction, few_shot=few_shot)
+raw_text = infer_res["action"]
 
-    # 2. Process through parser and safety gate
-    safe_cmd = safe_command_from_text(
-        raw_text,
-        max_linear_vel=self.max_linear_vel,
-        max_angular_vel=self.max_angular_vel,
-        logger=logger,
-    )
+safe_cmd = safe_command_from_text(
+    raw_text,
+    max_linear_vel=self.max_linear_vel,
+    max_angular_vel=self.max_angular_vel,
+    logger=logger,
+)
 
-    # 3. Log raw and parsed output (Subtask 10086)
-    logger.info(
-        f"Adapter run: raw_output='{raw_text}', "
-        f"parsed_action='{safe_cmd.action.value}'"
-    )
+logger.info(
+    f"Adapter run: raw_output='{raw_text}', "
+    f"parsed_action='{safe_cmd.action.value}'"
+)
 
-    return {
-        "safe_command": safe_cmd,
-        "action": safe_cmd.action.value,
-        "parse_status": safe_cmd.events[0].kind.value,
-        "raw_output": raw_text,
-        "success": infer_res["success"],
-        "timing": infer_res["timing"],
-        "error": infer_res["error"],
-    }
+return {
+    "safe_command": safe_cmd,
+    "action": safe_cmd.action.value,
+    "parse_status": safe_cmd.events[0].kind.value,
+    "raw_output": raw_text,
+    "success": infer_res["success"],
+    "timing": infer_res["timing"],
+    "error": infer_res["error"],
+}
 ```
 
-### Observability and Logging Integration
-The adapter includes a dedicated logger configured to write structured output records containing `raw_output` and `parsed_action` tokens. This enables downstream debugging and telemetry systems to track exact model text hallucinations vs. final published actions.
+**What to notice:** `success` reflects inference, not parse quality — semantic wrong token can still be `success=True`.
 
-### Evaluation Pipeline Integration
-The evaluation script [`scripts/evaluate_baseline.py`](file:///C:/Projects/Lite-VLA/scripts/evaluate_baseline.py) was updated to integrate the `InferenceAdapter`:
+**Why it is written this way:** Separates ML operational status from navigation correctness.
+
+**Risks and gotchas:** Callers must not use `success` alone as "good driving"; check `parse_status` and label match.
+
+---
+
+### Evaluation integration
+
+**Snippet** (`scripts/evaluate_baseline.py`):
+
 ```python
-# scripts/evaluate_baseline.py
 wrapper = InferenceWrapper(config)
 adapter = InferenceAdapter(wrapper, config)
-
-# ... inside the loop ...
+# ...
 res = adapter.adapt_inference(image, instruction, few_shot=few_shot)
 predicted = res["action"]
 ```
 
----
+**What to notice:** Metrics compare parsed `action` strings to `expected_action` in metadata.
 
-## 4. Engineering Decisions
+**Why it is written this way:** Benchmark numbers include parser normalization (case, whitespace).
 
-### ADR: Model-to-Action Adapter Wrapper Design
-- **Status:** Accepted
-- **Context:** The VLM model generates raw text string predictions that must be safely parsed and clamped before sending commands to the robot `/cmd_vel` loop. Creating ad-hoc parsing scripts at the ROS boundary introduces code duplication and increases test friction.
-- **Decision:** Establish a dedicated `InferenceAdapter` class connecting the VLM model execution output with the Epic 103 `safe_command_from_text` utility.
-- **Consequences:** All downstream execution loops (simulation adapters, offline tests, evaluation scripts) route their raw inferences through the same safety pipeline.
+**Risks and gotchas:** Changing parser rules retroactively changes baseline metrics — document parser version in results if needed.
 
----
+## Engineering decisions
 
-## 5. Verification Patterns
-
-### Executable Unit Tests
-Unit tests in [`tests/test_inference_adapter.py`](file:///C:/Projects/Lite-VLA/tests/test_inference_adapter.py) cover:
-- **Valid Parsing:** Verifies that a successful prediction (e.g. `"MOVE_FORWARD"`) resolves to the correct discrete action enum and nominal velocities.
-- **Noisy Normalization:** Validates that noisy outputs (e.g. `"turn_left. "`) are parsed correctly.
-- **Fallback Safe STOP (Subtask 10085):** Validates that invalid tokens (e.g. `"GO_FAST"`) fall back to `DiscreteAction.STOP` with zero linear and angular velocities.
-- **Exception Trap Safe Recovery (Subtask 10085):** Validates that VLM wrapper errors or exceptions return a safe `STOP` command payload.
-- **Observability Logging (Subtask 10086):** Verifies that execution logs contain both the `raw_output` and `parsed_action` fields.
-
-### Run Commands
-Execute the test suites and evaluation runner using:
-```bash
-.venv\Scripts\pytest tests/test_inference_adapter.py -v
-.venv\Scripts\pytest
-.venv\Scripts\python scripts/evaluate_baseline.py
+```text
+ADR: Model-to-action adapter wrapper
+Status: Accepted
+Context: VLM text must pass through Epic 103 safety pipeline before actuation.
+Decision: InferenceAdapter delegates parsing/clamping to safe_command_from_text.
+Alternatives Rejected: Inline parsing in eval/ROS scripts.
+Consequences: All new entrypoints should use adapter; raw wrapper reserved for prompt tuning.
 ```
+
+## Verification patterns
+
+| Contract defended | Where |
+|-------------------|-------|
+| Valid token → correct enum + velocities | `test_adapter_valid_prediction` |
+| Noisy text normalized (`turn_left. `) | `test_adapter_noisy_text` |
+| Invalid token → STOP + parse_failure | `test_adapter_invalid_token_fallback` |
+| Wrapper exception still returns SafeCommand | `test_adapter_wrapper_error_safe_stop` |
+| Log contains raw and parsed fields | `test_adapter_logs_raw_and_parsed` |
+
+**Run:**
+
+```bash
+pytest tests/test_inference_adapter.py -v
+pytest
+python scripts/evaluate_baseline.py
+```
+
+### Failure modes and debugging path
+
+| Symptom | Likely cause | How to investigate | Fix |
+|---------|--------------|--------------------|-----|
+| `parse_status=parse_failure` always | Model emits prose not tokens | Read adapter logs `raw_output` | Tune prompts; few-shot; fine-tune later |
+| `success=False` but robot moves | Downstream ignores `safe_command` | Trace who publishes `/cmd_vel` | Use `safe_command` velocities, not raw text |
+| Correct token, zero velocity | STOP fallback from wrapper error | Check `error` field | Fix OOM/path; see inference doc |
+| Eval accuracy jumped without model change | Parser normalization changed | Diff `test_inference_adapter` | Re-baseline results.json |
+| Velocities at config ceiling always | Limits lower than nominal table | Compare `safety` config to ACTION_VELOCITIES | Adjust config for test intent |
+
+## Engineering principle taught by this task
+
+This task teaches **layered trust**: ML proposes language; deterministic code disposes motion. Never let probabilistic output cross a safety boundary without a named, tested gate.
+
+## Active learning checks
+
+1. Why does `success` stay True when the model picks the wrong direction?
+2. Who owns STOP when the wrapper crashes vs when parsing fails?
+3. Why log both `raw_output` and `parsed_action`?
+4. Should eval report syntax on raw or parsed strings — and why?
+
+## Small modification exercise
+
+Lower `safety.max_linear_vel` to `0.1` in local config, run `pytest tests/test_inference_adapter.py`, then `adapt_inference` with a mocked `MOVE_FORWARD` response. Confirm `safe_command.linear_x` clamps to `0.1` while `action` remains `MOVE_FORWARD`.
+
+## Open questions
+
+- Should eval JSON store both `raw_output` and `parse_status` per row for richer failure analysis?
+- When ROS bridge lands, does it import adapter or duplicate safety gate?
+- Should adapter downgrade `success` when `parse_status` is not `ok`?
+
+## Related docs
+
+- Inference: [`inference-wrapper.md`](inference-wrapper.md)
+- Schema: [`../action-interface-parser-and-safety-layer/action-schema.md`](../action-interface-parser-and-safety-layer/action-schema.md)
+- Metrics: [`zero-shot-evaluation.md`](zero-shot-evaluation.md)

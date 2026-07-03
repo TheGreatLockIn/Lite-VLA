@@ -10,22 +10,63 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-28</p>
+      <p class="eyebrow">Epic 102 · VLA-28 / Story 1016</p>
       <h1>Manual teleoperation mode</h1>
-      <p class="doc-lead">
-        <code>teleop_keyboard</code> is the human override path for Epic 102: keyboard input to bounded twists on <code>/litevla/desired_twist</code>, with the heartbeat owning <code>/cmd_vel</code>.
-      </p>
+      <p class="doc-lead">Keyboard teleop publishing intent via run_teleop_sim.sh — not /cmd_vel directly.</p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> · <a href="#mental-model">Mental model</a> · <a href="#backstory">Backstory</a> · <a href="#prerequisites">Prerequisites</a> · <a href="#vocabulary">Vocabulary</a> · <a href="#guided-reading">Code reading</a> · <a href="#file-index">File index</a> · <a href="#contract">Contract</a> · <a href="#implementation">Implementation</a> · <a href="#decisions">Decisions</a> · <a href="#verification">Verification</a> · <a href="#failure-modes">Debugging</a> · <a href="#principle">Principle</a> · <a href="#learning">Learning</a> · <a href="#related">Related</a>
+      </nav>
     </header>
 
     <main>
-      <section id="executive-summary">
-        <h2>Executive summary</h2>
-        <p><code>teleop_keyboard</code> is the human override path for Epic 102: it reads keys from an interactive TTY, maps held keys to bounded <code>(linear_x, angular_z)</code> twists, and publishes them on <code>/litevla/desired_twist</code> for the heartbeat controller (VLA-27). The heartbeat—not teleop—owns <code>/cmd_vel</code>, so keyboard polling can run at 50 Hz while actuation stays at a stable 25 Hz with safety timeouts. <code>command_recorder</code> logs discrete action labels for Epic 105 dataset work. <strong><code>run_teleop_sim.sh</code> is the supported entry point</strong> because ROS launch-managed nodes do not receive interactive stdin reliably.</p>
-      </section>
-
-      <section id="api-contract">
-        <h2>API contract and data flow</h2>
-        <pre><code class="language-text">TTY keys ──&gt; teleop_keyboard (50 Hz poll, 120 ms hold)
+<section id="summary">
+<h2>Executive summary</h2>
+<p><code>teleop_keyboard</code> is the human override path for Epic 102: it reads keys from an interactive TTY, maps held keys to bounded <code>(linear_x, angular_z)</code> twists, and publishes them on <code>/litevla/desired_twist</code> for the heartbeat controller (VLA-27). The heartbeat—not teleop—owns <code>/cmd_vel</code>, so keyboard polling can run at 50 Hz while actuation stays at a stable 25 Hz with safety timeouts. <code>command_recorder</code> logs discrete action labels for Epic 105 dataset work. <strong><code>run_teleop_sim.sh</code> is the supported entry point</strong> because ROS launch-managed nodes do not receive interactive stdin reliably.</p>
+</section>
+<section id="mental-model">
+<h2>Mental model</h2>
+<p>Think of teleop as <strong>the human intent producer</strong>, not the driver of motors.</p>
+<p>It exists because operators must steer the robot before a VLA model exists, and dataset work needs human labels.</p>
+<p>The key engineering tension is <strong>ROS launch ergonomics vs TTY ownership</strong>—launch backgrounds nodes; keyboards need foreground stdin.</p>
+<p>A beginner mistake is running <code>ros2 launch teleop_sim.launch.py</code> and wondering why keys do nothing (no TTY).</p>
+<p>A senior engineer watches <strong><code>control_mode:=teleop</code></strong>, uses <code>run_teleop_sim.sh</code>, and never publishes <code>/cmd_vel</code> from teleop.</p>
+</section>
+<section id="backstory">
+<h2>Backstory: why this exists</h2>
+<p>Before this module existed, operators could only run scripted dummy sequences or raw <code>cmd_vel</code> tests—no interactive driving with logging.</p>
+<p>The naive solution would be a <code>teleop_keyboard</code> node started via <code>ros2 launch</code> alongside everything else.</p>
+<p>That breaks because launch places nodes in the background without a controlling terminal; <code>stdin</code> is not a TTY, and key reads fail silently or error out.</p>
+<p>So this design chooses <strong>shell-orchestrated startup</strong> (<code>run_teleop_sim.sh</code>): sim and heartbeat in background, <code>teleop_keyboard</code> in foreground, with readiness gates for <code>/clock</code> and active controllers.</p>
+<p>This pattern appears in real systems whenever <strong>interactive CLI tools</strong> must coexist with <strong>daemonized middleware</strong>.</p>
+</section>
+<section id="prerequisites">
+<h2>Prerequisites</h2>
+<ul><li><a href="control-heartbeat.html">control-heartbeat.md</a> — consumes <code>/litevla/desired_twist</code>.</li><li><a href="webots-sim-environment.html">webots-sim-environment.md</a> — interactive Webots for GUI teleop.</li><li>Terminal basics: TTY, foreground vs background processes.</li></ul>
+</section>
+<section id="vocabulary">
+<h2>Concept primer / vocabulary</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Term</th><th scope="col">Meaning in this project</th></tr></thead><tbody><tr><th scope="row">TTY</th><td>Interactive terminal device; teleop requires <code>stdin.isatty()</code>.</td></tr><tr><th scope="row"><code>desired_twist</code></th><td>Intent topic; heartbeat converts to <code>/cmd_vel</code>.</td></tr><tr><th scope="row"><code>control_mode</code></th><td>Must be <code>teleop</code> for this node to run.</td></tr><tr><th scope="row">Hold semantics</th><td>Keys extend deadlines; release → STOP intent.</td></tr><tr><th scope="row"><code>MOVE_BACKWARD</code></th><td>Teleop-only label; not in ML <code>DiscreteAction</code> enum.</td></tr><tr><th scope="row"><code>commands.jsonl</code></th><td>Append-only log of action labels with timestamps.</td></tr><tr><th scope="row"><code>run_teleop_sim.sh</code></th><td>Canonical operator script with TTY check.</td></tr></tbody></table></div>
+</section>
+<section id="guided-reading">
+<h2>Guided code reading</h2>
+<p>Read these in order:</p>
+<ol><li><code>litevla_bridge/teleop_utils.py</code><ul><li><code>twist_from_keys</code> — pure key-set → twist + label.</li><li>Ignore ROS; understand hold and opposing-key cancel.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/teleop_keyboard.py</code><ul><li>TTY guard, <code>tty.setcbreak</code>, timer poll loop.</li></ul></li></ol>
+<ol><li><code>ros_ws/scripts/run_teleop_sim.sh</code><ul><li>Readiness gates and foreground teleop invocation.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/command_recorder.py</code><ul><li>Subscribes to <code>/litevla/current_action</code>, writes JSONL.</li></ul></li></ol>
+<p>While reading, ask:</p>
+<ul><li>Where does data enter?</li><li>Who owns <code>/cmd_vel</code>?</li><li>What fails when stdin is not a TTY?</li></ul>
+</section>
+<section id="file-index">
+<h2>File and artifact index</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">File or artifact</th><th scope="col">What it is</th><th scope="col">Why it matters</th><th scope="col">First thing to inspect</th></tr></thead><tbody><tr><td><code>teleop_utils.py</code></td><td>Pure key mapping</td><td>Testable logic</td><td><code>twist_from_keys</code></td></tr><tr><td><code>teleop_keyboard.py</code></td><td>ROS TTY node</td><td>Publishes intent only</td><td><code>stdin.isatty()</code> check</td></tr><tr><td><code>run_teleop_sim.sh</code></td><td>Operator entry</td><td>Foreground teleop</td><td>TTY check at top</td></tr><tr><td><code>stop_teleop_sim.sh</code></td><td>Cleanup</td><td>Kills stale sim processes</td><td><code>pkill</code> patterns</td></tr><tr><td><code>scripts/lib/sim_common.sh</code></td><td>Shared wait helpers</td><td>Clock/controller gates</td><td><code>wait_for_sim_clock</code></td></tr><tr><td><code>command_recorder.py</code></td><td>JSONL logger</td><td>Dataset labels</td><td>Output path</td></tr><tr><td><code>launch/teleop_sim.launch.py</code></td><td>Launch graph</td><td>Non-keyboard integration tests only</td><td>Not for interactive keys</td></tr></tbody></table></div>
+</section>
+<section id="contract">
+<h2>API contract and data flow</h2>
+<h3>What &quot;contract&quot; means here</h3>
+<p><strong>Contract</strong> = when <code>control_mode:=teleop</code> and stdin is a TTY, poll keys at <code>refresh_hz</code>, publish clamped twists and action labels on desired topics. Never publish <code>/cmd_vel</code>. Quit key sends STOP and exits.</p>
+<h3>Task-local flow</h3>
+<pre><code class="language-text">TTY keys ──&gt; teleop_keyboard (50 Hz poll, 120 ms hold)
          ──&gt; /litevla/desired_twist (Twist)
          ──&gt; /litevla/current_action (String label)
               │
@@ -36,132 +77,46 @@
               └──&gt; /litevla/diagnostics
 
 command_recorder &lt;── /litevla/current_action ──&gt; outputs/teleop/&lt;ts&gt;/commands.jsonl</code></pre>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Contract</th>
-                <th scope="col">Rule</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Input</td>
-                <td>Single-byte and arrow escape sequences from <code>stdin</code> (must be a TTY)</td>
-              </tr>
-              <tr>
-                <td>Output twist</td>
-                <td><code>linear.x</code>, <code>angular.z</code> clamped to <code>max_linear_vel</code> / <code>max_angular_vel</code> (default 0.2 / 0.6)</td>
-              </tr>
-              <tr>
-                <td>Action labels</td>
-                <td>Epic 103 tokens plus teleop-only <code>MOVE_BACKWARD</code>; combos use <code>+</code> (e.g. <code>MOVE_FORWARD+TURN_LEFT</code>)</td>
-              </tr>
-              <tr>
-                <td>Control gate</td>
-                <td>Node idles unless <code>control_mode:=teleop</code></td>
-              </tr>
-              <tr>
-                <td>Quit</td>
-                <td><code>q</code> publishes STOP and raises <code>KeyboardInterrupt</code></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <p><strong>Trade-off:</strong> Shell-orchestrated startup (<code>run_teleop_sim.sh</code>) trades “one <code>ros2 launch</code>” ergonomics for correct stdin ownership and readiness gates (<code>/clock</code>, active controllers) before keys are accepted.</p>
-      </section>
-
-      <section id="implementation">
-        <h2>Implementation breakdown</h2>
-
-        <h3>Key map and hold semantics (<code>teleop_utils.py</code>)</h3>
-        <p>Game-style driving: keys extend per-key hold deadlines; opposing keys (forward vs backward, left vs right) cancel each other.</p>
-        <pre><code class="language-python">def twist_from_keys(keys, *, max_linear_vel, max_angular_vel) -&gt; tuple[float, float, str]:
-    # forward + left → (max_linear, max_angular, "MOVE_FORWARD+TURN_LEFT")</code></pre>
-        <ul>
-          <li><strong>Design note:</strong> <code>MOVE_BACKWARD</code> is teleop-only and intentionally outside the ML <code>DiscreteAction</code> enum so dataset labels stay aligned with Epic 103 vocabulary for forward/turn/stop.</li>
-          <li><strong>Gotcha:</strong> <code>key_to_action()</code> remains for unit tests; runtime uses <code>twist_from_keys()</code> on the active key set.</li>
-        </ul>
-
-        <h3>TTY node (<code>teleop_keyboard.py</code>)</h3>
-        <pre><code class="language-python">if not sys.stdin.isatty():
-    self.get_logger().error("stdin is not a TTY — run teleop in an interactive terminal")</code></pre>
-        <ul>
-          <li><strong>Design note:</strong> <code>tty.setcbreak</code> + <code>select</code> non-blocking read keeps ROS timers responsive.</li>
-          <li><strong>Gotcha:</strong> Do not run via <code>ros2 launch teleop_sim.launch.py</code> for keyboard input—launch places teleop in the background without a controlling TTY.</li>
-        </ul>
-
-        <h3>Interactive Webots (<code>webots_launcher.py</code>, <code>webots_sim.launch.py</code>)</h3>
-        <p><code>InteractiveWebotsLauncher</code> strips <code>--batch</code> so the GUI camera follows the robot during teleop (<code>interactive:=true</code>).</p>
-
-        <h3>Lifecycle scripts</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Script</th>
-                <th scope="col">Role</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>run_teleop_sim.sh</code></td>
-                <td>TTY check → Webots interactive → wait <code>/clock</code> + controllers → heartbeat + recorder → foreground <code>teleop_keyboard</code></td>
-              </tr>
-              <tr>
-                <td><code>stop_teleop_sim.sh</code></td>
-                <td><code>pkill</code> stale Webots/ROS teleop processes</td>
-              </tr>
-              <tr>
-                <td><code>scripts/lib/sim_common.sh</code></td>
-                <td>Shared wait helpers (<code>wait_for_sim_clock</code>, <code>wait_for_diffdrive_stack</code>, …)</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p><strong>Design note:</strong> <code>ros_ws/scripts/lib/sim_common.sh</code> is tracked in git (root <code>.gitignore</code> uses <code>/lib/</code> only). Teleop and episode capture share readiness gates (<code>wait_for_sim_clock</code>, <code>wait_for_diffdrive_stack</code>, <code>cleanup_stale_sim_processes</code>).</p>
-
-        <h3>Command recorder (<code>command_recorder.py</code>)</h3>
-        <p>Subscribes to <code>/litevla/current_action</code>, appends JSONL rows with sim timestamps.</p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th scope="col">Mode</th><th scope="col">Script</th><th scope="col">Output</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Casual teleop</td><td><code>run_teleop_sim.sh</code></td><td><code>outputs/teleop/&lt;ts&gt;/commands.jsonl</code></td></tr>
-              <tr><td>Episode capture (VLA-42)</td><td><code>run_episode_capture.sh</code></td><td><code>data/raw/episodes/&lt;id&gt;/</code></td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p>See <a href="../dataset-generation-labeling-and-validation/simulation-data-capture.html">VLA-42 simulation data capture</a>.</p>
-      </section>
-
-      <section id="engineering-decisions">
-        <h2>Engineering decisions</h2>
-
-        <p><strong>ADR: Shell script owns teleop stdin</strong></p>
-        <ul>
-          <li><strong>Status:</strong> Accepted</li>
-          <li><strong>Context:</strong> <code>ros2 launch</code> backgrounds nodes; keyboard teleop requires foreground stdin.</li>
-          <li><strong>Decision:</strong> <code>run_teleop_sim.sh</code> launches sim/heartbeat/recorder in background, <code>teleop_keyboard</code> in foreground.</li>
-          <li><strong>Alternatives rejected:</strong> Launch-only teleop (stdin broken); separate terminal wrapper without readiness gates (fragile controller startup).</li>
-          <li><strong>Consequences:</strong> Document the script as canonical; keep <code>teleop_sim.launch.py</code> for non-keyboard integration tests only.</li>
-        </ul>
-
-        <p><strong>ADR: Game-style holds vs discrete tap-to-step</strong></p>
-        <ul>
-          <li><strong>Status:</strong> Accepted</li>
-          <li><strong>Decision:</strong> 50 Hz poll, 120 ms hold after last key event; release → STOP.</li>
-          <li><strong>Consequences:</strong> Better driving feel; recorder sees compound labels for diagonal motion.</li>
-        </ul>
-      </section>
-
-      <section id="verification">
-        <h2>Verification patterns</h2>
-        <pre><code class="language-bash">source /opt/ros/jazzy/setup.bash
+<h3>Contract table</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Row label</th><th scope="col">Meaning</th></tr></thead><tbody><tr><th scope="row">Contract</th><td>Named rule in the teleop API.</td></tr><tr><th scope="row">Rule</th><td>Behavioral requirement.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">Contract</th><th scope="col">Rule</th></tr></thead><tbody><tr><th scope="row">Input</th><td>Single-byte and arrow escape sequences from <code>stdin</code> (must be a TTY)</td></tr><tr><th scope="row">Output twist</th><td><code>linear.x</code>, <code>angular.z</code> clamped to <code>max_linear_vel</code> / <code>max_angular_vel</code> (default 0.2 / 0.6)</td></tr><tr><th scope="row">Action labels</th><td>Epic 103 tokens plus teleop-only <code>MOVE_BACKWARD</code>; combos use <code>+</code> (e.g. <code>MOVE_FORWARD+TURN_LEFT</code>)</td></tr><tr><th scope="row">Control gate</th><td>Node idles unless <code>control_mode:=teleop</code></td></tr><tr><th scope="row">Quit</th><td><code>q</code> publishes STOP and raises <code>KeyboardInterrupt</code></td></tr></tbody></table></div>
+<h3>Naive approach vs chosen approach</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Approach</th><th scope="col">Why it seems attractive</th><th scope="col">Why we did or did not choose it</th></tr></thead><tbody><tr><td><code>ros2 launch</code> for teleop</td><td>One command starts all nodes</td><td>stdin not attached — keys don&#x27;t work</td></tr><tr><td>Shell script foreground teleop</td><td>Two-step operator flow</td><td>Correct TTY ownership + readiness gates</td></tr><tr><td>Teleop publishes <code>/cmd_vel</code></td><td>Direct control</td><td>Bypasses heartbeat safety and timing</td></tr><tr><td>Game-style key holds</td><td>Slightly more code</td><td>Better driving feel; diagonal labels for datasets</td></tr></tbody></table></div>
+</section>
+<section id="implementation">
+<h2>Implementation breakdown</h2>
+<h3>Key map and hold semantics (`teleop_utils.py`)</h3>
+<p>Game-style driving: keys extend per-key hold deadlines; opposing keys (forward vs backward, left vs right) cancel each other.</p>
+<pre><code class="language-python">def twist_from_keys(keys, *, max_linear_vel, max_angular_vel) -&gt; tuple[float, float, str]:
+    # forward + left → (max_linear, max_angular, &quot;MOVE_FORWARD+TURN_LEFT&quot;)</code></pre>
+<p><strong>What to notice:</strong> <code>MOVE_BACKWARD</code> is teleop-only and outside the ML <code>DiscreteAction</code> enum.</p>
+<p><strong>Why it is written this way:</strong> Dataset labels for forward/turn/stop stay aligned with Epic 103; backward is an operator affordance.</p>
+<p><strong>Risks and gotchas:</strong> <code>key_to_action()</code> remains for unit tests; runtime uses <code>twist_from_keys()</code> on the active key set.</p>
+<h3>TTY node (`teleop_keyboard.py`)</h3>
+<pre><code class="language-python">if not sys.stdin.isatty():
+    self.get_logger().error(&quot;stdin is not a TTY — run teleop in an interactive terminal&quot;)</code></pre>
+<p><strong>What to notice:</strong> <code>tty.setcbreak</code> + <code>select</code> non-blocking read keeps ROS timers responsive.</p>
+<p><strong>Why it is written this way:</strong> Foreground terminal ownership is a hard requirement.</p>
+<p><strong>Risks and gotchas:</strong> Do not run via <code>ros2 launch teleop_sim.launch.py</code> for keyboard input—launch places teleop in the background without a controlling TTY.</p>
+<h3>Interactive Webots (`webots_launcher.py`, `webots_sim.launch.py`)</h3>
+<p><code>InteractiveWebotsLauncher</code> strips <code>--batch</code> so the GUI camera follows the robot during teleop (<code>interactive:=true</code>).</p>
+<h3>Lifecycle scripts</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Script</th><th scope="col">Role</th></tr></thead><tbody><tr><td><code>run_teleop_sim.sh</code></td><td>TTY check → Webots interactive → wait <code>/clock</code> + controllers → heartbeat + recorder → foreground <code>teleop_keyboard</code></td></tr><tr><td><code>stop_teleop_sim.sh</code></td><td><code>pkill</code> stale Webots/ROS teleop processes</td></tr><tr><td><code>scripts/lib/sim_common.sh</code></td><td>Shared wait helpers (<code>wait_for_sim_clock</code>, <code>wait_for_diffdrive_stack</code>, …)</td></tr></tbody></table></div>
+<p><strong>Design note:</strong> <code>ros_ws/scripts/lib/sim_common.sh</code> is tracked in git (root <code>.gitignore</code> uses <code>/lib/</code> only, not <code>ros_ws/scripts/lib/</code>). Teleop and episode capture share the same readiness gates.</p>
+<h3>Command recorder (`command_recorder.py`)</h3>
+<p>Subscribes to <code>/litevla/current_action</code>, appends JSONL rows with sim timestamps.</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Mode</th><th scope="col">Script</th><th scope="col">Output</th></tr></thead><tbody><tr><td>Casual teleop</td><td><code>run_teleop_sim.sh</code></td><td><code>outputs/teleop/&lt;ts&gt;/commands.jsonl</code></td></tr><tr><td>Full episode capture</td><td><code>run_episode_capture.sh</code> (VLA-42)</td><td><code>data/raw/episodes/&lt;id&gt;/commands.jsonl</code> + frames</td></tr></tbody></table></div>
+</section>
+<section id="decisions">
+<h2>Engineering decisions</h2>
+<p><strong>ADR: Shell script owns teleop stdin</strong></p>
+<ul><li><strong>Status:</strong> Accepted</li><li><strong>Context:</strong> <code>ros2 launch</code> backgrounds nodes; keyboard teleop requires foreground stdin.</li><li><strong>Decision:</strong> <code>run_teleop_sim.sh</code> launches sim/heartbeat/recorder in background, <code>teleop_keyboard</code> in foreground.</li><li><strong>Alternatives rejected:</strong> Launch-only teleop (stdin broken); separate terminal wrapper without readiness gates (fragile controller startup).</li><li><strong>Consequences:</strong> Document the script as canonical; keep <code>teleop_sim.launch.py</code> for non-keyboard integration tests only.</li></ul>
+<p><strong>ADR: Game-style holds vs discrete tap-to-step</strong></p>
+<ul><li><strong>Status:</strong> Accepted</li><li><strong>Decision:</strong> 50 Hz poll, 120 ms hold after last key event; release → STOP.</li><li><strong>Consequences:</strong> Better driving feel; recorder sees compound labels for diagonal motion.</li></ul>
+</section>
+<section id="verification">
+<h2>Verification patterns</h2>
+<pre><code class="language-bash">source /opt/ros/jazzy/setup.bash
 source ros_ws/install/setup.bash
 colcon test --packages-select litevla_bridge   # test_teleop_utils.py
 
@@ -169,120 +124,49 @@ colcon test --packages-select litevla_bridge   # test_teleop_utils.py
 ./ros_ws/scripts/run_teleop_sim.sh
 ./ros_ws/scripts/stop_teleop_sim.sh
 ls outputs/teleop/*/commands.jsonl</code></pre>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Test / command</th>
-                <th scope="col">Contract defended</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>test_teleop_utils.py</code></td>
-                <td>Key combos, hold expiry, opposing-key cancellation</td>
-              </tr>
-              <tr>
-                <td><code>run_teleop_sim.sh</code></td>
-                <td>TTY guard, <code>/clock</code>, active <code>joint_state_broadcaster</code> + <code>diffdrive_controller</code></td>
-              </tr>
-              <tr>
-                <td>JSONL output</td>
-                <td>Recorder receives action labels with timestamps</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="key-map">
-        <h2>Key map</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Key</th>
-                <th scope="col">Behavior</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>w</code> / <code>↑</code></td>
-                <td>Forward</td>
-              </tr>
-              <tr>
-                <td><code>s</code> / <code>↓</code></td>
-                <td>Backward (<code>MOVE_BACKWARD</code>)</td>
-              </tr>
-              <tr>
-                <td><code>a</code> / <code>←</code></td>
-                <td>Turn left</td>
-              </tr>
-              <tr>
-                <td><code>d</code> / <code>→</code></td>
-                <td>Turn right</td>
-              </tr>
-              <tr>
-                <td><code>x</code> / <code>space</code></td>
-                <td>Brake (STOP)</td>
-              </tr>
-              <tr>
-                <td><code>q</code></td>
-                <td>Quit</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="control-modes">
-        <h2>Control modes</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col"><code>control_mode</code></th>
-                <th scope="col">Behavior</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>dummy</code></td>
-                <td>Dummy generator active; teleop idle</td>
-              </tr>
-              <tr>
-                <td><code>teleop</code></td>
-                <td>Teleop active; dummy idle</td>
-              </tr>
-              <tr>
-                <td><code>model</code></td>
-                <td>Reserved (Epic 108)</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="related">
-        <h2>Related</h2>
-        <ul>
-          <li><a href="control-heartbeat.html">control-heartbeat</a> (VLA-27)</li>
-          <li><a href="dummy-action-generator.html">dummy-action-generator</a> (VLA-26)</li>
-          <li><a href="webots-sim-environment.html">webots-sim-environment</a> (VLA-23)</li>
-          <li><a href="../dataset-generation-labeling-and-validation/simulation-data-capture.html">VLA-42 episode capture</a></li>
-        </ul>
-      </section>
+<div class="table-wrap"><table><thead><tr><th scope="col">Test / command</th><th scope="col">Contract defended</th></tr></thead><tbody><tr><td><code>test_teleop_utils.py</code></td><td>Key combos, hold expiry, opposing-key cancellation</td></tr><tr><td><code>run_teleop_sim.sh</code></td><td>TTY guard, <code>/clock</code>, active <code>joint_state_broadcaster</code> + <code>diffdrive_controller</code></td></tr><tr><td>JSONL output</td><td>Recorder receives action labels with timestamps</td></tr></tbody></table></div>
+</section>
+<section id="failure-modes">
+<h2>Failure modes and debugging path</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">How to investigate</th><th scope="col">Fix</th></tr></thead><tbody><tr><td>&quot;stdin is not a TTY&quot;</td><td>Launched via <code>ros2 launch</code> or IDE task</td><td>Check how teleop was started</td><td>Use <code>./ros_ws/scripts/run_teleop_sim.sh</code> in real terminal</td></tr><tr><td>Keys ignored</td><td><code>control_mode</code> not <code>teleop</code></td><td>Node logs on startup</td><td>Set <code>control_mode:=teleop</code></td></tr><tr><td>Robot stops immediately</td><td>Heartbeat timeout / grace</td><td>Diagnostics <code>action_age_ms</code></td><td>Teleop script sets shorter timeout + grace</td></tr><tr><td>No JSONL file</td><td>Recorder not started</td><td>Check script background steps</td><td>Use <code>run_teleop_sim.sh</code></td></tr><tr><td>Webots frozen / no clock</td><td>Stale process</td><td><code>ros2 topic hz /clock</code></td><td><code>stop_teleop_sim.sh</code> and relaunch</td></tr></tbody></table></div>
+</section>
+<section id="key-map">
+<h2>Key map</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Key</th><th scope="col">Behavior</th></tr></thead><tbody><tr><td><code>w</code> / <code>↑</code></td><td>Forward</td></tr><tr><td><code>s</code> / <code>↓</code></td><td>Backward (<code>MOVE_BACKWARD</code>)</td></tr><tr><td><code>a</code> / <code>←</code></td><td>Turn left</td></tr><tr><td><code>d</code> / <code>→</code></td><td>Turn right</td></tr><tr><td><code>x</code> / <code>space</code></td><td>Brake (STOP)</td></tr><tr><td><code>q</code></td><td>Quit</td></tr></tbody></table></div>
+</section>
+<section id="control-modes">
+<h2>Control modes</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col"><code>control_mode</code></th><th scope="col">Behavior</th></tr></thead><tbody><tr><td><code>dummy</code></td><td>Dummy generator active; teleop idle</td></tr><tr><td><code>teleop</code></td><td>Teleop active; dummy idle</td></tr><tr><td><code>model</code></td><td>Reserved (Epic 108)</td></tr></tbody></table></div>
+</section>
+<section id="principle">
+<h2>Engineering principle taught by this task</h2>
+<p>This task teaches <strong>separating interactive I/O from actuation</strong>: human input produces intent on a schedule the heartbeat understands; TTY/process ownership is part of the system design, not an implementation detail.</p>
+</section>
+<section id="learning">
+<h2>Active learning checks</h2>
+<ol><li>Why must teleop run in the foreground of a real terminal?</li><li>Which topic does teleop publish, and which topic moves the robot?</li><li>Why is <code>MOVE_BACKWARD</code> not in the ML action enum?</li><li>What readiness gates does <code>run_teleop_sim.sh</code> wait for before accepting keys?</li></ol>
+</section>
+<section id="learning">
+<h2>Small modification exercise</h2>
+<p>Change hold duration in <code>teleop_utils.py</code> (e.g. 120 ms → 200 ms). Run <code>test_teleop_utils.py</code>, then teleop briefly—keys should feel &quot;stickier.&quot; Confirm heartbeat still receives desired twists via <code>ros2 topic echo /litevla/desired_twist</code>.</p>
+</section>
+<section id="related">
+<h2>Related</h2>
+<ul><li><a href="control-heartbeat.html">control-heartbeat.md</a> (VLA-27)</li><li><a href="dummy-action-generator.html">dummy-action-generator.md</a> (VLA-26)</li><li><a href="webots-sim-environment.html">webots-sim-environment.md</a> (VLA-23)</li><li><a href="../dataset-generation-labeling-and-validation/simulation-data-capture.html">simulation-data-capture.md</a> (VLA-42 episode capture)</li></ul>
+</section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 102 task documentation</p>
+      <p>Lite-VLA · Epic 102 · <code>manual-teleoperation.md</code> is the agent source of truth.</p>
     </footer>
   </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

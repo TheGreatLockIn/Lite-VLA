@@ -3,47 +3,188 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Safety clamp and fallback — Epic 103</title>
+  <title>Safety clamp and fallback behavior — Epic 103</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 103 · Story 1021</p>
+      <p class="eyebrow">Action Interface, Parser, and Safety Layer (103) · Jira: Story 1021</p>
       <h1>Safety clamp and fallback behavior</h1>
-      <p class="doc-lead">
-        Fail-safe boundary between VLA model text and bounded <code>/cmd_vel</code> publishing.
-      </p>
+      <p class="doc-lead"><code>litevla.actions.safety</code> is the <strong>fail-safe boundary</strong> between VLA model text and ROS <code>/cmd_vel</code> publishing. It composes the discrete parser (Story 1019) and velocity mapper (Story 1017), clamps every command to configured limits, converts parse failures into zero-velocity <code>STOP</code>, and logs safety events with the original model output. Subtasks covered: <strong>10063</strong> (velocity clamp), <strong>10064</strong> (invalid-output STOP), <strong>10065</strong> (safety event logging), <strong>10252</strong> and <strong>10253</strong> (learning).</p>
       <nav class="doc-nav" aria-label="On this page">
         <a href="#summary">Summary</a> ·
-        <a href="#contract">Contract</a> ·
-        <a href="#learning">Learning</a> ·
-        <a href="#implementation">Implementation</a> ·
-        <a href="#decisions">Decisions</a> ·
-        <a href="#verification">Verification</a>
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#backstory-why-this-exists">Backstory: why this exists</a> ·
+        <a href="#prerequisites">Prerequisites</a> ·
+        <a href="#concept-primer-vocabulary">Vocabulary</a> ·
+        <a href="#guided-code-reading">Code reading</a> ·
+        <a href="#file-and-artifact-index">File index</a> ·
+        <a href="#api-contract-and-data-flow">Contract</a> ·
+        <a href="#implementation-breakdown">Implementation</a> ·
+        <a href="#engineering-decisions">Decisions</a> ·
+        <a href="#verification-patterns">Verification</a> ·
+        <a href="#failure-modes-and-debugging-path">Debugging</a> ·
+        <a href="#engineering-principle-taught-by-this-task">Principle</a> ·
+        <a href="#active-learning-checks">Learning</a> ·
+        <a href="#small-modification-exercise">Exercise</a> ·
+        <a href="#open-questions">Questions</a> ·
+        <a href="#related-docs">Related</a>
       </nav>
     </header>
 
     <main>
       <section id="summary">
         <h2>Executive summary</h2>
-        <p>
-          <code>litevla.actions.safety</code> is the <strong>fail-safe boundary</strong> between VLA model text
-          and ROS <code>/cmd_vel</code> publishing. It composes the discrete parser (Story 1019) and velocity
-          mapper (Story 1017), clamps every command to configured limits, converts parse failures into
-          zero-velocity <code>STOP</code>, and logs safety events with the original model output.
-        </p>
-        <p>
-          Subtasks covered: <strong>10063</strong> (velocity clamp), <strong>10064</strong> (invalid-output STOP),
-          <strong>10065</strong> (safety event logging), <strong>10252</strong> and <strong>10253</strong> (learning).
-        </p>
+        <p><code>litevla.actions.safety</code> is the <strong>fail-safe boundary</strong> between VLA model text and ROS <code>/cmd_vel</code> publishing. It composes the discrete parser (Story 1019) and velocity mapper (Story 1017), clamps every command to configured limits, converts parse failures into zero-velocity <code>STOP</code>, and logs safety events with the original model output.</p>
+        <p>Subtasks covered: <strong>10063</strong> (velocity clamp), <strong>10064</strong> (invalid-output STOP), <strong>10065</strong> (safety event logging), <strong>10252</strong> and <strong>10253</strong> (learning).</p>
       </section>
 
-      <section id="contract">
-        <h2>API contract and data flow</h2>
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p>Think of this module as the <strong>airport security checkpoint</strong> between “what the model said” and “what the wheels are allowed to do.”</p>
+        <p>It exists because no upstream module — not the VLM, not the parser, not the schema mapper — should be trusted to always produce safe, bounded motion. Something must guarantee that every path to <code>/cmd_vel</code> ends in a clamped velocity or zero.</p>
+        <p>The key engineering tension is <strong>fail-fast in development vs. fail-safe at runtime</strong> — schema raises on bad tokens for test clarity, but ROS nodes must never crash or publish unbounded values when the model hallucinates prose.</p>
+        <p>A beginner mistake is calling <code>action_to_twist</code> directly on raw model output in a ROS node, bypassing parse-failure handling and structured event logging.</p>
+        <p>A senior engineer watches for <strong>dual clamp paths</strong> — <code>action_to_twist</code> already clamps, but <code>clamp_twist_velocities</code> exists for future continuous/JSON velocity inputs; know which entry point your code path uses.</p>
+      </section>
 
-        <h3>Task-local flow</h3>
+      <section id="backstory-why-this-exists">
+        <h2>Backstory: why this exists</h2>
+        <p>Before this module existed, parse failures might propagate as exceptions or silent no-ops, and velocity limits lived only in the nominal action table without a single publish-time gate.</p>
+        <p>The naive solution would be <code>try/except</code> around <code>action_to_twist</code> in every ROS node, or embedding <code>STOP</code> logic inside the parser.</p>
+        <p>That breaks because exception handling duplicates across nodes, logs are inconsistent, and “parser returned stop” becomes indistinguishable from “model said STOP.” Operational review needs structured events with <code>original_text</code>.</p>
+        <p>So this design chooses <strong><code>safe_command_from_text</code> / <code>safe_command_from_action</code></strong> as the single fail-safe composer: parse → map → clamp → log → always return <code>SafeCommand</code>.</p>
+        <p>This pattern appears in real systems as <strong>safety interlocks</strong> — industrial controllers, avionics command validators, and game netcode servers all convert invalid input to safe default output at the last responsible layer.</p>
+      </section>
+
+      <section id="prerequisites">
+        <h2>Prerequisites</h2>
+        <p>Before reading this module, you should understand:</p>
+        <ul>
+          <li><strong>Parser contract</strong> — <a href="discrete-action-parser.html"><code>discrete-action-parser.md</code></a>: returns <code>None</code> on failure.</li>
+          <li><strong>Schema mapping</strong> — <a href="action-schema.html"><code>action-schema.md</code></a>: <code>action_to_twist</code> and <code>clamp_velocity</code>.</li>
+          <li><strong>ROS publishing</strong> — <code>/cmd_vel</code> carries <code>Twist</code> messages; this module outputs floats, not ROS types.</li>
+          <li><strong>Config <code>safety</code> section</strong> — <code>max_linear_vel</code> / <code>max_angular_vel</code> in <code>configs/default.example.yaml</code>.</li>
+          <li><strong>Optional downstream</strong> — <a href="command-smoothing.html"><code>command-smoothing.md</code></a> rate-limits after the safety gate.</li>
+        </ul>
+      </section>
+
+      <section id="concept-primer-vocabulary">
+        <h2>Concept primer / vocabulary</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Term</th>
+              <th>Meaning in this project</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>SafeCommand</code></td>
+              <td>Bounded velocity + effective <code>DiscreteAction</code> + event trail; ready for smoother or <code>/cmd_vel</code>.</td>
+            </tr>
+            <tr>
+              <td><code>SafetyEvent</code></td>
+              <td>Structured record: kind, message, optional <code>original_text</code>.</td>
+            </tr>
+            <tr>
+              <td><code>SafetyEventKind</code></td>
+              <td><code>ok</code>, <code>parse_failure</code>, or <code>velocity_clamped</code>.</td>
+            </tr>
+            <tr>
+              <td><code>safe_command_from_text</code></td>
+              <td>Main ROS entry: raw VLA string → always returns <code>SafeCommand</code>.</td>
+            </tr>
+            <tr>
+              <td><code>safe_command_from_action</code></td>
+              <td>Known discrete action → clamped <code>SafeCommand</code> with events.</td>
+            </tr>
+            <tr>
+              <td><code>clamp_twist_velocities</code></td>
+              <td>Standalone axis clamp returning <code>was_clamped</code> flag.</td>
+            </tr>
+            <tr>
+              <td>Parse failure fallback</td>
+              <td><code>None</code> from parser → <code>(0.0, 0.0)</code> with <code>DiscreteAction.STOP</code>.</td>
+            </tr>
+            <tr>
+              <td>Fail-report vs. fail-safe</td>
+              <td>Parser reports failure; safety gate enforces safe motion.</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="guided-code-reading">
+        <h2>Guided code reading</h2>
+        <p>Read these in order:</p>
+        <ol>
+          <li><strong><code>litevla/actions/safety.py</code></strong> — dataclasses <code>SafeCommand</code>, <code>SafetyEvent</code>, <code>SafetyEventKind</code>.</li>
+          <li><strong><code>clamp_twist_velocities</code></strong> — reusable primitive for non-discrete paths.</li>
+          <li><strong><code>safe_command_from_action</code></strong> — nominal vs. clamped comparison and event emission.</li>
+          <li><strong><code>safe_command_from_text</code></strong> — parse failure branch (the fail-safe heart).</li>
+          <li><strong><code>tests/test_action_safety.py</code></strong> — especially invalid-text → STOP and logging tests.</li>
+        </ol>
+        <p>While reading, ask:</p>
+        <ul>
+          <li>Where does data enter? — Raw VLA <code>text</code> or known <code>DiscreteAction</code>.</li>
+          <li>Where is it validated? — <code>parse_discrete_action</code>; <code>DiscreteAction</code> coercion in <code>safe_command_from_action</code>.</li>
+          <li>Where can it fail? — Never raises to caller; parse failure becomes zero-velocity STOP.</li>
+          <li>Who owns the final side effect? — Still not this module — it returns <code>SafeCommand</code>; ROS node publishes <code>Twist</code>.</li>
+        </ul>
+      </section>
+
+      <section id="file-and-artifact-index">
+        <h2>File and artifact index</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>File or artifact</th>
+              <th>What it is</th>
+              <th>Why it matters</th>
+              <th>First thing to inspect</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>litevla/actions/safety.py</code></td>
+              <td>Fail-safe gate implementation</td>
+              <td>Last software layer before motion</td>
+              <td><code>safe_command_from_text</code></td>
+            </tr>
+            <tr>
+              <td><code>litevla/actions/parser.py</code></td>
+              <td>Upstream parser</td>
+              <td>Called for every text input</td>
+              <td><code>parse_discrete_action</code></td>
+            </tr>
+            <tr>
+              <td><code>litevla/actions/schema.py</code></td>
+              <td>Velocity mapping + <code>clamp_velocity</code></td>
+              <td>Used inside <code>safe_command_from_action</code></td>
+              <td><code>action_to_twist</code></td>
+            </tr>
+            <tr>
+              <td><code>tests/test_action_safety.py</code></td>
+              <td>Safety contract tests</td>
+              <td>STOP fallback, clamp events, logging</td>
+              <td><code>test_safe_command_from_text_invalid_outputs_stop</code></td>
+            </tr>
+            <tr>
+              <td><code>scripts/run_dummy_pipeline.py</code></td>
+              <td>Integration demo</td>
+              <td>Shows valid + invalid text paths</td>
+              <td>Invalid text fallback section</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="api-contract-and-data-flow">
+        <h2>API contract and data flow</h2>
+        <p>### What “contract” means here</p>
+        <p>For this module, <strong>contract</strong> means: <strong>every call returns a <code>SafeCommand</code></strong> with velocities clamped to configured limits. Raw model text that does not parse always becomes zero velocity with <code>DiscreteAction.STOP</code> and a <code>PARSE_FAILURE</code> event. The module never raises to the caller — this is the fail-safe publish boundary.</p>
+        <p>### Task-local flow</p>
         <pre><code class="language-text">VLA raw text
         │
         ├──&gt; parse_discrete_action (1019) ──&gt; DiscreteAction | None
@@ -53,50 +194,92 @@
         └──&gt; action_to_twist (1017) ──&gt; clamp check ──&gt; SafeCommand
                                                     │
                                                     └──&gt; /cmd_vel (1022 smoother optional)</code></pre>
-
-        <h3>Contract</h3>
+        <p>### Contract table</p>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><strong>Input</strong></td><td>Raw VLA text string, or a known <code>DiscreteAction</code></td></tr>
-              <tr><td><strong>Output</strong></td><td><code>SafeCommand</code> with clamped velocities, effective action, and event trail</td></tr>
-              <tr><td><strong>Parse failure</strong></td><td>Publishes <code>STOP</code> at <code>(0.0, 0.0)</code> — never raises</td></tr>
-              <tr><td><strong>Velocity limits</strong></td><td>Config <code>safety.max_linear_vel</code> / <code>safety.max_angular_vel</code></td></tr>
-              <tr><td><strong>Logging</strong></td><td>WARNING on parse failure and clamp; DEBUG on OK</td></tr>
+            <thead><tr>
+              <th>Surface</th>
+              <th>Rule</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><strong>Input</strong></td>
+              <td>Raw VLA text string, or a known <code>DiscreteAction</code></td>
+            </tr>
+            <tr>
+              <td><strong>Output</strong></td>
+              <td><code>SafeCommand</code> with clamped <code>(linear_x, angular_z)</code>, effective action, and <code>SafetyEvent</code> trail</td>
+            </tr>
+            <tr>
+              <td><strong>Parse failure</strong></td>
+              <td>Publishes <code>STOP</code> at <code>(0.0, 0.0)</code> — never raises to caller</td>
+            </tr>
+            <tr>
+              <td><strong>Velocity limits</strong></td>
+              <td>From config <code>safety.max_linear_vel</code> / <code>safety.max_angular_vel</code> (MVP design points: 0.2 m/s, 0.6 rad/s)</td>
+            </tr>
+            <tr>
+              <td><strong>Logging</strong></td>
+              <td>WARNING on parse failure and clamp; DEBUG on OK</td>
+            </tr>
             </tbody>
           </table>
         </div>
+        <p>### Naive approach vs chosen approach</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Approach</th>
+              <th>Why it seems attractive</th>
+              <th>Why we did or did not choose it</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>STOP</code> inside parser</td>
+              <td>One function call always succeeds</td>
+              <td>Blurs parse failure vs. explicit stop; loses event semantics</td>
+            </tr>
+            <tr>
+              <td>try/except at every ROS node</td>
+              <td>Local control</td>
+              <td>Duplicated policy; inconsistent logs</td>
+            </tr>
+            <tr>
+              <td>Raise on parse failure</td>
+              <td>Surfaces bugs immediately</td>
+              <td>Crashes or stalls ROS nodes on bad model output</td>
+            </tr>
+            <tr>
+              <td><strong>Central <code>safe_command_from_text</code></strong></td>
+              <td>Extra indirection</td>
+              <td>Single fail-safe owner; structured events; testable</td>
+            </tr>
+            <tr>
+              <td>Structured events + logging</td>
+              <td>More types to maintain</td>
+              <td>Enables metrics, post-incident review, caplog tests</td>
+            </tr>
+            <tr>
+              <td>Discrete-only MVP path</td>
+              <td>Defers JSON velocities</td>
+              <td>Clear extension point via <code>clamp_twist_velocities</code></td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>### Trade-offs</p>
+        <ul>
+          <li><strong>Discrete-only MVP path</strong> — this module accepts VLA text and maps through <code>parse_discrete_action</code>. JSON velocity parsing (Stories 1018/1020) can extend the gate later without changing the fail-safe contract.</li>
+          <li><strong>Structured events + logging</strong> — <code>SafeCommand.events</code> supports tests and offline metrics; <code>logging</code> supports live ROS nodes.</li>
+          <li><strong>Fail-safe at publish boundary</strong> — parser reports <code>None</code>; schema raises on bad tokens; safety gate always returns a bounded command.</li>
+        </ul>
+        <p>### Learning context (RSK-04, RSK-02)</p>
+        <p><strong>Velocity clamping:</strong> per-axis <code>clamp_velocity</code> maps values into <code>[-limit, limit]</code> while preserving sign. Nominal <code>ACTION_VELOCITIES</code> may exceed deploy config; <code>VELOCITY_CLAMPED</code> events record when that happens.</p>
+        <p><strong>Fail-safe fallback:</strong> conversational VLM output (RSK-02) must become zero velocity. <code>SafetyEventKind.PARSE_FAILURE</code> carries <code>original_text</code> for review. ROS nodes should call <code>safe_command_from_text</code>, not <code>action_to_twist</code> on unvalidated output.</p>
       </section>
 
-      <section id="learning">
-        <h2>Learning notes</h2>
-
-        <h3>Subtask 10252 — Velocity clamping and operational limits</h3>
-        <p><strong>Why clamp?</strong> Nominal discrete speeds or future continuous outputs must never exceed deployment ceilings.</p>
-        <ul>
-          <li><strong>Per-axis clamping</strong> — <code>clamp_velocity</code> maps each axis into <code>[-limit, limit]</code>.</li>
-          <li><strong>Nominal vs. config limits</strong> — <code>ACTION_VELOCITIES</code> is stable for training; config tightens deploy limits.</li>
-          <li><strong>Detection</strong> — <code>VELOCITY_CLAMPED</code> events when nominal values exceed config (RSK-04).</li>
-        </ul>
-        <p>MVP limits: linear ≤ 0.2 m/s, angular ≤ 0.6 rad/s at full design point.</p>
-
-        <h3>Subtask 10253 — Fail-safe fallback and safety event logging</h3>
-        <p><strong>Why fallback STOP?</strong> VLMs can emit conversational text instead of action tokens (RSK-02).</p>
-        <ul>
-          <li><strong>Fail-report vs. fail-safe</strong> — parser returns <code>None</code>; safety gate publishes <code>STOP</code>.</li>
-          <li><strong>Safety events</strong> — <code>SafetyEventKind</code>: <code>ok</code>, <code>parse_failure</code>, <code>velocity_clamped</code>.</li>
-          <li><strong>Logging levels</strong> — WARNING for failures/clamps with original text; DEBUG for OK.</li>
-        </ul>
-        <p>ROS nodes should call <code>safe_command_from_text</code> before publishing <code>Twist</code>.</p>
-      </section>
-
-      <section id="implementation">
+      <section id="implementation-breakdown">
         <h2>Implementation breakdown</h2>
-
-        <h3>Velocity clamp (Subtask 10063)</h3>
+        <p>### Velocity clamp (Subtask 10063)</p>
+        <p><strong>Snippet</strong> (<code>litevla/actions/safety.py</code>):</p>
         <pre><code class="language-python">def clamp_twist_velocities(
     linear_x: float,
     angular_z: float,
@@ -108,72 +291,203 @@
     clamped_angular = clamp_velocity(angular_z, max_angular_vel)
     was_clamped = clamped_linear != linear_x or clamped_angular != angular_z
     return clamped_linear, clamped_angular, was_clamped</code></pre>
-        <p><strong>Design:</strong> Reuses Story 1017 <code>clamp_velocity</code>. Standalone helper for future JSON/continuous paths.</p>
-
-        <h3>Invalid-output STOP (Subtask 10064)</h3>
-        <pre><code class="language-python">parsed = parse_discrete_action(text)
-if parsed is None:
-    return SafeCommand(
-        linear_x=0.0,
-        angular_z=0.0,
-        action=DiscreteAction.STOP,
-        original_text=text,
-        events=(SafetyEvent(kind=SafetyEventKind.PARSE_FAILURE, ...),),
-    )</code></pre>
-        <p><strong>Design:</strong> Never raises. Every path returns a bounded <code>SafeCommand</code>.</p>
-
-        <h3>Safety event logging (Subtask 10065)</h3>
+        <p><strong>What to notice:</strong> Returns a <code>was_clamped</code> boolean for event emission and metrics.</p>
+        <p><strong>Why it is written this way:</strong> Reuses <code>clamp_velocity</code> from Story 1017. Exposed as a standalone helper for future continuous/JSON paths.</p>
+        <p><strong>Risks and gotchas:</strong> Does not validate NaN/Inf inputs (same as schema). Discrete path uses <code>action_to_twist</code> which already clamps — know which path you are on.</p>
+        <p>---</p>
+        <p>### Invalid-output STOP (Subtask 10064)</p>
+        <p><strong>Snippet:</strong></p>
+        <pre><code class="language-python">def safe_command_from_text(text: str, *, max_linear_vel: float, max_angular_vel: float, ...) -&gt; SafeCommand:
+    parsed = parse_discrete_action(text)
+    if parsed is None:
+        return SafeCommand(
+            linear_x=0.0,
+            angular_z=0.0,
+            action=DiscreteAction.STOP,
+            original_text=text,
+            events=(SafetyEvent(kind=SafetyEventKind.PARSE_FAILURE, ...),),
+        )
+    return safe_command_from_action(parsed, ...)</code></pre>
+        <p><strong>What to notice:</strong> Never raises — every code path returns <code>SafeCommand</code>. Effective action is <code>STOP</code> on parse failure.</p>
+        <p><strong>Why it is written this way:</strong> Concentrates fail-safe policy in one module; downstream always gets a bounded command.</p>
+        <p><strong>Risks and gotchas:</strong> Multi-token strings where the first token is valid still execute that token (parser behavior). Hardware e-stop integration is deferred to ROS runtime nodes.</p>
+        <p>---</p>
+        <p>### Safety event logging (Subtask 10065)</p>
+        <p><strong>Snippet:</strong></p>
         <pre><code class="language-python">def _log_event(event: SafetyEvent, *, logger: logging.Logger) -&gt; None:
     if event.kind is SafetyEventKind.OK:
         logger.debug(event.message)
         return
-    detail = f"{event.message} (original_text={event.original_text!r})"
+    detail = event.message
+    if event.original_text is not None:
+        detail = f&quot;{detail} (original_text={event.original_text!r})&quot;
     logger.warning(detail)</code></pre>
-        <p><strong>Design:</strong> Structured <code>SafeCommand.events</code> for tests; <code>logging</code> for live nodes.</p>
-
-        <h3>Integration</h3>
-        <p><code>scripts/run_dummy_pipeline.py</code> uses <code>safe_command_from_action</code> for known tokens and demonstrates invalid-text fallback.</p>
+        <p><strong>What to notice:</strong> OK events are DEBUG; failures and clamps are WARNING with quoted <code>original_text</code>.</p>
+        <p><strong>Why it is written this way:</strong> <code>SafeCommand.events</code> preserves structured history for tests; logging supports live nodes without log capture in unit tests.</p>
+        <p><strong>Risks and gotchas:</strong> High-frequency invalid outputs could flood WARNING logs during bad model runs — Story 1027 may add rate-limited counters.</p>
+        <p>---</p>
+        <p>### Public API surface</p>
+        <p><strong>Snippet</strong> (<code>litevla/actions/__init__.py</code>):</p>
+        <pre><code class="language-python">from litevla.actions.safety import (
+    SafeCommand,
+    SafetyEvent,
+    SafetyEventKind,
+    clamp_twist_velocities,
+    safe_command_from_action,
+    safe_command_from_text,
+)</code></pre>
+        <p><strong>What to notice:</strong> Safety types are first-class public exports.</p>
+        <p><strong>Why it is written this way:</strong> ROS nodes import from <code>litevla.actions</code> only.</p>
+        <p><strong>Risks and gotchas:</strong> Bypassing this module for model text breaks the fail-safe contract.</p>
       </section>
 
-      <section id="decisions">
+      <section id="engineering-decisions">
         <h2>Engineering decisions</h2>
         <pre><code class="language-text">ADR: Central safety gate for discrete MVP
 Status: Accepted
-Context: Parser reports failure; schema fail-fast; ROS needs fail-safe publishing (RSK-02, RSK-04).
-Decision: safe_command_from_text / safe_command_from_action in litevla.actions.safety.
-Alternatives Rejected: STOP inside parser; try/except at every call site.
-Consequences: Route all model text through the safety gate before /cmd_vel.</code></pre>
+Context: Parser (1019) reports failure; schema (1017) fail-fast on bad tokens; ROS needs fail-safe publishing (RSK-02, RSK-04).
+Decision: safe_command_from_text / safe_command_from_action in litevla.actions.safety own clamp + STOP + logging.
+Alternatives Rejected: STOP inside parser (blurs boundaries); try/except around action_to_twist at every call site.
+Consequences: ROS and inference nodes should route all model text through the safety gate before /cmd_vel.</code></pre>
       </section>
 
-      <section id="verification">
+      <section id="verification-patterns">
         <h2>Verification patterns</h2>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Contract</th><th scope="col">Test</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Axis clamp within/outside limits</td><td><code>test_clamp_twist_velocities_*</code></td></tr>
-              <tr><td>Valid text → action + velocity</td><td><code>test_safe_command_from_text_valid_outputs</code></td></tr>
-              <tr><td>Invalid text → STOP</td><td><code>test_safe_command_from_text_invalid_outputs_stop</code></td></tr>
-              <tr><td>Config limits clamp nominal</td><td><code>test_safe_command_from_action_clamps_to_config_limits</code></td></tr>
-              <tr><td>Parse failure logged</td><td><code>test_safe_command_from_text_logs_parse_failure</code></td></tr>
-              <tr><td>Clamp event logged</td><td><code>test_safe_command_from_action_logs_clamp_event</code></td></tr>
+            <thead><tr>
+              <th>Contract defended</th>
+              <th>Where</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Axis clamp within/outside limits</td>
+              <td><code>test_clamp_twist_velocities_*</code></td>
+            </tr>
+            <tr>
+              <td>Valid text → correct action and velocity</td>
+              <td><code>test_safe_command_from_text_valid_outputs</code></td>
+            </tr>
+            <tr>
+              <td>Invalid text → STOP at zero velocity</td>
+              <td><code>test_safe_command_from_text_invalid_outputs_stop</code></td>
+            </tr>
+            <tr>
+              <td>Config limits clamp nominal speeds</td>
+              <td><code>test_safe_command_from_action_clamps_to_config_limits</code></td>
+            </tr>
+            <tr>
+              <td>Parse failure logged with original text</td>
+              <td><code>test_safe_command_from_text_logs_parse_failure</code></td>
+            </tr>
+            <tr>
+              <td>Clamp event logged</td>
+              <td><code>test_safe_command_from_action_logs_clamp_event</code></td>
+            </tr>
             </tbody>
           </table>
         </div>
+        <p><strong>Run:</strong></p>
         <pre><code class="language-bash">pytest tests/test_action_safety.py -q
 python scripts/run_dummy_pipeline.py</code></pre>
       </section>
+
+      <section id="failure-modes-and-debugging-path">
+        <h2>Failure modes and debugging path</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Symptom</th>
+              <th>Likely cause</th>
+              <th>How to investigate</th>
+              <th>Fix</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Robot stops despite plausible model output</td>
+              <td>Parse failure → STOP fallback</td>
+              <td>Check WARNING logs for <code>original_text</code></td>
+              <td>Fix prompt/token format; see parser doc</td>
+            </tr>
+            <tr>
+              <td>WARNING flood during eval</td>
+              <td>High parse-failure rate</td>
+              <td>Count <code>PARSE_FAILURE</code> events in metrics</td>
+              <td>Improve model/prompt; rate-limit logs (open question)</td>
+            </tr>
+            <tr>
+              <td>Velocity lower than nominal</td>
+              <td>Config clamp below design point</td>
+              <td>Look for <code>VELOCITY_CLAMPED</code> event</td>
+              <td>Adjust <code>safety.max_*</code> or accept deploy limit</td>
+            </tr>
+            <tr>
+              <td><code>SafeCommand</code> OK but no motion</td>
+              <td>Downstream smoother or ROS node</td>
+              <td>Trace past safety gate</td>
+              <td>See <a href="command-smoothing.html"><code>command-smoothing.md</code></a></td>
+            </tr>
+            <tr>
+              <td>Tests expect exception but get STOP</td>
+              <td>Called safety gate, not schema</td>
+              <td>Identify call path</td>
+              <td>Use <code>action_to_twist</code> only in tests with valid tokens</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="engineering-principle-taught-by-this-task">
+        <h2>Engineering principle taught by this task</h2>
+        <p>This task teaches the <strong>fail-safe boundary</strong> pattern: upstream modules may fail-fast or report <code>None</code> for clarity in tests, but the last software layer before physical actuation must never leave the robot in an undefined state. Convert unknown input into known-safe output, log what happened, and preserve structured evidence for operators.</p>
+      </section>
+
+      <section id="active-learning-checks">
+        <h2>Active learning checks</h2>
+        <p>Before modifying this module, answer:</p>
+        <ol>
+          <li>Why does <code>safe_command_from_text</code> never raise, while <code>action_to_twist</code> can raise <code>ValueError</code>?</li>
+          <li>What is the difference between <code>PARSE_FAILURE</code> and an explicit model output of <code>STOP</code>?</li>
+          <li>Why does <code>safe_command_from_action</code> emit <code>VELOCITY_CLAMPED</code> when nominal values exceed config?</li>
+          <li>How would you test that invalid model text produces zero velocity without starting ROS?</li>
+        </ol>
+      </section>
+
+      <section id="small-modification-exercise">
+        <h2>Small modification exercise</h2>
+        <p>Lower <code>safety.max_linear_vel</code> to <code>0.1</code> in a local config copy and call <code>safe_command_from_action(DiscreteAction.MOVE_FORWARD, max_linear_vel=0.1, max_angular_vel=0.6)</code>. Verify <code>command.linear_x == 0.1</code> and that <code>command.events[0].kind</code> is <code>SafetyEventKind.VELOCITY_CLAMPED</code>. Run <code>pytest tests/test_action_safety.py -q</code>.</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li>Should JSON velocities (Story 1020) enter through <code>clamp_twist_velocities</code> only, or a parallel <code>safe_command_from_json</code>?</li>
+          <li>Should repeated parse failures trigger a latched e-stop flag in the ROS node?</li>
+          <li>Rate-limit safety WARNING logs during baseline evaluation (Story 1027)?</li>
+        </ul>
+      </section>
+
+      <section id="related-docs">
+        <h2>Related docs</h2>
+        <ul>
+          <li>Vocabulary contract: <a href="action-schema.html"><code>action-schema.md</code></a></li>
+          <li>Parser (upstream): <a href="discrete-action-parser.html"><code>discrete-action-parser.md</code></a></li>
+          <li>Command smoothing (downstream): <a href="command-smoothing.html"><code>command-smoothing.md</code></a></li>
+          <li>Epic walkthrough: <a href="index.html"><code>index.html</code></a></li>
+        </ul>
+      </section>
+
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA epic task documentation.</p>
+      <p>Lite-VLA · Epic 103 · <code>safety-clamp-and-fallback.md</code> is the agent source of truth.</p>
     </footer>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

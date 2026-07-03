@@ -3,136 +3,149 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Baseline Prompting Strategy — Lite-VLA</title>
+  <title>Baseline prompting strategy — Epic 104</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
-      <h1>Baseline Prompting Strategy</h1>
-      <p class="doc-lead">Design and version templates that constrain VLM outputs to discrete robot action tokens.</p>
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 104 · VLA-37 / Story 1025</p>
+      <h1>Baseline prompting strategy</h1>
+      <p class="doc-lead">
+        Architectural walkthrough of <code>litevla.prompting</code> — LLaVA templates,
+        few-shot demonstrations, and discrete action constraints for SmolVLM.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#learning">Learning</a>
+      </nav>
     </header>
+
     <main>
-      <section>
-        <h2>Jira Task Info</h2>
-        <ul>
-          <li><strong>Story:</strong> VLA-37: Design baseline prompting strategy</li>
-          <li><strong>Epic:</strong> Baseline Vision-Language Inference Prototype (VLA-5)</li>
-        </ul>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          <code>litevla.prompting</code> owns the <strong>text-side contract</strong> for baseline navigation:
+          five allowed action tokens, versioned system instructions, and few-shot <code>&lt;image&gt;</code> sequencing.
+        </p>
+        <p>
+          VLMs output free text, not robot commands. Prompting reduces conversational hallucinations;
+          Epic 103 parser and safety gate still treat output as untrusted.
+        </p>
       </section>
 
-      <section>
-        <h2>1. Intent &amp; Context</h2>
-        <p>To implement a robust and versioned baseline prompting strategy for the <code>SmolVLM-256M-Instruct</code> visual-language model (VLM). The goal is to constrain model outputs strictly to five allowed discrete action tokens: <code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>STOP</code>, and <code>SLOW_DOWN</code>.</p>
-        <p>This baseline prompting ensures the visual and language inputs are formatted in accordance with LLaVA-1.5 multimodal formatting conventions, which require an <code>&lt;image&gt;</code> placeholder token to position the image embeddings in the sequence of text inputs.</p>
-      </section>
-
-      <section>
-        <h2>2. Core Interfaces</h2>
-        <p>The prompting module is defined in <code>litevla/prompting.py</code>.</p>
-        
-        <h3>Few-Shot Examples Configuration</h3>
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p>Think of this module as a <strong>compiler from navigation intent to multimodal chat format</strong>.</p>
         <ul>
-          <li>
-            <code>FEW_SHOT_EXAMPLES</code>: A structured list of dictionaries mapping visual navigation states and instruction commands to target actions:
-            <ul>
-              <li><code>image_path</code>: Path to the reference simulation frame (stored under <code>data/examples/</code>).</li>
-              <li><code>instruction</code>: Text instruction goal matching simulation conventions (e.g. <code>"go to the red block"</code>).</li>
-              <li><code>action</code>: Expected target output token (e.g. <code>"MOVE_FORWARD"</code>, <code>"STOP"</code>, <code>"TURN_LEFT"</code>).</li>
-            </ul>
-          </li>
+          <li><strong>Tension:</strong> constraint vs expressiveness; few-shot adds latency.</li>
+          <li><strong>Beginner mistake:</strong> assuming the system prompt guarantees valid tokens.</li>
+          <li><strong>Senior watchpoint:</strong> <code>&lt;image&gt;</code> count matches image tensors; <code>ALLOWED_ACTIONS</code> sync with schema.</li>
         </ul>
 
-        <h3>PromptFormatter Class</h3>
-        <ul>
-          <li>
-            <code>__init__(self, version: str = "v1")</code>:
-            <ul>
-              <li><em>Validation Logic:</em> Validates that <code>version</code> exists as a key in <code>PROMPT_VERSIONS</code> (defined in <code>litevla/prompting.py</code>). If the version is not found, it raises a <code>ValueError</code> indicating the invalid version and listing the supported versions.</li>
-              <li><em>State:</em> Stores the selected version string, system instruction prompt template, and user goal template.</li>
-            </ul>
-          </li>
-          <li>
-            <code>format_prompt(self, instruction: str) -> str</code>:
-            <ul>
-              <li><em>Input Shape:</em> Takes a single string argument <code>instruction</code> representing the goal command (e.g., <code>"go forward to the red block"</code>).</li>
-              <li><em>Output Shape:</em> Returns a formatted string (<code>str</code>) following the LLaVA-1.5 multimodal template structure.</li>
-              <li><em>Template format:</em>
-                <code>USER: &lt;image&gt;\n{system_instruction}\n\n{user_instruction_formatted}\nASSISTANT:</code>
-              </li>
-            </ul>
-          </li>
-          <li>
-            <code>format_few_shot_prompt(self, instruction: str) -> tuple[str, list[str]]</code>:
-            <ul>
-              <li><em>Input Shape:</em> Takes a single string argument <code>instruction</code> for the current live query.</li>
-              <li><em>Output Shape:</em> Returns a tuple containing:
-                <ol>
-                  <li>A formatted multimodal multi-image prompt string (<code>str</code>) containing sequentially placed <code>&lt;image&gt;</code> placeholders.</li>
-                  <li>A list of image paths (<code>list[str]</code>) for the reference few-shot frames in chronological order (e.g., <code>["data/examples/red_cone_centered.png", ...]</code>).</li>
-                </ol>
-              </li>
-              <li><em>Template format:</em>
-                <code>USER: &lt;image&gt;\n{system_instruction}\n\n{user_instr_ex1}\nASSISTANT: {action_ex1}\nUSER: &lt;image&gt;\n{user_instr_ex2}\nASSISTANT: {action_ex2}\n...\nUSER: &lt;image&gt;\n{user_instr_query}\nASSISTANT:</code>
-              </li>
-            </ul>
-          </li>
-        </ul>
+        <h3>Vocabulary</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Term</th><th scope="col">Meaning</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Zero-shot</td><td>Live frame + goal only</td></tr>
+              <tr><td>Few-shot</td><td>Reference USER/ASSISTANT turns with demo images</td></tr>
+              <tr><td><code>prompt_version</code></td><td><code>v1</code> or <code>v2</code> template selection</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>3. Color Space Mechanics &amp; Multi-modal Integration</h2>
-        <p>While the text prompt provides the linguistic goal, the VLM correlates it with visual embeddings.</p>
-        <ul>
-          <li><strong>BGR to RGB Swapping:</strong> The camera produces images in BGR format. The <code>ImagePreprocessor</code> converts them to RGB. Swapping BGR to RGB is essential because the VLM's visual encoder (<code>SigLIP-400M</code> or similar) was trained on RGB images. If colors are not swapped, a prompt referring to a "red block" would fail to align with the visual embeddings since red and blue channels would be flipped in the encoder's input space.</li>
-          <li><strong>Multimodal Insertion:</strong> The prompt template includes the special <code>&lt;image&gt;</code> token. When parsing the prompt, the backend (<code>llama-cpp-python</code> / <code>clip.cpp</code>) looks for this token, extracts the visual features of the processed RGB image, and replaces/inserts the image embedding tensor at the position of the <code>&lt;image&gt;</code> token. For few-shot prompts, multiple <code>&lt;image&gt;</code> slots are filled using the sequence of preprocessed reference images and the current frame.</li>
-        </ul>
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">instruction + prompt_version
+        └──&gt; PromptFormatter
+              ├── format_prompt → single &lt;image&gt; string
+              └── format_few_shot_prompt → multi-image string + paths
+                    └──&gt; InferenceWrapper + SmolVLM → raw text</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Zero-shot output</strong></td><td>One <code>&lt;image&gt;</code> before live <code>ASSISTANT:</code></td></tr>
+              <tr><td><strong>Few-shot output</strong></td><td><code>(prompt, image_paths)</code>; wrapper appends live frame</td></tr>
+              <tr><td><strong>Errors</strong></td><td>Unknown version → <code>ValueError</code></td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>4. In-Memory Formats &amp; Prompt Embedding</h2>
-        <p>The model handler is configured to ingest images in compressed in-memory formats:</p>
-        <ul>
-          <li><strong>JPEG Format:</strong> Lossy compression. Highly efficient with a minimal memory footprint in RAM, making it the preferred default to reduce latency during prompt feature extraction.</li>
-          <li><strong>PNG Format:</strong> Lossless compression. Retains full color fidelity, which is critical if the prompt contains fine-grained visual instructions (e.g., identifying small labels or distant landmarks), though it increases latency due to larger byte sizes.</li>
-          <li><strong>In-Memory Loading:</strong> The preprocessed bytes (JPEG/PNG) are kept in memory and passed directly to the model's visual loader, preventing SSD wear and latency spikes. Reference images for few-shot examples are saved under <code>data/examples/</code>.</li>
-        </ul>
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Shared vocabulary</h3>
+        <pre><code class="language-python">ALLOWED_ACTIONS = ("MOVE_FORWARD", "TURN_LEFT", "TURN_RIGHT", "STOP", "SLOW_DOWN")</code></pre>
+
+        <h3>Formatter</h3>
+        <pre><code class="language-python">return f"USER: &lt;image&gt;\n{self.system_instruction}\n\n{goal_text}\nASSISTANT:"</code></pre>
+        <p><strong>Notice:</strong> Few-shot omits system block on later examples; paths returned for reference frames only.</p>
+
+        <h3>Engineering decisions</h3>
+        <pre><code class="language-text">ADR: Five-token vocabulary + multimodal few-shot — Accepted
+ADR: prompt_version in config and experiment metadata — Accepted</code></pre>
       </section>
 
-      <section>
-        <h2>5. Unit Test Coverage</h2>
-        <p>Unit tests are implemented in <code>tests/test_prompting.py</code>:</p>
-        <ul>
-          <li><strong><code>test_allowed_actions_list</code></strong>: Asserts that <code>ALLOWED_ACTIONS</code> matches the exact expected sequence of 5 discrete actions: <code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>STOP</code>, <code>SLOW_DOWN</code>.</li>
-          <li><strong><code>test_prompt_formatter_invalid_version</code></strong>: Validates that initializing <code>PromptFormatter</code> with an unsupported version string (e.g., <code>"v3"</code>) raises a <code>ValueError</code> with a clean error message.</li>
-          <li><strong><code>test_prompt_formatter_valid_versions</code></strong>: Iterates through all keys in <code>PROMPT_VERSIONS</code> (e.g. <code>"v1"</code>, <code>"v2"</code>) and asserts that <code>PromptFormatter</code> initializes without error and correctly maps the system instructions and user templates.</li>
-          <li><strong><code>test_format_prompt_structure</code></strong>: Verifies that the prompt output matches the LLaVA-1.5 formatting structure: starts with <code>"USER: &lt;image&gt;\n"</code>, ends with <code>"\nASSISTANT:"</code>, and contains the correct formatted goal instruction and the <code>&lt;image&gt;</code> token exactly once.</li>
-          <li><strong><code>test_prompt_v1_constraints</code></strong>: Verifies that the <code>"v1"</code> template prompt contains the exact list of allowed actions and explicit instructions to output exactly one action token.</li>
-          <li><strong><code>test_prompt_v2_constraints</code></strong>: Verifies that the <code>"v2"</code> template prompt contains instructions targeting Pioneer 3-DX robot navigation under Webots and maps out the heuristic rules for visual steering.</li>
-          <li><strong><code>test_format_few_shot_prompt</code></strong>: Asserts that formatting a few-shot query returns a valid string and lists the correct reference image paths. It verifies that the number of <code>&lt;image&gt;</code> tokens matches the reference count plus one, and ensures the correct chronological sequence of image paths is returned.</li>
-          <li><strong><code>test_format_few_shot_prompt_v2</code></strong>: Confirms that few-shot formatting works correctly for version <code>"v2"</code> prompt configurations and injects simulation specific constraints.</li>
-        </ul>
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_prompting.py -v
+pytest tests/test_config_loader.py tests/test_experiment_logging.py -q</code></pre>
+
+        <h3>Failure modes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">Fix</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Conversational answers</td><td>Weak template</td><td>Use v1/v2 constraints; few-shot</td></tr>
+              <tr><td>Unsupported prompt version</td><td>Config typo</td><td>Set <code>v1</code> or <code>v2</code></td></tr>
+              <tr><td>Vision/text mismatch</td><td><code>&lt;image&gt;</code> count ≠ images</td><td>Fix few-shot ordering</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>6. Configuration &amp; Experiment Run Logging</h2>
-        <p>To enable repeatable benchmarking across different prompt templates, the active prompt template version is configured inside the model settings and automatically captured in the experiment logs:</p>
+      <section id="learning">
+        <h2>Engineering principle taught by this task</h2>
+        <p>VLMs are text generators, not robot controllers — prompt like a strict API; still parse and safety-gate output.</p>
+
+        <h3>Active learning checks</h3>
+        <ol>
+          <li>Why does the formatter return paths, not pixels?</li>
+          <li>How many <code>&lt;image&gt;</code> tokens in four-example few-shot?</li>
+          <li>Syntax vs semantic accuracy?</li>
+        </ol>
+
+        <h3>Open questions</h3>
         <ul>
-          <li><strong>Configuration Schema:</strong> A <code>prompt_version</code> configuration field is added under <code>model:</code> inside <a href="file:///C:/Projects/Lite-VLA/litevla/config/schema.json">schema.json</a>. Valid values are restricted to the supported versions <code>["v1", "v2"]</code> via an enum constraint.</li>
-          <li><strong>Default Settings:</strong> The default configuration in <a href="file:///C:/Projects/Lite-VLA/litevla/config/loader.py">loader.py</a> assigns <code>"v1"</code> as the baseline value.</li>
-          <li><strong>Run Metadata Logging:</strong> The context manager <a href="file:///C:/Projects/Lite-VLA/litevla/experiment/run.py#L173">ExperimentRun</a> in <a href="file:///C:/Projects/Lite-VLA/litevla/experiment/run.py">run.py</a> automatically extracts <code>prompt_version</code> from the configuration mapping at runtime, logging it into the final <code>metadata.json</code> output for the experiment run.</li>
-          <li><strong>Validation Tests:</strong>
-            <ul>
-              <li><a href="file:///C:/Projects/Lite-VLA/tests/test_config_loader.py">test_config_loader.py</a> validates that config loading fails cleanly if required fields are missing.</li>
-              <li><a href="file:///C:/Projects/Lite-VLA/tests/test_experiment_logging.py">test_experiment_logging.py</a> asserts that the exact <code>prompt_version</code> used in the configuration is recorded properly in the experiment run metadata.</li>
-            </ul>
-          </li>
+          <li>Should <code>SLOW_DOWN</code> appear in few-shot examples?</li>
+          <li>Does v2 help zero-shot eval or memorize seeds?</li>
         </ul>
       </section>
     </main>
+
     <footer class="doc-footer">
-      <p>Lite-VLA documentation</p>
+      <p>Lite-VLA · Epic 104 · <code>prompting-strategy.md</code> is the agent source of truth.</p>
     </footer>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

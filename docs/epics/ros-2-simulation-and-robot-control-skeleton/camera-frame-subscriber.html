@@ -10,130 +10,135 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-24</p>
+      <p class="eyebrow">Epic 102 · VLA-24 / Story 1012</p>
       <h1>Camera frame subscriber</h1>
-      <p class="doc-lead">
-        <code>camera_subscriber</code> is the perception ingress for Epic 102: <code>sensor_msgs/Image</code> to RGB <code>numpy</code> frames for future VLA inference.
-      </p>
+      <p class="doc-lead">Perception ingress: /image_raw to RGB ndarray with optional rate-limited PNG capture.</p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> · <a href="#mental-model">Mental model</a> · <a href="#backstory">Backstory</a> · <a href="#prerequisites">Prerequisites</a> · <a href="#vocabulary">Vocabulary</a> · <a href="#guided-reading">Code reading</a> · <a href="#file-index">File index</a> · <a href="#contract">Contract</a> · <a href="#implementation">Implementation</a> · <a href="#decisions">Decisions</a> · <a href="#verification">Verification</a> · <a href="#failure-modes">Debugging</a> · <a href="#principle">Principle</a> · <a href="#learning">Learning</a> · <a href="#related">Related</a>
+      </nav>
     </header>
 
     <main>
-      <section id="executive-summary">
-        <h2>Executive summary</h2>
-        <p><code>camera_subscriber</code> is the <strong>perception ingress</strong> for Epic 102: it subscribes to <code>sensor_msgs/Image</code> (default <code>/image_raw</code>), converts each message to an RGB <code>numpy</code> ndarray, and keeps the latest frame in node state for future VLA inference (Epic 108). Optional rate-limited PNG recording supports dataset debugging without flooding disk.</p>
-      </section>
-
-      <section id="api-contract">
-        <h2>API contract and data flow</h2>
-        <pre><code class="language-text">/image_raw (sensor_msgs/Image)
+<section id="summary">
+<h2>Executive summary</h2>
+<p><code>camera_subscriber</code> is the <strong>perception ingress</strong> for Epic 102: it subscribes to <code>sensor_msgs/Image</code> (default <code>/image_raw</code>), converts each message to an RGB <code>numpy</code> ndarray, and keeps the latest frame in node state for future VLA inference (Epic 108). Optional rate-limited PNG recording supports dataset debugging without flooding disk.</p>
+<p>The heartbeat controller optionally treats camera freshness as a safety input—stale frames can force <code>STOP</code> when <code>require_frame:=true</code>.</p>
+</section>
+<section id="mental-model">
+<h2>Mental model</h2>
+<p>Think of this node as <strong>the robot&#x27;s eyes at the ROS boundary</strong>.</p>
+<p>It exists because ML and dataset pipelines need a stable, decoded RGB array—not raw <code>sensor_msgs/Image</code> bytes scattered across nodes.</p>
+<p>The key engineering tension is <strong>always-fresh latest frame vs storage cost</strong> when recording PNGs.</p>
+<p>A beginner mistake is subscribing to <code>/image_raw/image_color</code> directly and missing the Webots remap in <code>webots_sim.launch.py</code>.</p>
+<p>A senior engineer watches <strong>frame age</strong> in heartbeat diagnostics and uses sensor QoS appropriately for camera streams.</p>
+</section>
+<section id="backstory">
+<h2>Backstory: why this exists</h2>
+<p>Before this module existed, every future inference node would need its own <code>cv_bridge</code> conversion, encoding handling, and &quot;latest frame&quot; state.</p>
+<p>The naive solution would be to save images inside Webots or read files from disk in each node.</p>
+<p>That breaks because runtime inference needs synchronized ROS timestamps, consistent RGB layout, and one place to log first-frame geometry for operators.</p>
+<p>So this design chooses <strong><code>image_utils.ros_image_to_rgb()</code> + <code>CameraSubscriber</code> node</strong> with optional rate-limited disk capture.</p>
+<p>This pattern appears in real systems as a <strong>perception adapter</strong> between sensor middleware and ML code.</p>
+</section>
+<section id="prerequisites">
+<h2>Prerequisites</h2>
+<ul><li><code>sensor_msgs/Image</code> and common encodings (<code>rgb8</code>, <code>bgr8</code>).</li><li><a href="webots-sim-environment.html">webots-sim-environment.md</a> — <code>/image_raw</code> remap from Webots.</li><li>Basic <code>numpy</code> image layout (H×W×3 <code>uint8</code>).</li></ul>
+</section>
+<section id="vocabulary">
+<h2>Concept primer / vocabulary</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Term</th><th scope="col">Meaning in this project</th></tr></thead><tbody><tr><th scope="row"><code>/image_raw</code></th><td>Canonical camera topic; <code>sensor_msgs/Image</code>.</td></tr><tr><th scope="row"><code>cv_bridge</code></th><td>ROS library converting <code>Image</code> messages to OpenCV/numpy arrays.</td></tr><tr><th scope="row"><code>latest_frame</code></th><td>Most recent decoded RGB ndarray on the node instance.</td></tr><tr><th scope="row"><code>latest_stamp</code></th><td>ROS timestamp of the latest successful decode.</td></tr><tr><th scope="row"><code>qos_profile_sensor_data</code></th><td>QoS preset for high-rate sensor streams (best effort).</td></tr><tr><th scope="row"><code>record_interval_sec</code></th><td>Minimum seconds between PNG writes when recording.</td></tr><tr><th scope="row"><code>require_frame</code></th><td>Heartbeat parameter: if true, stale camera forces STOP.</td></tr></tbody></table></div>
+</section>
+<section id="guided-reading">
+<h2>Guided code reading</h2>
+<p>Read these in order:</p>
+<ol><li><code>litevla_bridge/image_utils.py</code><ul><li><code>ros_image_to_rgb</code> encoding support.</li><li>Ignore error paths on first pass, then read them.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/camera_subscriber.py</code><ul><li>Subscription QoS, <code>_on_image</code> callback, <code>latest_frame</code> updates.</li><li>Optional PNG save gate.</li></ul></li></ol>
+<ol><li><code>launch/camera_subscriber.launch.py</code><ul><li>Parameters mirroring <code>configs/default.example.yaml</code>.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/heartbeat_controller.py</code> (camera section)<ul><li>How frame age participates in timeout logic.</li></ul></li></ol>
+<p>While reading, ask:</p>
+<ul><li>Where does data enter?</li><li>What happens on decode failure?</li><li>Who consumes <code>latest_frame</code> today vs in Epic 108?</li></ul>
+</section>
+<section id="file-index">
+<h2>File and artifact index</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">File or artifact</th><th scope="col">What it is</th><th scope="col">Why it matters</th><th scope="col">First thing to inspect</th></tr></thead><tbody><tr><td><code>image_utils.py</code></td><td>Image conversion</td><td>Single encoding policy</td><td><code>ros_image_to_rgb</code></td></tr><tr><td><code>camera_subscriber.py</code></td><td>ROS subscriber node</td><td>Latest frame state</td><td><code>_on_image</code></td></tr><tr><td><code>test/test_image_utils.py</code></td><td>Unit tests</td><td>rgb8/bgr8 contracts</td><td>Shape assertions</td></tr><tr><td><code>launch/camera_subscriber.launch.py</code></td><td>Launch entry</td><td>Parameter defaults</td><td><code>record_frames</code></td></tr><tr><td><code>configs/default.example.yaml</code></td><td>Config mirror</td><td><code>ros.image_topic</code>, save dir</td><td><code>ros</code> section</td></tr><tr><td><code>outputs/frames/</code></td><td>Recorded PNGs</td><td>Debug captures</td><td>Timestamp in filename</td></tr></tbody></table></div>
+</section>
+<section id="contract">
+<h2>API contract and data flow</h2>
+<h3>What &quot;contract&quot; means here</h3>
+<p><strong>Contract</strong> = subscribe on <code>image_topic</code>, expose <code>latest_frame</code> as H×W×3 <code>uint8</code> RGB after successful decode; on failure, log and skip update (previous frame remains). Optional PNG saves respect <code>record_interval_sec</code>.</p>
+<h3>Task-local flow</h3>
+<pre><code class="language-text">/image_raw (sensor_msgs/Image)
     ──&gt; camera_subscriber._on_image
     ──&gt; ros_image_to_rgb()  [cv_bridge]
     ──&gt; latest_frame (H×W×3 uint8), latest_stamp
     ──&gt; optional PNG → outputs/frames/  (record_interval_sec gate)</code></pre>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Parameter</th>
-                <th scope="col">Default</th>
-                <th scope="col">Config mirror</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>image_topic</code></td>
-                <td><code>/image_raw</code></td>
-                <td><code>ros.image_topic</code></td>
-              </tr>
-              <tr>
-                <td><code>record_frames</code></td>
-                <td><code>false</code></td>
-                <td><code>ros.record_frames</code></td>
-              </tr>
-              <tr>
-                <td><code>frame_save_dir</code></td>
-                <td><code>outputs/frames</code></td>
-                <td><code>ros.frame_save_dir</code></td>
-              </tr>
-              <tr>
-                <td><code>record_interval_sec</code></td>
-                <td><code>1.0</code></td>
-                <td>Max save rate when recording</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <p><strong>Invariant:</strong> <code>latest_frame</code> is always the most recent successfully decoded image; decode failures log and skip update.</p>
-      </section>
-
-      <section id="implementation">
-        <h2>Implementation breakdown</h2>
-
-        <h3>Image conversion (<code>image_utils.py</code>)</h3>
-        <pre><code class="language-python">def ros_image_to_rgb(msg: Image) -&gt; np.ndarray:
+<h3>Contract table</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Row label</th><th scope="col">Meaning</th></tr></thead><tbody><tr><th scope="row">Parameter</th><td>ROS parameter name.</td></tr><tr><th scope="row">Default</th><td>Value if unset.</td></tr><tr><th scope="row">Config mirror</th><td>Matching key in <code>configs/default.example.yaml</code>.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">Parameter</th><th scope="col">Default</th><th scope="col">Config mirror</th></tr></thead><tbody><tr><td><code>image_topic</code></td><td><code>/image_raw</code></td><td><code>ros.image_topic</code></td></tr><tr><td><code>record_frames</code></td><td><code>false</code></td><td><code>ros.record_frames</code></td></tr><tr><td><code>frame_save_dir</code></td><td><code>outputs/frames</code></td><td><code>ros.frame_save_dir</code></td></tr><tr><td><code>record_interval_sec</code></td><td><code>1.0</code></td><td>Max save rate when recording</td></tr></tbody></table></div>
+<p><strong>Invariant:</strong> <code>latest_frame</code> is always the most recent successfully decoded image; decode failures log and skip update.</p>
+<h3>Naive approach vs chosen approach</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Approach</th><th scope="col">Why it seems attractive</th><th scope="col">Why we did or did not choose it</th></tr></thead><tbody><tr><td>Convert in every ML node</td><td>No shared node</td><td>Duplicated encoding bugs</td></tr><tr><td>Save every frame to disk</td><td>Complete logs</td><td>Floods disk at camera rate</td></tr><tr><td>Rate-limited optional PNG</td><td>May miss frames</td><td>Good debug trade-off</td></tr><tr><td>Central <code>CameraSubscriber</code></td><td>One more node</td><td>Single decode path + heartbeat integration</td></tr></tbody></table></div>
+</section>
+<section id="implementation">
+<h2>Implementation breakdown</h2>
+<h3>Image conversion (`image_utils.py`)</h3>
+<pre><code class="language-python">def ros_image_to_rgb(msg: Image) -&gt; np.ndarray:
     # Supports rgb8 and bgr8 via cv_bridge</code></pre>
-        <ul>
-          <li><strong>Design note:</strong> Centralizing conversion avoids duplicating <code>cv_bridge</code> encoding logic in inference nodes later.</li>
-          <li><strong>Gotcha:</strong> Webots may publish on <code>/image_raw/image_color</code>; <code>webots_sim.launch.py</code> remaps to <code>/image_raw</code>.</li>
-        </ul>
-
-        <h3>Subscriber node (<code>camera_subscriber.py</code>)</h3>
-        <ul>
-          <li>Logs first frame geometry and encoding once (operator confidence).</li>
-          <li>Exposes <code>latest_frame</code> / <code>latest_stamp</code> for synchronous reads from future orchestration code.</li>
-        </ul>
-
-        <h3>Heartbeat coupling</h3>
-        <p><code>heartbeat_controller</code> optionally requires fresh frames (<code>require_frame</code>, <code>frame_timeout_sec</code>). Teleop sets <code>require_frame:=false</code> so driving works before camera warmup.</p>
-      </section>
-
-      <section id="verification">
-        <h2>Verification patterns</h2>
-        <pre><code class="language-bash">colcon test --packages-select litevla_bridge   # test_image_utils.py
+<p><strong>What to notice:</strong> Centralized encoding handling.</p>
+<p><strong>Why it is written this way:</strong> Avoids duplicating <code>cv_bridge</code> logic in inference nodes later.</p>
+<p><strong>Risks and gotchas:</strong> Webots may publish on <code>/image_raw/image_color</code>; <code>webots_sim.launch.py</code> remaps to <code>/image_raw</code>. Unsupported encodings raise—extend <code>image_utils</code> if the sim changes.</p>
+<h3>Subscriber node (`camera_subscriber.py`)</h3>
+<p><strong>What to notice:</strong> Logs first frame geometry and encoding once (operator confidence). Uses <code>qos_profile_sensor_data</code>.</p>
+<p><strong>Why it is written this way:</strong> Exposes <code>latest_frame</code> / <code>latest_stamp</code> for synchronous reads from future orchestration code.</p>
+<p><strong>Risks and gotchas:</strong> <code>latest_frame</code> is not thread-locked for heavy concurrent access—Epic 108 orchestration should read from the node&#x27;s callback context or add synchronization if needed.</p>
+<h3>Heartbeat coupling</h3>
+<p><code>heartbeat_controller</code> optionally requires fresh frames (<code>require_frame</code>, <code>frame_timeout_sec</code>). Teleop sets <code>require_frame:=false</code> so driving works before camera warmup.</p>
+</section>
+<section id="decisions">
+<h2>Engineering decisions</h2>
+<p><strong>ADR: Latest-frame holder, not a video pipeline</strong></p>
+<ul><li><strong>Status:</strong> Accepted</li><li><strong>Context:</strong> MVP needs one RGB array for inference and optional debug PNGs, not a full recorder.</li><li><strong>Decision:</strong> Node state holds latest decode; optional interval-gated PNG save.</li><li><strong>Alternatives rejected:</strong> Always-on full-rate recording (disk cost); per-node conversion (duplication).</li><li><strong>Consequences:</strong> Epic 108 must poll or extend with a service if it needs pull-based access.</li></ul>
+</section>
+<section id="verification">
+<h2>Verification patterns</h2>
+<pre><code class="language-bash">colcon test --packages-select litevla_bridge   # test_image_utils.py
 ./ros_ws/scripts/run_webots_mvp.sh             # terminal 1
 ros2 launch litevla_bridge camera_subscriber.launch.py record_frames:=true</code></pre>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Test</th>
-                <th scope="col">Contract defended</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>test_image_utils.py</code></td>
-                <td>rgb8/bgr8 → consistent RGB ndarray shape</td>
-              </tr>
-              <tr>
-                <td>Live launch</td>
-                <td>First-frame log; PNG files at ≤ 1 Hz when recording</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="related">
-        <h2>Related</h2>
-        <ul>
-          <li><a href="webots-sim-environment.html">webots-sim-environment</a> (VLA-23)</li>
-          <li><a href="../../../../configs/default.example.yaml">configs/default.example.yaml</a></li>
-        </ul>
-      </section>
+<div class="table-wrap"><table><thead><tr><th scope="col">Test</th><th scope="col">Contract defended</th></tr></thead><tbody><tr><td><code>test_image_utils.py</code></td><td>rgb8/bgr8 → consistent RGB ndarray shape</td></tr><tr><td>Live launch</td><td>First-frame log; PNG files at ≤ 1 Hz when recording</td></tr></tbody></table></div>
+</section>
+<section id="failure-modes">
+<h2>Failure modes and debugging path</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">How to investigate</th><th scope="col">Fix</th></tr></thead><tbody><tr><td>No first-frame log</td><td>Wrong topic or sim not publishing</td><td><code>ros2 topic hz /image_raw</code></td><td>Check Webots remap; wait for controllers</td></tr><tr><td>Decode errors in log</td><td>Unexpected encoding</td><td>Echo one message&#x27;s <code>encoding</code> field</td><td>Extend <code>image_utils.py</code></td></tr><tr><td>Heartbeat always STOP</td><td><code>require_frame</code> + stale camera</td><td><code>ros2 topic echo /litevla/diagnostics</code></td><td>Warm up camera; teleop uses <code>require_frame:=false</code></td></tr><tr><td>Empty <code>outputs/frames/</code></td><td><code>record_frames:=false</code> or interval gate</td><td>Check launch params</td><td>Set <code>record_frames:=true</code></td></tr><tr><td>Huge disk usage</td><td>Interval set too low</td><td>Check <code>record_interval_sec</code></td><td>Increase interval</td></tr></tbody></table></div>
+</section>
+<section id="principle">
+<h2>Engineering principle taught by this task</h2>
+<p>This task teaches <strong>adapter nodes at sensor boundaries</strong>: convert middleware messages once into a stable in-memory representation downstream code can trust.</p>
+</section>
+<section id="learning">
+<h2>Active learning checks</h2>
+<ol><li>Why does Webots use <code>/image_raw/image_color</code> before remap?</li><li>What QoS profile does the subscriber use and why?</li><li>How does heartbeat use frame age when <code>require_frame:=true</code>?</li><li>What happens to <code>latest_frame</code> when one message fails to decode?</li></ol>
+</section>
+<section id="learning">
+<h2>Small modification exercise</h2>
+<p>Set <code>record_interval_sec:=2.0</code> and <code>record_frames:=true</code>. Capture for 10 seconds and count PNG files—should be ≤ 6. Run <code>test_image_utils.py</code> to ensure conversion still passes.</p>
+</section>
+<section id="related">
+<h2>Related</h2>
+<ul><li><a href="webots-sim-environment.html">webots-sim-environment.md</a> (VLA-23)</li><li><a href="control-heartbeat.html">control-heartbeat.md</a> (VLA-27)</li><li><a href="../../../../configs/default.example.yaml"><code>../../../../configs/default.example.yaml</code></a></li></ul>
+</section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 102 task documentation</p>
+      <p>Lite-VLA · Epic 102 · <code>camera-frame-subscriber.md</code> is the agent source of truth.</p>
     </footer>
   </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

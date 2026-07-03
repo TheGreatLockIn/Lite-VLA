@@ -10,137 +10,137 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-26</p>
+      <p class="eyebrow">Epic 102 · VLA-26 / Story 1014</p>
       <h1>Dummy action generator</h1>
-      <p class="doc-lead">
-        <code>dummy_action_generator</code> is the pre-ML command source: Epic 103 discrete actions to desired twists for the heartbeat, not <code>/cmd_vel</code> directly.
-      </p>
+      <p class="doc-lead">Pre-ML command source publishing desired_twist intent for the heartbeat.</p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> · <a href="#mental-model">Mental model</a> · <a href="#backstory">Backstory</a> · <a href="#prerequisites">Prerequisites</a> · <a href="#vocabulary">Vocabulary</a> · <a href="#guided-reading">Code reading</a> · <a href="#file-index">File index</a> · <a href="#contract">Contract</a> · <a href="#implementation">Implementation</a> · <a href="#decisions">Decisions</a> · <a href="#verification">Verification</a> · <a href="#failure-modes">Debugging</a> · <a href="#principle">Principle</a> · <a href="#learning">Learning</a> · <a href="#related">Related</a>
+      </nav>
     </header>
 
     <main>
-      <section id="executive-summary">
-        <h2>Executive summary</h2>
-        <p><code>dummy_action_generator</code> is the <strong>pre-ML command source</strong> for Epic 102: it steps through a configurable list of Epic 103 discrete actions, maps each to nominal velocities via <code>action_to_twist()</code>, and publishes desired twists for the heartbeat—not <code>/cmd_vel</code> directly. This proves the full perception–action loop before Epic 104/108 connect a VLA model.</p>
-      </section>
-
-      <section id="api-contract">
-        <h2>API contract and data flow</h2>
-        <pre><code class="language-text">action_sequence (config / param)
+<section id="summary">
+<h2>Executive summary</h2>
+<p><code>dummy_action_generator</code> is the <strong>pre-ML command source</strong> for Epic 102: it steps through a configurable list of Epic 103 discrete actions, maps each to nominal velocities via <code>action_to_twist()</code>, and publishes <strong>desired twists</strong> for the heartbeat—not <code>/cmd_vel</code> directly. This proves the full perception–action loop before Epic 104/108 connect a VLA model.</p>
+</section>
+<section id="mental-model">
+<h2>Mental model</h2>
+<p>Think of this node as <strong>a scripted stand-in for the future VLA model</strong>.</p>
+<p>It exists because the team needs to validate ROS wiring, heartbeat timing, and action vocabulary before ML inference exists.</p>
+<p>The key engineering tension is <strong>slow, discrete action steps vs continuous diff-drive control</strong>—resolved by publishing intent and letting the heartbeat republish steadily.</p>
+<p>A beginner mistake is making the dummy publish <code>/cmd_vel</code>, bypassing timeouts and creating a second actuation owner.</p>
+<p>A senior engineer watches <strong><code>control_mode</code> gates</strong> so teleop and dummy never compete as active sources.</p>
+</section>
+<section id="backstory">
+<h2>Backstory: why this exists</h2>
+<p>Before this module existed, developers could move the robot with <code>cmd_vel_tester</code> or manual twists, but nothing exercised the Epic 103 discrete action vocabulary through the full stack.</p>
+<p>The naive solution would be a ROS node that maps <code>MOVE_FORWARD</code> directly to <code>/cmd_vel</code> every two seconds.</p>
+<p>That breaks because diff-drive controllers expect steady commands; one-shot publishes cause jerky motion, and there is no shared path with teleop or the future model.</p>
+<p>So this design chooses <strong><code>/litevla/desired_twist</code> + <code>/litevla/current_action</code></strong> consumed by <code>heartbeat_controller</code> (VLA-27).</p>
+<p>This pattern appears in real systems as <strong>intent vs actuation separation</strong>.</p>
+</section>
+<section id="prerequisites">
+<h2>Prerequisites</h2>
+<ul><li><a href="../action-interface-parser-and-safety-layer/action-schema.html">action-schema.md</a> — <code>DiscreteAction</code>, <code>action_to_twist()</code>.</li><li><a href="control-heartbeat.html">control-heartbeat.md</a> — consumes desired twist.</li><li><a href="velocity-command-publisher.html">velocity-command-publisher.md</a> — owns <code>/cmd_vel</code>.</li></ul>
+</section>
+<section id="vocabulary">
+<h2>Concept primer / vocabulary</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Term</th><th scope="col">Meaning in this project</th></tr></thead><tbody><tr><th scope="row"><code>desired_twist</code></th><td>Intent: what motion the active source wants now (<code>geometry_msgs/Twist</code>).</td></tr><tr><th scope="row"><code>/cmd_vel</code></th><td>Actuation: what the robot actually receives at fixed rate.</td></tr><tr><th scope="row"><code>control_mode</code></th><td><code>dummy</code> \</td><td><code>teleop</code> \</td><td><code>model</code> — which source is active.</td></tr><tr><th scope="row"><code>action_sequence</code></th><td>Ordered list of Epic 103 tokens to step through.</td></tr><tr><th scope="row"><code>sequence_step_sec</code></th><td>Dwell time between sequence advances.</td></tr><tr><th scope="row"><code>action_to_twist()</code></th><td>Maps discrete token + limits → <code>(linear_x, angular_z)</code>.</td></tr></tbody></table></div>
+</section>
+<section id="guided-reading">
+<h2>Guided code reading</h2>
+<p>Read these in order:</p>
+<ol><li><code>litevla/actions/schema.py</code> (or <code>litevla_bridge/action_schema.py</code> shim)<ul><li><code>DEFAULT_ACTION_SEQUENCE</code>, <code>action_to_twist</code>.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/dummy_action_generator.py</code><ul><li><code>control_mode</code> gate, timer stepping, publishers.</li></ul></li></ol>
+<ol><li><code>launch/dummy_sim.launch.py</code><ul><li>Brings dummy + heartbeat + sim together.</li></ul></li></ol>
+<ol><li><code>scripts/run_dummy_pipeline.py</code><ul><li>Offline print of the same sequence (no ROS).</li></ul></li></ol>
+<p>While reading, ask:</p>
+<ul><li>Where does data enter?</li><li>Who owns <code>/cmd_vel</code>?</li><li>What happens when <code>control_mode</code> is not <code>dummy</code>?</li></ul>
+</section>
+<section id="file-index">
+<h2>File and artifact index</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">File or artifact</th><th scope="col">What it is</th><th scope="col">Why it matters</th><th scope="col">First thing to inspect</th></tr></thead><tbody><tr><td><code>dummy_action_generator.py</code></td><td>ROS timer node</td><td>Publishes intent topics</td><td><code>_on_sequence_step</code></td></tr><tr><td><code>action_schema.py</code></td><td>Import shim to <code>litevla.actions</code></td><td>Single vocabulary</td><td><code>action_to_twist</code></td></tr><tr><td><code>launch/dummy_sim.launch.py</code></td><td>Integrated smoke</td><td>Dummy + heartbeat + sim</td><td><code>control_mode</code> params</td></tr><tr><td><code>scripts/run_dummy_pipeline.py</code></td><td>Offline script</td><td>No ROS proof of sequence</td><td>Printed twists</td></tr><tr><td><code>configs/default.example.yaml</code></td><td>Config mirror</td><td><code>runtime.action_sequence</code></td><td><code>runtime</code> section</td></tr></tbody></table></div>
+</section>
+<section id="contract">
+<h2>API contract and data flow</h2>
+<h3>What &quot;contract&quot; means here</h3>
+<p><strong>Contract</strong> = when <code>control_mode:=dummy</code>, the node steps through <code>action_sequence</code> every <code>sequence_step_sec</code>, publishing clamped twists and uppercase action labels on the desired topics. It never publishes <code>/cmd_vel</code>.</p>
+<h3>Task-local flow</h3>
+<pre><code class="language-text">action_sequence (config / param)
     ──&gt; dummy_action_generator (timer per step)
     ──&gt; action_to_twist(DiscreteAction)
     ──&gt; /litevla/desired_twist + /litevla/current_action
     ──&gt; heartbeat_controller
     ──&gt; /cmd_vel</code></pre>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Parameter</th>
-                <th scope="col">Default</th>
-                <th scope="col">Config mirror</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>runtime_mode</code></td>
-                <td><code>dummy</code></td>
-                <td><code>runtime.mode</code> — node idles otherwise</td>
-              </tr>
-              <tr>
-                <td><code>action_sequence</code></td>
-                <td>forward → forward → left → stop</td>
-                <td><code>runtime.action_sequence</code></td>
-              </tr>
-              <tr>
-                <td><code>sequence_step_sec</code></td>
-                <td><code>2.0</code></td>
-                <td><code>runtime.sequence_step_sec</code></td>
-              </tr>
-              <tr>
-                <td><code>desired_twist_topic</code></td>
-                <td><code>/litevla/desired_twist</code></td>
-                <td>Consumed by VLA-27</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <p><strong>Invariant:</strong> Action names are uppercase Epic 103 tokens only (<code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, …).</p>
-      </section>
-
-      <section id="implementation">
-        <h2>Implementation breakdown</h2>
-
-        <h3>Shared schema bridge</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Path</th>
-                <th scope="col">Role</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>litevla/actions/schema.py</code></td>
-                <td>Canonical <code>DiscreteAction</code>, <code>action_to_twist()</code></td>
-              </tr>
-              <tr>
-                <td><code>litevla_bridge/action_schema.py</code></td>
-                <td>ROS package import shim</td>
-              </tr>
-              <tr>
-                <td><code>scripts/run_dummy_pipeline.py</code></td>
-                <td>Offline print of the same sequence (no ROS)</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p>Single vocabulary for dummy ROS, offline scripts, future parser (Epic 103), and dataset labels (Epic 105).</p>
-
-        <h3>ROS node (<code>dummy_action_generator.py</code>)</h3>
-        <ul>
-          <li>Publishes twist + string action label each step.</li>
-          <li>Respects <code>control_mode</code> / <code>runtime_mode</code> gates so teleop can take over without duplicate publishers.</li>
-        </ul>
-      </section>
-
-      <section id="engineering-decisions">
-        <h2>Engineering decisions</h2>
-        <p><strong>ADR: Publish desired twist, not cmd_vel</strong></p>
-        <ul>
-          <li><strong>Status:</strong> Accepted (VLA-27)</li>
-          <li><strong>Context:</strong> Action sources update slowly; diff-drive expects steady commands.</li>
-          <li><strong>Decision:</strong> Dummy publishes <code>/litevla/desired_twist</code>; heartbeat owns <code>/cmd_vel</code>.</li>
-          <li><strong>Consequences:</strong> All future sources (teleop, model) follow the same pattern.</li>
-        </ul>
-      </section>
-
-      <section id="verification">
-        <h2>Verification patterns</h2>
-        <pre><code class="language-bash">pytest tests/test_action_schema.py -q
+<h3>Contract table</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Row label</th><th scope="col">Meaning</th></tr></thead><tbody><tr><th scope="row">Parameter</th><td>ROS parameter.</td></tr><tr><th scope="row">Default</th><td>Value when unset.</td></tr><tr><th scope="row">Config mirror</th><td>YAML key in project config.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">Parameter</th><th scope="col">Default</th><th scope="col">Config mirror</th></tr></thead><tbody><tr><td><code>control_mode</code></td><td><code>dummy</code></td><td><code>runtime.mode</code> — node idles otherwise</td></tr><tr><td><code>action_sequence</code></td><td>forward → forward → left → stop</td><td><code>runtime.action_sequence</code></td></tr><tr><td><code>sequence_step_sec</code></td><td><code>2.0</code></td><td><code>runtime.sequence_step_sec</code></td></tr><tr><td><code>desired_twist_topic</code></td><td><code>/litevla/desired_twist</code></td><td>Consumed by VLA-27</td></tr></tbody></table></div>
+<p><strong>Invariant:</strong> Action names are uppercase Epic 103 tokens only (<code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, …).</p>
+<h3>Naive approach vs chosen approach</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Approach</th><th scope="col">Why it seems attractive</th><th scope="col">Why we did or did not choose it</th></tr></thead><tbody><tr><td>Dummy publishes <code>/cmd_vel</code> directly</td><td>Simpler graph</td><td>Bypasses heartbeat safety and timing</td></tr><tr><td>Publish <code>desired_twist</code> only</td><td>Extra node required</td><td>Same path as teleop and future model</td></tr><tr><td>Hardcoded twists in dummy node</td><td>No Epic 103 dependency</td><td>Forks vocabulary from datasets and parser</td></tr><tr><td>Shared <code>action_to_twist()</code></td><td>Import coupling</td><td>One nominal velocity table</td></tr></tbody></table></div>
+</section>
+<section id="implementation">
+<h2>Implementation breakdown</h2>
+<h3>Shared schema bridge</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Path</th><th scope="col">Role</th></tr></thead><tbody><tr><td><code>litevla/actions/schema.py</code></td><td>Canonical <code>DiscreteAction</code>, <code>action_to_twist()</code></td></tr><tr><td><code>litevla_bridge/action_schema.py</code></td><td>ROS package import shim</td></tr><tr><td><code>scripts/run_dummy_pipeline.py</code></td><td>Offline print of the same sequence (no ROS)</td></tr></tbody></table></div>
+<p>Single vocabulary for dummy ROS, offline scripts, future parser (Epic 103), and dataset labels (Epic 105).</p>
+<h3>ROS node (`dummy_action_generator.py`)</h3>
+<pre><code class="language-python">if control_mode != &quot;dummy&quot;:
+    self.get_logger().warn(
+        f&quot;control_mode={control_mode!r} — dummy generator idling ...&quot;
+    )
+    self._active = False
+    return</code></pre>
+<p><strong>What to notice:</strong> Publishes twist + string action label each step; idles when mode mismatches.</p>
+<p><strong>Why it is written this way:</strong> Respects <code>control_mode</code> gates so teleop can take over without duplicate publishers.</p>
+<p><strong>Risks and gotchas:</strong> <code>runtime_mode</code> is a deprecated alias for <code>control_mode</code>—prefer <code>control_mode</code> in new launch files.</p>
+</section>
+<section id="decisions">
+<h2>Engineering decisions</h2>
+<p><strong>ADR: Publish desired twist, not cmd_vel</strong></p>
+<ul><li><strong>Status:</strong> Accepted (VLA-27)</li><li><strong>Context:</strong> Action sources update slowly; diff-drive expects steady commands.</li><li><strong>Decision:</strong> Dummy publishes <code>/litevla/desired_twist</code>; heartbeat owns <code>/cmd_vel</code>.</li><li><strong>Consequences:</strong> All future sources (teleop, model) follow the same pattern.</li></ul>
+</section>
+<section id="verification">
+<h2>Verification patterns</h2>
+<pre><code class="language-bash">pytest tests/test_action_schema.py -q
 python scripts/run_dummy_pipeline.py
 colcon test --packages-select litevla_bridge
 ros2 launch litevla_bridge dummy_sim.launch.py</code></pre>
-      </section>
-
-      <section id="related">
-        <h2>Related</h2>
-        <ul>
-          <li><a href="../action-interface-parser-and-safety-layer/action-schema.html">action-schema</a> (VLA-29)</li>
-          <li><a href="control-heartbeat.html">control-heartbeat</a> (VLA-27)</li>
-        </ul>
-      </section>
+<div class="table-wrap"><table><thead><tr><th scope="col">Contract defended</th><th scope="col">Where</th></tr></thead><tbody><tr><td>Token vocabulary</td><td><code>test_action_schema.py</code></td></tr><tr><td>Sequence → twist offline</td><td><code>run_dummy_pipeline.py</code></td></tr><tr><td>ROS integration</td><td><code>dummy_sim.launch.py</code></td></tr></tbody></table></div>
+</section>
+<section id="failure-modes">
+<h2>Failure modes and debugging path</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">How to investigate</th><th scope="col">Fix</th></tr></thead><tbody><tr><td>Dummy logs &quot;idling&quot;</td><td><code>control_mode</code> not <code>dummy</code></td><td>Check launch params</td><td>Set <code>control_mode:=dummy</code></td></tr><tr><td>Robot still</td><td>Heartbeat not running or timed out</td><td><code>ros2 topic echo /litevla/diagnostics</code></td><td>Launch heartbeat; check timeouts</td></tr><tr><td><code>ValueError</code> on action</td><td>Invalid token in sequence</td><td>Inspect <code>action_sequence</code> param</td><td>Use Epic 103 uppercase tokens</td></tr><tr><td>Motion once then stop</td><td>Single-action sequence</td><td>Check sequence length</td><td>Add steps or increase dwell</td></tr><tr><td>Competing motion</td><td>Teleop also active</td><td>Check <code>control_mode</code> on all nodes</td><td>One mode at a time</td></tr></tbody></table></div>
+</section>
+<section id="principle">
+<h2>Engineering principle taught by this task</h2>
+<p>This task teaches <strong>intent/actuation separation</strong>: slow, event-driven sources publish desired state; a dedicated controller owns timing, clamps, and the final actuation topic.</p>
+</section>
+<section id="learning">
+<h2>Active learning checks</h2>
+<ol><li>Why does dummy not call <code>CmdVelPublisher</code>?</li><li>What topics does dummy publish, and who subscribes?</li><li>How does <code>control_mode</code> prevent fighting with teleop?</li><li>Why reuse <code>action_to_twist()</code> instead of inline velocities?</li></ol>
+</section>
+<section id="learning">
+<h2>Small modification exercise</h2>
+<p>Change <code>action_sequence</code> to <code>[&quot;MOVE_FORWARD&quot;, &quot;TURN_LEFT&quot;, &quot;STOP&quot;]</code> in launch params. Run <code>dummy_sim.launch.py</code> and verify <code>/litevla/current_action</code> steps through labels while <code>/cmd_vel</code> stays steady at heartbeat rate.</p>
+</section>
+<section id="related">
+<h2>Related</h2>
+<ul><li><a href="../action-interface-parser-and-safety-layer/action-schema.html">action-schema.md</a> (VLA-29)</li><li><a href="control-heartbeat.html">control-heartbeat.md</a> (VLA-27)</li></ul>
+</section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 102 task documentation</p>
+      <p>Lite-VLA · Epic 102 · <code>dummy-action-generator.md</code> is the agent source of truth.</p>
     </footer>
   </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

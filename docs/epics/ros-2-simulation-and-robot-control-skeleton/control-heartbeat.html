@@ -10,141 +10,146 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-27</p>
+      <p class="eyebrow">Epic 102 · VLA-27 / Story 1015</p>
       <h1>Low-level control heartbeat</h1>
-      <p class="doc-lead">
-        <code>heartbeat_controller</code> is the safety and timing layer between slow action sources and the diff-drive controller.
-      </p>
+      <p class="doc-lead">Single owner of /cmd_vel: timing, timeouts, clamps, and diagnostics.</p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> · <a href="#mental-model">Mental model</a> · <a href="#backstory">Backstory</a> · <a href="#prerequisites">Prerequisites</a> · <a href="#vocabulary">Vocabulary</a> · <a href="#guided-reading">Code reading</a> · <a href="#file-index">File index</a> · <a href="#contract">Contract</a> · <a href="#implementation">Implementation</a> · <a href="#decisions">Decisions</a> · <a href="#verification">Verification</a> · <a href="#failure-modes">Debugging</a> · <a href="#principle">Principle</a> · <a href="#learning">Learning</a> · <a href="#related">Related</a>
+      </nav>
     </header>
 
     <main>
-      <section id="executive-summary">
-        <h2>Executive summary</h2>
-        <p><code>heartbeat_controller</code> is the <strong>safety and timing layer</strong> between slow action sources and the diff-drive controller. It republishes the latest desired twist on <code>/cmd_vel</code> at a fixed rate, enforces action and camera freshness timeouts, clamps velocities, and emits JSON diagnostics. Every Epic 102 command source (dummy, teleop, future model) converges here before actuation.</p>
-      </section>
-
-      <section id="api-contract">
-        <h2>API contract and data flow</h2>
-        <pre><code class="language-text">/litevla/desired_twist  ──┐
+<section id="summary">
+<h2>Executive summary</h2>
+<p><code>heartbeat_controller</code> is the <strong>safety and timing layer</strong> between slow action sources and the diff-drive controller. It republishes the latest desired twist on <code>/cmd_vel</code> at a fixed rate, enforces action and camera freshness timeouts, clamps velocities, and emits JSON diagnostics. Every Epic 102 command source (dummy, teleop, future model) converges here before actuation.</p>
+<p>This node is the <strong>single owner of <code>/cmd_vel</code></strong> in integrated stacks—not teleop, not dummy.</p>
+</section>
+<section id="mental-model">
+<h2>Mental model</h2>
+<p>Think of the heartbeat as <strong>the robot&#x27;s reflex arc</strong>: it keeps sending the last safe command until told otherwise, and slams to STOP when inputs go stale.</p>
+<p>It exists because keyboard and model outputs are irregular, but <code>ros2_control</code> diff-drive expects continuous commands.</p>
+<p>The key engineering tension is <strong>responsiveness vs safety</strong>—tighter timeouts stop faster but feel twitchy in teleop.</p>
+<p>A beginner mistake is publishing <code>/cmd_vel</code> from teleop or dummy &quot;just to test,&quot; bypassing timeouts and competing with the heartbeat.</p>
+<p>A senior engineer watches <strong><code>timed_out</code> in diagnostics</strong>, <code>control_mode</code> alignment, and heartbeat rate vs action source rate.</p>
+</section>
+<section id="backstory">
+<h2>Backstory: why this exists</h2>
+<p>Before this module existed, each command source could publish <code>/cmd_vel</code> at its own rate. Keyboard polling at 50 Hz and dummy steps every 2 s produced jerky motion; stale commands could persist after a source crashed.</p>
+<p>The naive solution would be to increase publish rates in every source.</p>
+<p>That breaks because safety logic duplicates, races persist, and no single place owns STOP-on-stale behavior.</p>
+<p>So this design chooses a <strong>timer-driven heartbeat</strong> that subscribes to <code>/litevla/desired_twist</code>, optionally watches <code>/image_raw</code>, and publishes clamped <code>/cmd_vel</code> via <code>CmdVelPublisher</code>.</p>
+<p>This pattern appears in real systems as <strong>watchdog-controlled actuation gateways</strong>.</p>
+</section>
+<section id="prerequisites">
+<h2>Prerequisites</h2>
+<ul><li><a href="velocity-command-publisher.html">velocity-command-publisher.md</a> — <code>CmdVelPublisher</code>.</li><li><a href="dummy-action-generator.html">dummy-action-generator.md</a> and <a href="manual-teleoperation.html">manual-teleoperation.md</a> — intent publishers.</li><li><a href="camera-frame-subscriber.html">camera-frame-subscriber.md</a> — optional frame freshness.</li></ul>
+</section>
+<section id="vocabulary">
+<h2>Concept primer / vocabulary</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Term</th><th scope="col">Meaning in this project</th></tr></thead><tbody><tr><th scope="row"><code>desired_twist</code></th><td>Latest intent from the active source (<code>geometry_msgs/Twist</code>).</td></tr><tr><th scope="row"><code>/cmd_vel</code></th><td>Actuation output; only heartbeat should publish here in production.</td></tr><tr><th scope="row"><code>heartbeat_hz</code></th><td>Timer rate for republishing <code>/cmd_vel</code>.</td></tr><tr><th scope="row"><code>action_timeout_sec</code></th><td>Max age of desired twist before STOP.</td></tr><tr><th scope="row"><code>frame_timeout_sec</code></th><td>Max age of camera frame when <code>require_frame:=true</code>.</td></tr><tr><th scope="row"><code>control_mode</code></th><td>Gate: only process matching source (<code>dummy</code>, <code>teleop</code>, <code>model</code>).</td></tr><tr><th scope="row"><code>/litevla/diagnostics</code></th><td>JSON string with ages, mode, timeout flag.</td></tr><tr><th scope="row"><code>CommandSmoother</code></th><td>Optional rate limiter on velocity changes.</td></tr></tbody></table></div>
+</section>
+<section id="guided-reading">
+<h2>Guided code reading</h2>
+<p>Read these in order:</p>
+<ol><li><code>litevla_bridge/heartbeat_utils.py</code><ul><li><code>is_timed_out</code>, <code>select_velocities</code>, <code>build_diagnostics</code> — pure logic.</li></ul></li></ol>
+<ol><li><code>test/test_heartbeat_utils.py</code><ul><li>Executable spec for timeout math.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/heartbeat_controller.py</code><ul><li>Subscriptions, timer callback, <code>CmdVelPublisher</code> usage.</li></ul></li></ol>
+<ol><li><code>launch/heartbeat.launch.py</code> and <code>launch/dummy_sim.launch.py</code><ul><li>Parameter sets for dummy vs teleop stacks.</li></ul></li></ol>
+<p>While reading, ask:</p>
+<ul><li>Where does data enter?</li><li>Where is it validated?</li><li>Who owns the final side effect?</li><li>What happens if the upstream producer crashes mid-command?</li></ul>
+</section>
+<section id="file-index">
+<h2>File and artifact index</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">File or artifact</th><th scope="col">What it is</th><th scope="col">Why it matters</th><th scope="col">First thing to inspect</th></tr></thead><tbody><tr><td><code>heartbeat_utils.py</code></td><td>Pure timeout/smoothing helpers</td><td>Testable without ROS</td><td><code>select_velocities</code></td></tr><tr><td><code>heartbeat_controller.py</code></td><td>Main ROS node</td><td>Single <code>/cmd_vel</code> owner</td><td>Timer callback</td></tr><tr><td><code>cmd_vel_publisher.py</code></td><td>Actuation sink</td><td>Called only from heartbeat in prod</td><td><code>publish_twist</code></td></tr><tr><td><code>test/test_heartbeat_utils.py</code></td><td>Unit tests</td><td>Timeout contracts</td><td>Stale input cases</td></tr><tr><td><code>launch/heartbeat.launch.py</code></td><td>Standalone launch</td><td>Parameter defaults</td><td><code>heartbeat_hz</code></td></tr></tbody></table></div>
+</section>
+<section id="contract">
+<h2>API contract and data flow</h2>
+<h3>What &quot;contract&quot; means here</h3>
+<p><strong>Contract</strong> = at <code>heartbeat_hz</code>, publish a clamped <code>Twist</code> on <code>/cmd_vel</code> reflecting the latest <strong>safe</strong> desired velocities. If action or required frame is stale, or <code>control_mode</code> mismatches, publish zero velocity. Emit diagnostics JSON each tick.</p>
+<h3>Task-local flow</h3>
+<pre><code class="language-text">/litevla/desired_twist  ──┐
 /litevla/current_action ──┼──&gt; heartbeat_controller (timer @ heartbeat_hz)
 /image_raw (optional)   ──┘         │
                                       ├──&gt; clamp + timeout gate
                                       ├──&gt; /cmd_vel
                                       └──&gt; /litevla/diagnostics (JSON)</code></pre>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Parameter</th>
-                <th scope="col">Default</th>
-                <th scope="col">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>heartbeat_hz</code></td>
-                <td><code>10.0</code></td>
-                <td>Teleop stack uses <code>25.0</code> for lower latency</td>
-              </tr>
-              <tr>
-                <td><code>action_timeout_sec</code></td>
-                <td><code>0.5</code></td>
-                <td>Teleop uses <code>0.2</code></td>
-              </tr>
-              <tr>
-                <td><code>frame_timeout_sec</code></td>
-                <td><code>2.0</code></td>
-                <td>Stale camera → STOP</td>
-              </tr>
-              <tr>
-                <td><code>require_frame</code></td>
-                <td><code>true</code></td>
-                <td><code>false</code> for teleop / cmd-only benches</td>
-              </tr>
-              <tr>
-                <td><code>control_mode</code></td>
-                <td><code>dummy</code></td>
-                <td><code>dummy</code> | <code>teleop</code> | <code>model</code></td>
-              </tr>
-              <tr>
-                <td><code>teleop_startup_grace_sec</code></td>
-                <td><code>0.0</code></td>
-                <td><code>20.0</code> in teleop script — avoids immediate STOP before keys</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <p><strong>Invariant:</strong> On timeout or mode mismatch, published twist is zero (<code>STOP</code>).</p>
-      </section>
-
-      <section id="implementation">
-        <h2>Implementation breakdown</h2>
-
-        <h3>Pure helpers (<code>heartbeat_utils.py</code>)</h3>
-        <pre><code class="language-python">def is_timed_out(age_sec, timeout_sec) -&gt; bool: ...
+<h3>Contract table</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Row label</th><th scope="col">Meaning</th></tr></thead><tbody><tr><th scope="row">Parameter</th><td>ROS parameter.</td></tr><tr><th scope="row">Default</th><td>Typical value in repo.</td></tr><tr><th scope="row">Notes</th><td>Mode-specific overrides.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">Parameter</th><th scope="col">Default</th><th scope="col">Notes</th></tr></thead><tbody><tr><td><code>heartbeat_hz</code></td><td><code>10.0</code></td><td>Teleop stack uses <code>25.0</code> for lower latency</td></tr><tr><td><code>action_timeout_sec</code></td><td><code>0.5</code></td><td>Teleop uses <code>0.2</code></td></tr><tr><td><code>frame_timeout_sec</code></td><td><code>2.0</code></td><td>Stale camera → STOP</td></tr><tr><td><code>require_frame</code></td><td><code>true</code></td><td><code>false</code> for teleop / cmd-only benches</td></tr><tr><td><code>control_mode</code></td><td><code>dummy</code></td><td><code>dummy</code> \</td><td><code>teleop</code> \</td><td><code>model</code></td></tr><tr><td><code>teleop_startup_grace_sec</code></td><td><code>0.0</code></td><td><code>20.0</code> in teleop script — avoids immediate STOP before keys</td></tr></tbody></table></div>
+<p><strong>Invariant:</strong> On timeout or mode mismatch, published twist is zero (<code>STOP</code>).</p>
+<h3>Naive approach vs chosen approach</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Approach</th><th scope="col">Why it seems attractive</th><th scope="col">Why we did or did not choose it</th></tr></thead><tbody><tr><td>Direct publish from each source</td><td>Fewer nodes</td><td>Jerky motion; race conditions; duplicated safety</td></tr><tr><td>Single heartbeat owner</td><td>Adds routing step</td><td>One safety boundary; steady <code>/cmd_vel</code></td></tr><tr><td>No camera timeout</td><td>Simpler teleop setup</td><td>Blind motion if perception dies — <code>require_frame</code> optional</td></tr><tr><td>High heartbeat rate always</td><td>Lower latency</td><td>CPU cost; teleop tunes 25 Hz vs dummy 10 Hz</td></tr></tbody></table></div>
+</section>
+<section id="implementation">
+<h2>Implementation breakdown</h2>
+<h3>Pure helpers (`heartbeat_utils.py`)</h3>
+<pre><code class="language-python">def is_timed_out(age_sec, timeout_sec) -&gt; bool: ...
 def select_velocities(desired, *, timed_out, ...) -&gt; tuple[float, float]: ...
 def build_diagnostics(...) -&gt; dict: ...</code></pre>
-        <p>Unit-tested without ROS — documents timeout math explicitly.</p>
-
-        <h3>Controller node (<code>heartbeat_controller.py</code>)</h3>
-        <ul>
-          <li>Uses <code>CmdVelPublisher</code> (VLA-25) for all <code>/cmd_vel</code> output.</li>
-          <li>Subscribes desired twist, action label, and optionally camera with sensor QoS.</li>
-          <li><code>control_mode</code> gate: ignores sources not matching active mode.</li>
-        </ul>
-
-        <h3>Diagnostics JSON</h3>
-        <pre><code class="language-json">{
-  "heartbeat_hz": 25.0,
-  "last_cmd": "MOVE_FORWARD",
-  "action_age_ms": 12.3,
-  "frame_age_ms": 45.0,
-  "timed_out": false,
-  "control_mode": "teleop"
+<p><strong>What to notice:</strong> Timeout math is testable without spinning ROS.</p>
+<p><strong>Why it is written this way:</strong> Documents safety policy in one place.</p>
+<p><strong>Risks and gotchas:</strong> <code>select_velocities</code> must return zeros when any gate trips—tests should cover combinations.</p>
+<h3>Controller node (`heartbeat_controller.py`)</h3>
+<p><strong>What to notice:</strong> Uses <code>CmdVelPublisher</code> (VLA-25) for all <code>/cmd_vel</code> output. Subscribes desired twist, action label, and optionally camera with sensor QoS. <code>control_mode</code> gate ignores sources not matching active mode.</p>
+<p><strong>Why it is written this way:</strong> Single actuation path with shared clamps.</p>
+<p><strong>Risks and gotchas:</strong> <code>CommandSmoother</code> adds latency—disable for latency debugging. Initial state is timed out until first valid message.</p>
+<h3>Diagnostics JSON</h3>
+<pre><code class="language-json">{
+  &quot;heartbeat_hz&quot;: 25.0,
+  &quot;last_cmd&quot;: &quot;MOVE_FORWARD&quot;,
+  &quot;action_age_ms&quot;: 12.3,
+  &quot;frame_age_ms&quot;: 45.0,
+  &quot;timed_out&quot;: false,
+  &quot;control_mode&quot;: &quot;teleop&quot;
 }</code></pre>
-      </section>
-
-      <section id="engineering-decisions">
-        <h2>Engineering decisions</h2>
-        <p><strong>ADR: Fixed-rate cmd_vel publisher</strong></p>
-        <ul>
-          <li><strong>Status:</strong> Accepted</li>
-          <li><strong>Context:</strong> Model and keyboard inputs are event-driven; <code>ros2_control</code> expects continuous commands.</li>
-          <li><strong>Decision:</strong> Timer-driven republish of last safe command.</li>
-          <li><strong>Alternatives rejected:</strong> Direct publish from each source (jerky motion, race conditions).</li>
-          <li><strong>Consequences:</strong> Tune <code>heartbeat_hz</code> and <code>action_timeout_sec</code> per mode (teleop vs dummy).</li>
-        </ul>
-      </section>
-
-      <section id="verification">
-        <h2>Verification patterns</h2>
-        <pre><code class="language-bash">colcon test --packages-select litevla_bridge   # test_heartbeat_utils.py
+</section>
+<section id="decisions">
+<h2>Engineering decisions</h2>
+<p><strong>ADR: Fixed-rate cmd_vel publisher</strong></p>
+<ul><li><strong>Status:</strong> Accepted</li><li><strong>Context:</strong> Model and keyboard inputs are event-driven; <code>ros2_control</code> expects continuous commands.</li><li><strong>Decision:</strong> Timer-driven republish of last safe command.</li><li><strong>Alternatives rejected:</strong> Direct publish from each source (jerky motion, race conditions).</li><li><strong>Consequences:</strong> Tune <code>heartbeat_hz</code> and <code>action_timeout_sec</code> per mode (teleop vs dummy).</li></ul>
+</section>
+<section id="verification">
+<h2>Verification patterns</h2>
+<pre><code class="language-bash">colcon test --packages-select litevla_bridge   # test_heartbeat_utils.py
 ros2 launch litevla_bridge dummy_sim.launch.py
 ros2 topic hz /cmd_vel
 ros2 topic echo /litevla/diagnostics --once</code></pre>
-        <p>Stop dummy node or camera → <code>timed_out: true</code> → zero <code>/cmd_vel</code>.</p>
-      </section>
-
-      <section id="related">
-        <h2>Related</h2>
-        <ul>
-          <li><a href="dummy-action-generator.html">dummy-action-generator</a> (VLA-26)</li>
-          <li><a href="manual-teleoperation.html">manual-teleoperation</a> (VLA-28)</li>
-        </ul>
-      </section>
+<p>Stop dummy node or camera → <code>timed_out: true</code> → zero <code>/cmd_vel</code>.</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Contract defended</th><th scope="col">Where</th></tr></thead><tbody><tr><td>Stale action → STOP</td><td><code>test_heartbeat_utils.py</code></td></tr><tr><td>Steady <code>/cmd_vel</code> rate</td><td><code>ros2 topic hz</code></td></tr><tr><td>Diagnostics truthfulness</td><td>Echo JSON while starving input</td></tr></tbody></table></div>
+</section>
+<section id="failure-modes">
+<h2>Failure modes and debugging path</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">How to investigate</th><th scope="col">Fix</th></tr></thead><tbody><tr><td>Robot does not move</td><td>Heartbeat timed out or wrong mode</td><td><code>ros2 topic echo /litevla/diagnostics</code></td><td>Match <code>control_mode</code>; press keys / start dummy</td></tr><tr><td>Immediate STOP in teleop</td><td><code>action_timeout</code> too tight</td><td>Check <code>action_age_ms</code> in diagnostics</td><td>Use teleop script params; grace period</td></tr><tr><td>STOP despite driving</td><td><code>require_frame</code> + stale camera</td><td><code>frame_age_ms</code> in diagnostics</td><td>Set <code>require_frame:=false</code> for cmd-only</td></tr><tr><td>Jerky motion</td><td>Multiple <code>/cmd_vel</code> publishers</td><td><code>ros2 topic info /cmd_vel</code></td><td>Remove direct publishers from sources</td></tr><tr><td><code>/cmd_vel</code> hz ≠ heartbeat</td><td>Another node publishing</td><td>List publishers</td><td>Stop tester nodes</td></tr></tbody></table></div>
+</section>
+<section id="principle">
+<h2>Engineering principle taught by this task</h2>
+<p>This task teaches the <strong>single owner of side effects</strong> pattern: many producers may express intent; one gateway converts intent into steady, safe actuation with explicit timeout policy.</p>
+</section>
+<section id="learning">
+<h2>Active learning checks</h2>
+<ol><li>Why does this component subscribe to intent instead of being the keyboard node?</li><li>What happens if the upstream producer crashes mid-command?</li><li>Which component detects stale data?</li><li>How would you test that stale data becomes safe output?</li></ol>
+</section>
+<section id="learning">
+<h2>Small modification exercise</h2>
+<p>Set <code>action_timeout_sec:=1.0</code> in dummy launch. Run dummy sim, kill the dummy node mid-sequence, and confirm diagnostics show <code>timed_out: true</code> within ~1 s and <code>/cmd_vel</code> goes to zero.</p>
+</section>
+<section id="related">
+<h2>Related</h2>
+<ul><li><a href="dummy-action-generator.html">dummy-action-generator.md</a> (VLA-26)</li><li><a href="manual-teleoperation.html">manual-teleoperation.md</a> (VLA-28)</li><li><a href="velocity-command-publisher.html">velocity-command-publisher.md</a> (VLA-25)</li></ul>
+</section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 102 task documentation</p>
+      <p>Lite-VLA · Epic 102 · <code>control-heartbeat.md</code> is the agent source of truth.</p>
     </footer>
   </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

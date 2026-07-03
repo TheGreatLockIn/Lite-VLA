@@ -3,162 +3,121 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connect Baseline Inference to Action Parser — Lite-VLA</title>
+  <title>Connect baseline inference to action parser — Epic 104</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
-      <a class="back-link" href="index.html">Back to epic index</a>
-      <p class="eyebrow">Epic 104 · Story 1028</p>
-      <h1>Connect Baseline Inference to Action Parser</h1>
-      <p class="doc-lead">Develop a model-to-action adapter to map raw VLM outputs into validated safety commands.</p>
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 104 · VLA-1028 / Story 1028</p>
+      <h1>Connect baseline inference to action parser</h1>
+      <p class="doc-lead">
+        Architectural walkthrough of <code>InferenceAdapter</code> — bridging VLM text output
+        to Epic 103 parser and safety gate.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#learning">Learning</a>
+      </nav>
     </header>
+
     <main>
-      <section>
-        <h2>Jira Task Info</h2>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          <code>litevla.actions.InferenceAdapter</code> calls <code>InferenceWrapper.infer()</code>,
+          passes raw text through <code>safe_command_from_text()</code>, and returns clamped velocities
+          with parse status and observability logs.
+        </p>
+        <p>
+          Evaluation and future ROS bridges should use this path so metrics match deployment safety behavior.
+        </p>
+      </section>
+
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p><strong>Translator between probabilistic language and deterministic motion.</strong></p>
         <ul>
-          <li><strong>Story:</strong> VLA-1028: Connect baseline inference to action parser</li>
-          <li><strong>Epic:</strong> Baseline Vision-Language Inference Prototype (VLA-5)</li>
+          <li><strong>Beginner mistake:</strong> wiring wrapper output directly to <code>/cmd_vel</code>.</li>
+          <li><strong>Senior watchpoint:</strong> double STOP paths; config limits; raw vs parsed logs.</li>
         </ul>
       </section>
 
-      <section>
-        <h2>1. Executive Summary</h2>
-        <p>The model-to-action adapter connects raw text predictions outputted by the Vision-Language-Action (VLA) model wrapper to the discrete action parser and safety layer. It acts as an integration gateway that bridges Epic 104 (Inference Prototype) with Epic 103 (Action Schema and Safety Gate). The adapter is architecturally responsible for parsing noisy VLA string tokens into standard robot actions, enforcing maximum configuration-specified velocity bounds, logging raw and parsed results for observability, and guaranteeing safe fallback <code>STOP</code> behavior under runtime execution failures.</p>
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">image + instruction
+  → InferenceWrapper.infer() → raw_text
+  → safe_command_from_text() → SafeCommand
+  → dict with safe_command, parse_status, timing</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Config</strong></td><td><code>safety.max_linear_vel</code>, <code>max_angular_vel</code></td></tr>
+              <tr><td><strong>Parse failure</strong></td><td><code>STOP</code> velocities — no uncaught <code>ValueError</code></td></tr>
+              <tr><td><strong>success</strong></td><td>Reflects inference, not semantic correctness</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>2. API Contract and Data Flow</h2>
-        <p>The adapter coordinates inputs from the camera frames and navigation instructions, executes visual model inference, parses the output text, and clamps resulting twist components.</p>
-        
-        <pre class="mermaid">
-flowchart LR
-    Img[Camera BGR Array] --> Infer[InferenceWrapper]
-    Ins[Text Instruction] --> Infer
-    
-    Infer -->|Raw VLM Output| Adp[InferenceAdapter]
-    Cfg[Config Safety Bounds] --> Adp
-    
-    Adp -->|SafeCommand| SafeGate[safe_command_from_text]
-    SafeGate --> Out[Bounded Twist Velocities]
-        </pre>
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+        <pre><code class="language-python">infer_res = self.wrapper.infer(image, instruction, few_shot=few_shot)
+safe_cmd = safe_command_from_text(
+    infer_res["action"],
+    max_linear_vel=self.max_linear_vel,
+    max_angular_vel=self.max_angular_vel,
+    logger=logger,
+)</code></pre>
+        <p><code>scripts/evaluate_baseline.py</code> uses <code>adapter.adapt_inference</code> for predicted labels.</p>
 
-        <h3>Data Contract Formats</h3>
-        <ul>
-          <li><strong>Input:</strong>
-            <ul>
-              <li><code>image</code> (<code>numpy.ndarray</code>): OpenCV BGR frame from the camera topic.</li>
-              <li><code>instruction</code> (<code>str</code>): Goal text navigation command.</li>
-              <li><code>few_shot</code> (<code>bool</code>): In-context few-shot example flag.</li>
-            </ul>
-          </li>
-          <li><strong>Output:</strong> A structured dictionary containing:
-            <ul>
-              <li><code>safe_command</code> (<code>SafeCommand</code>): Dataclass containing linear velocity, angular velocity, discrete action enum, original text, and evaluation events.</li>
-              <li><code>action</code> (<code>str</code>): String representation of the parsed discrete action.</li>
-              <li><code>parse_status</code> (<code>str</code>): Reason/status of parsing (e.g. <code>"ok"</code>, <code>"parse_failure"</code>).</li>
-              <li><code>raw_output</code> (<code>str</code>): Unparsed VLM text generated by the model.</li>
-              <li><code>success</code> (<code>bool</code>): True if model inference completed successfully.</li>
-              <li><code>timing</code> (<code>dict</code>): Timing latencies passed from the wrapper.</li>
-              <li><code>error</code> (<code>str</code> or <code>None</code>): Error traceback message on exception.</li>
-            </ul>
-          </li>
-        </ul>
+        <h3>Engineering decisions</h3>
+        <pre><code class="language-text">ADR: Model-to-action adapter — Accepted
+Delegates parsing/clamping to safe_command_from_text; no inline ROS parsing.</code></pre>
       </section>
 
-      <section>
-        <h2>3. Implementation Breakdown</h2>
-        <p>The core logic resides in <code>litevla/actions/adapter.py</code> and is exported in <code>litevla/actions/__init__.py</code>.</p>
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_inference_adapter.py -v
+pytest
+python scripts/evaluate_baseline.py</code></pre>
 
-        <h3>Adapter Initialization</h3>
-        <p>The <code>InferenceAdapter</code> reads configuration bounds during initialization:</p>
-        <pre><code class="language-python"># litevla/actions/adapter.py
-class InferenceAdapter:
-    def __init__(self, wrapper: InferenceWrapper, config: dict):
-        self.wrapper = wrapper
-        self.config = config
-        
-        # Read bounds
-        safety_cfg = config.get("safety", {})
-        self.max_linear_vel = safety_cfg.get("max_linear_vel", 0.5)
-        self.max_angular_vel = safety_cfg.get("max_angular_vel", 1.0)</code></pre>
-
-        <h3>Adapter Execution and Safety Routing</h3>
-        <p>The execution method invokes inference and converts results using the safety gate:</p>
-        <pre><code class="language-python"># litevla/actions/adapter.py
-def adapt_inference(self, image: Any, instruction: str, few_shot: bool = False) -> dict[str, Any]:
-    # 1. Run model inference
-    infer_res = self.wrapper.infer(image, instruction, few_shot=few_shot)
-    raw_text = infer_res["action"]
-
-    # 2. Process through parser and safety gate
-    safe_cmd = safe_command_from_text(
-        raw_text,
-        max_linear_vel=self.max_linear_vel,
-        max_angular_vel=self.max_angular_vel,
-        logger=logger,
-    )
-
-    # 3. Log raw and parsed output for debugging (Subtask 10086)
-    logger.info(
-        f"Adapter run: raw_output='{raw_text}', "
-        f"parsed_action='{safe_cmd.action.value}'"
-    )
-
-    return {
-        "safe_command": safe_cmd,
-        "action": safe_cmd.action.value,
-        "parse_status": safe_cmd.events[0].kind.value,
-        "raw_output": raw_text,
-        "success": infer_res["success"],
-        "timing": infer_res["timing"],
-        "error": infer_res["error"],
-    }</code></pre>
-
-        <h3>Observability and Logging Integration</h3>
-        <p>The adapter includes a dedicated logger configured to write structured output records containing <code>raw_output</code> and <code>parsed_action</code> tokens. This enables downstream debugging and telemetry systems to track exact model text hallucinations vs. final published actions.</p>
-
-        <h3>Evaluation Pipeline Integration</h3>
-        <p>The evaluation script <code>scripts/evaluate_baseline.py</code> integrates the adapter:</p>
-        <pre><code class="language-python"># scripts/evaluate_baseline.py
-wrapper = InferenceWrapper(config)
-adapter = InferenceAdapter(wrapper, config)
-
-# ... inside the loop ...
-res = adapter.adapt_inference(image, instruction, few_shot=few_shot)
-predicted = res["action"]</code></pre>
+        <h3>Failure modes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">Fix</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>parse_failure</code> always</td><td>Model prose</td><td>Tune prompts / few-shot</td></tr>
+              <tr><td><code>success=False</code> but motion</td><td>Ignores <code>safe_command</code></td><td>Publish clamped velocities</td></tr>
+              <tr><td>Metric jump, same model</td><td>Parser change</td><td>Re-baseline <code>results.json</code></td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>4. Engineering Decisions</h2>
-        <h3>ADR: Model-to-Action Adapter Wrapper Design</h3>
-        <ul>
-          <li><strong>Status:</strong> Accepted</li>
-          <li><strong>Context:</strong> The VLM model generates raw text string predictions that must be safely parsed and clamped before sending commands to the robot <code>/cmd_vel</code> loop. Creating ad-hoc parsing scripts at the ROS boundary introduces code duplication and increases test friction.</li>
-          <li><strong>Decision:</strong> Establish a dedicated <code>InferenceAdapter</code> class connecting the VLM model execution output with the Epic 103 <code>safe_command_from_text</code> utility.</li>
-          <li><strong>Consequences:</strong> All downstream execution loops (simulation adapters, offline tests, evaluation scripts) route their raw inferences through the same safety pipeline.</li>
-        </ul>
-      </section>
+      <section id="learning">
+        <h2>Engineering principle taught by this task</h2>
+        <p>Layered trust: ML proposes language; deterministic code disposes motion.</p>
 
-      <section>
-        <h2>5. Verification Patterns</h2>
-        <h3>Executable Unit Tests</h3>
-        <p>Unit tests in <code>tests/test_inference_adapter.py</code> cover:</p>
-        <ul>
-          <li><strong>Valid Parsing:</strong> Verifies that a successful prediction (e.g. <code>"MOVE_FORWARD"</code>) resolves to the correct discrete action enum and nominal velocities.</li>
-          <li><strong>Noisy Normalization:</strong> Validates that noisy outputs (e.g. <code>"turn_left. "</code>) are parsed correctly.</li>
-          <li><strong>Fallback Safe STOP (Subtask 10085):</strong> Validates that invalid tokens (e.g. <code>"GO_FAST"</code>) fall back to <code>DiscreteAction.STOP</code> with zero linear and angular velocities.</li>
-          <li><strong>Exception Trap Safe Recovery (Subtask 10085):</strong> Validates that VLM wrapper errors or exceptions return a safe <code>STOP</code> command payload.</li>
-          <li><strong>Observability Logging (Subtask 10086):</strong> Verifies that execution logs contain both the <code>raw_output</code> and <code>parsed_action</code> fields.</li>
-        </ul>
-
-        <h3>Run Commands</h3>
-        <pre><code class="language-bash">.venv\Scripts\pytest tests/test_inference_adapter.py -v
-.venv\Scripts\pytest
-.venv\Scripts\python scripts/evaluate_baseline.py</code></pre>
+        <h3>Active learning checks</h3>
+        <ol>
+          <li>Why can <code>success</code> be True with wrong direction?</li>
+          <li>Who owns STOP on wrapper crash vs parse failure?</li>
+        </ol>
       </section>
     </main>
+
     <footer class="doc-footer">
       <p>Lite-VLA · Epic 104 · <code>connect-baseline-inference-to-action-parser.md</code> is the agent source of truth.</p>
     </footer>
@@ -166,24 +125,6 @@ predicted = res["action"]</code></pre>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: "base",
-      themeVariables: {
-        background: "#FAF8F5",
-        primaryColor: "#F0EDE8",
-        primaryBorderColor: "#D4CFC7",
-        primaryTextColor: "#2C2825",
-        lineColor: "#B8602A",
-        textColor: "#2C2825"
-      }
-    });
-  </script>
 </body>
 </html>

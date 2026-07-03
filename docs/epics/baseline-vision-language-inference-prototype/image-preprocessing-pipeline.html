@@ -3,103 +3,190 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Image Preprocessing Pipeline — Lite-VLA</title>
+  <title>Image preprocessing pipeline — Epic 104</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
-      <h1>Image Preprocessing Pipeline</h1>
-      <p class="doc-lead">Resize, color-convert, and compress camera frames for local VLM inference.</p>
+      <a class="back-link" href="index.html">Back to epic walkthrough</a>
+      <p class="eyebrow">Epic 104 · VLA-36 / Story 1024</p>
+      <h1>Image preprocessing pipeline</h1>
+      <p class="doc-lead">
+        Architectural walkthrough of <code>litevla.preprocessing</code> — the camera-frame contract
+        between OpenCV capture and SmolVLM vision input.
+      </p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> ·
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#contract">Contract</a> ·
+        <a href="#implementation">Implementation</a> ·
+        <a href="#verification">Verification</a> ·
+        <a href="#learning">Learning</a>
+      </nav>
     </header>
+
     <main>
-      <section>
-        <h2>Jira Task Info</h2>
-        <ul>
-          <li><strong>Story:</strong> VLA-36: Create image preprocessing pipeline</li>
-          <li><strong>Epic:</strong> Baseline Vision-Language Inference Prototype (VLA-5)</li>
-        </ul>
+      <section id="summary">
+        <h2>Executive summary</h2>
+        <p>
+          <code>litevla.preprocessing</code> owns the <strong>camera-frame contract</strong> between OpenCV capture
+          and the SmolVLM vision encoder. It converts simulation or ROS camera frames (BGR <code>numpy</code> arrays)
+          into model-ready tensors or in-memory JPEG/PNG bytes with consistent size, color order, and encoding.
+        </p>
+        <p>
+          Downstream modules depend on this layer so they never re-implement BGR→RGB swaps, resize rules, or
+          compression logic. Getting color order wrong silently inverts red and blue in the visual embedding space.
+        </p>
       </section>
 
-      <section>
-        <h2>1. Intent &amp; Context</h2>
-        <p>To prepare raw simulation camera frames (typically high-resolution BGR images from Webots or ROS <code>/image_raw</code>) for the <code>SmolVLM-256M-Instruct</code> vision model. The preprocessor standardizes visual inputs by performing:</p>
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p>Think of this module as a <strong>camera adapter</strong> between robot vision hardware and a pretrained VLM.</p>
         <ul>
-          <li>BGR to RGB color-space conversion.</li>
-          <li>Resizing to specified target dimensions.</li>
-          <li>Optional color depth/grayscale reduction.</li>
-          <li>In-memory JPEG/PNG compression to match the format expected by the <code>llama-cpp-python</code> / <code>clip.cpp</code> visual handler.</li>
+          <li><strong>Exists because</strong> VLMs expect RGB at fixed resolutions; OpenCV delivers BGR at arbitrary sizes.</li>
+          <li><strong>Tension</strong> fidelity vs latency (JPEG vs raw arrays).</li>
+          <li><strong>Beginner mistake</strong> passing BGR directly because previews still look fine.</li>
+          <li><strong>Senior watchpoint</strong> channel order, resize aspect ratio, bytes vs PIL consumer.</li>
         </ul>
+
+        <h3>Backstory</h3>
+        <p>
+          Scattered inline resize logic made channel-order bugs likely. A central <code>ImagePreprocessor</code>
+          with fail-fast config validation is the chosen design — an ETL boundary for sensor data.
+        </p>
+
+        <h3>Vocabulary</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Term</th><th scope="col">Meaning in this project</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>BGR</td><td>OpenCV default from <code>cv2.imread</code> or camera bridges</td></tr>
+              <tr><td>RGB</td><td>SigLIP / PIL expectation; R and B swapped vs BGR</td></tr>
+              <tr><td>Contract</td><td>3-channel BGR in → resized pixels, optionally JPEG/PNG bytes out</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>2. Configuration Settings</h2>
-        <p>The preprocessing behavior is validated against the schema and loaded via <code>configs/default.example.yaml</code>:</p>
+      <section id="contract">
+        <h2>API contract and data flow</h2>
+        <pre><code class="language-text">Camera / file BGR (H, W, 3)
+        │
+        ├──&gt; validate shape
+        ├──&gt; color convert (BGR → RGB | gray)
+        ├──&gt; resize (bilinear)
+        └──&gt; encode (jpeg | png) OR raw ndarray
+                    └──&gt; InferenceWrapper → PIL → SmolVLM</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Input</strong></td><td><code>numpy.ndarray</code> shape <code>(H, W, 3)</code>, BGR</td></tr>
+              <tr><td><strong>Config</strong></td><td><code>preprocessing</code>: resize, <code>color_format</code>, <code>encoding</code></td></tr>
+              <tr><td><strong>Output</strong></td><td><code>bytes</code> or <code>ndarray</code> when <code>encoding: none</code></td></tr>
+              <tr><td><strong>Errors</strong></td><td><code>PreprocessingError</code> on bad config or input</td></tr>
+            </tbody>
+          </table>
+        </div>
+
         <pre><code class="language-yaml">preprocessing:
   resize_width: 512
   resize_height: 512
   color_format: rgb
   encoding: jpeg</code></pre>
-      </section>
 
-      <section>
-        <h2>3. Core Interface &amp; Implementation</h2>
-        <p>The core logic resides in <code>litevla/preprocessing.py</code>.</p>
-        <h3>ImagePreprocessor Class</h3>
-        <ul>
-          <li>
-            <code>__init__(self, config: dict)</code>: Sets parameters and validates dimensions, color formats, and encoding options.
-            <ul>
-              <li><em>Validation Logic:</em> Ensures <code>resize_width</code> and <code>resize_height</code> are positive integers (minimum <code>16</code>). It verifies that <code>color_format</code> is one of <code>rgb</code>, <code>bgr</code>, or <code>gray</code>, and that <code>encoding</code> is one of <code>jpeg</code>, <code>png</code>, or <code>none</code>. Invalid values raise a <code>PreprocessingError</code> immediately during node startup.</li>
-            </ul>
-          </li>
-          <li>
-            <code>preprocess(self, image: np.ndarray) -> bytes | np.ndarray</code>: Processes the BGR image numpy array. Returns standard file bytes (JPEG/PNG) or a raw preprocessed numpy array.
-            <ul>
-              <li><em>Validation:</em> Checks that the input image is a 3-channel (<code>H</code>, <code>W</code>, <code>3</code>) NumPy array.</li>
-              <li><em>Color Space Handling:</em> Converts colors using OpenCV (<code>cv2.cvtColor</code>). Swapping channels from BGR to RGB is essential because the pre-trained vision encoder (SigLIP) was trained on RGB images. If skipped, colors like Red and Blue are inverted, causing model control errors. Grayscale reduces the array to a single intensity channel.</li>
-              <li><em>Resizing:</em> Scales the image using bilinear interpolation to the target shape (e.g. <code>512x512</code> or <code>224x224</code>).</li>
-              <li><em>In-Memory Compression:</em> Compresses the processed array into a byte stream based on the <code>encoding</code> format:
-                <ul>
-                  <li><strong><code>jpeg</code>:</strong> Lossy compression. Produces a very small byte footprint in RAM, maximizing transfer speed to the model engine. This is the default.</li>
-                  <li><strong><code>png</code>:</strong> Lossless compression. Retains absolute pixel quality at the cost of a larger memory footprint.</li>
-                  <li><strong><code>none</code>:</strong> Bypasses compression and returns the raw processed NumPy array (useful for offline testing or native PyTorch pipelines).</li>
-                </ul>
-              </li>
-            </ul>
-          </li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>4. Technical Decisions &amp; ADR Notes</h2>
-        <div class="adr-grid" style="display: grid; gap: 1rem; margin-top: 1rem;">
-          <article style="background: var(--color-surface); padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius);">
-            <h3>ADR: In-Memory Compression</h3>
-            <p><strong>Status:</strong> Accepted</p>
-            <p><strong>Context:</strong> The <code>llama-cpp-python</code> LLaVA handler requires image files or raw file bytes (JPEG/PNG) to feed into the underlying C++ vision projector (<code>clip.cpp</code>). It cannot directly ingest raw NumPy arrays.</p>
-            <p><strong>Decision:</strong> The preprocessor compresses NumPy arrays into <code>.jpg</code>/<code>.png</code> buffers using <code>cv2.imencode</code> in RAM, avoiding SSD write wear and reducing latency.</p>
-            <p><strong>Consequences:</strong> Returns a <code>bytes</code> object representing the raw data of a JPEG/PNG file. This stream can be loaded directly by <code>llama-cpp-python</code> in RAM, enabling ultra-fast real-time control (5-10 Hz) with zero disk I/O.</p>
-          </article>
+        <h3>Naive vs chosen</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Approach</th><th scope="col">Attractive because</th><th scope="col">Chosen?</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Resize only in wrapper</td><td>Fewer files</td><td>No — untested duplication</td></tr>
+              <tr><td>Skip BGR→RGB</td><td>One less call</td><td>No — red/blue inversion in embeddings</td></tr>
+              <tr><td>Central preprocessor</td><td>Extra class</td><td>Yes — single tested boundary</td></tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
-      <section>
-        <h2>5. Validation &amp; Unit Tests</h2>
-        <p>Tests are located in <code>tests/test_preprocessing.py</code>:</p>
+      <section id="implementation">
+        <h2>Implementation breakdown</h2>
+
+        <h3>Config and validation</h3>
+        <pre><code class="language-python">if self.color_format not in {"rgb", "bgr", "gray"}:
+    raise PreprocessingError(f"Unsupported color format: {self.color_format}")</code></pre>
+        <p><strong>Notice:</strong> Invalid config fails at startup, not on first frame.</p>
+
+        <h3>Color, resize, encode</h3>
+        <pre><code class="language-python">if self.color_format == "rgb":
+    processed = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+processed = cv2.resize(processed, (self.resize_width, self.resize_height),
+                       interpolation=cv2.INTER_LINEAR)
+success, encoded_img = cv2.imencode(ext, processed)
+return encoded_img.tobytes()</code></pre>
+        <p><strong>Risks:</strong> bilinear stretch on wide frames; JPEG lossy default.</p>
+
+        <h3>Engineering decisions</h3>
+        <pre><code class="language-text">ADR: In-memory compression — Accepted
+ADR: BGR in, RGB default out — Accepted</code></pre>
+      </section>
+
+      <section id="verification">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_preprocessing.py -v</code></pre>
+
+        <h3>Failure modes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">Fix</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Ignores red targets</td><td>BGR treated as RGB</td><td><code>color_format: rgb</code></td></tr>
+              <tr><td>Startup PreprocessingError</td><td>Bad config enum</td><td>Fix <code>preprocessing</code> block</td></tr>
+              <tr><td>Stretched objects</td><td>Fixed resize</td><td>Tune dimensions (letterbox future)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="learning">
+        <h2>Engineering principle taught by this task</h2>
+        <p>
+          Treat camera frames like an API with explicit color order, dimensions, and encoding —
+          never assume the model sees what you see on a plot.
+        </p>
+
+        <h3>Active learning checks</h3>
+        <ol>
+          <li>Why is input documented as BGR?</li>
+          <li>What breaks if you skip <code>cvtColor</code>?</li>
+          <li>When does the module return <code>bytes</code> vs <code>ndarray</code>?</li>
+        </ol>
+
+        <h3>Open questions</h3>
         <ul>
-          <li><strong><code>test_preprocessor_init_with_defaults</code></strong>: Confirms fallback parameters are applied when configuration section is empty or missing.</li>
-          <li><strong><code>test_preprocessor_init_invalid_configs</code></strong>: Ensures that invalid sizes (e.g. negative) or unsupported formats throw clean exceptions during instantiation.</li>
-          <li><strong><code>test_preprocessing_resize_and_color_rgb</code></strong>: Verifies that a <code>640x480</code> BGR image is resized to <code>224x224</code> and that color channels are swapped correctly. It asserts color coordinates to ensure top/bottom half colors are swapped to RGB format.</li>
-          <li><strong><code>test_preprocessing_gray</code></strong>: Confirms color reduction to grayscale outputs a 2D array.</li>
-          <li><strong><code>test_preprocessing_encoding_jpeg</code></strong>: Validates the in-memory compression logic. It passes the image through the preprocessor with <code>encoding: "jpeg"</code>, asserts that a <code>bytes</code> object is returned, and attempts to decode it using <code>cv2.imdecode</code> to verify the resulting bytes form a valid, uncorrupted JPEG image.</li>
-          <li><strong><code>test_preprocessing_input_validation</code></strong>: Asserts that incorrect input types or shapes are caught and raise a <code>PreprocessingError</code>.</li>
+          <li>Should <code>default.example.yaml</code> list explicit <code>preprocessing</code> defaults?</li>
+          <li>Letterbox resize for Webots aspect ratios?</li>
         </ul>
       </section>
     </main>
+
     <footer class="doc-footer">
-      <p>Lite-VLA documentation</p>
+      <p>Lite-VLA · Epic 104 · <code>image-preprocessing-pipeline.md</code> is the agent source of truth.</p>
     </footer>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

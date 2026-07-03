@@ -10,41 +10,195 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 103 · VLA-29 / Story 1017</p>
+      <p class="eyebrow">Action Interface, Parser, and Safety Layer (103) · Jira: VLA-29 / Story 1017</p>
       <h1>Discrete action schema</h1>
-      <p class="doc-lead">
-        Architectural walkthrough of <code>litevla.actions</code> — the discrete token contract
-        and token-to-velocity mapping for the MVP.
-      </p>
+      <p class="doc-lead"><code>litevla.actions.schema</code> owns the <strong>discrete action contract</strong> for the MVP: five exact uppercase tokens and their nominal velocity meanings. Parser, dataset labeling, prompts, safety gate, and ROS publishers must not invent parallel vocabularies or ad-hoc speed tables. This module answers one bounded question: <strong>given a valid action token, what <code>(linear_x, angular_z)</code> should downstream code request?</strong> It does not parse noisy VLA text (<a href="discrete-action-parser.html"><code>discrete-action-parser.md</code></a>) and does not publish safe <code>STOP</code> fallbacks on failure (<a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a>). Those boundaries are intentional.</p>
       <nav class="doc-nav" aria-label="On this page">
         <a href="#summary">Summary</a> ·
-        <a href="#contract">Contract</a> ·
-        <a href="#implementation">Implementation</a> ·
-        <a href="#decisions">Decisions</a> ·
-        <a href="#verification">Verification</a>
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#backstory-why-this-exists">Backstory: why this exists</a> ·
+        <a href="#prerequisites">Prerequisites</a> ·
+        <a href="#concept-primer-vocabulary">Vocabulary</a> ·
+        <a href="#guided-code-reading">Code reading</a> ·
+        <a href="#file-and-artifact-index">File index</a> ·
+        <a href="#api-contract-and-data-flow">Contract</a> ·
+        <a href="#implementation-breakdown">Implementation</a> ·
+        <a href="#engineering-decisions">Decisions</a> ·
+        <a href="#verification-patterns">Verification</a> ·
+        <a href="#failure-modes-and-debugging-path">Debugging</a> ·
+        <a href="#engineering-principle-taught-by-this-task">Principle</a> ·
+        <a href="#active-learning-checks">Learning</a> ·
+        <a href="#small-modification-exercise">Exercise</a> ·
+        <a href="#open-questions">Questions</a> ·
+        <a href="#related-docs">Related</a>
       </nav>
     </header>
 
     <main>
       <section id="summary">
         <h2>Executive summary</h2>
-        <p>
-          <code>litevla.actions</code> owns the <strong>discrete action contract</strong> for the MVP:
-          five exact uppercase tokens and their nominal velocity meanings. Parser, dataset labeling,
-          prompts, safety gate, and ROS publishers must not invent parallel vocabularies or ad-hoc speed tables.
-        </p>
-        <p>
-          This module answers one bounded question: <strong>given a valid action token, what
-          <code>(linear_x, angular_z)</code> should downstream code request?</strong> It does not parse
-          noisy VLA text (Story 1019) and does not publish safe <code>STOP</code> fallbacks on failure
-          (Story 1021). Those boundaries are intentional.
-        </p>
+        <p><code>litevla.actions.schema</code> owns the <strong>discrete action contract</strong> for the MVP: five exact uppercase tokens and their nominal velocity meanings. Parser, dataset labeling, prompts, safety gate, and ROS publishers must not invent parallel vocabularies or ad-hoc speed tables.</p>
+        <p>This module answers one bounded question: <strong>given a valid action token, what <code>(linear_x, angular_z)</code> should downstream code request?</strong> It does not parse noisy VLA text (<a href="discrete-action-parser.html"><code>discrete-action-parser.md</code></a>) and does not publish safe <code>STOP</code> fallbacks on failure (<a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a>). Those boundaries are intentional.</p>
       </section>
 
-      <section id="contract">
-        <h2>API contract and data flow</h2>
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p>Think of this module as a <strong>Rosetta stone</strong> between what the VLA model is allowed to say and what the robot is allowed to do.</p>
+        <p>It exists because every layer above and below this file needs a single, stable vocabulary — training labels, prompt templates, parser tests, safety clamps, and <code>/cmd_vel</code> publishers must all agree on the same five tokens and what they mean in meters per second and radians per second.</p>
+        <p>The key engineering tension is <strong>stable training semantics vs. deployment safety limits</strong>: nominal speeds must stay fixed for reproducible datasets, but deployed robots may need tighter ceilings without relabeling data.</p>
+        <p>A beginner mistake is adding friendly aliases like <code>FORWARD</code> or <code>GO</code> “just for the model” — that silently breaks dataset QA, parser strictness, and test determinism.</p>
+        <p>A senior engineer watches for <strong>contract drift</strong>: any new token, renamed enum member, or changed nominal velocity is a breaking change across ML, data, and ROS.</p>
+      </section>
 
-        <h3>Task-local flow</h3>
+      <section id="backstory-why-this-exists">
+        <h2>Backstory: why this exists</h2>
+        <p>Before this module existed, the system had no shared definition of “what is a valid action” or “how fast should <code>MOVE_FORWARD</code> go.” Scripts, prompts, and future ROS nodes would each invent their own strings and speed tables.</p>
+        <p>The naive solution would be to let the VLA output free-form text and parse velocities directly from model prose, or to scatter <code>if action == &quot;forward&quot;: speed = 0.2</code> checks across the codebase.</p>
+        <p>That breaks because training data, evaluation metrics, and runtime safety cannot stay aligned when every file owns a slightly different vocabulary. A model fine-tuned on <code>MOVE_FORWARD</code> will not match a node that accepts <code>FORWARD</code>, and nominal 0.2 m/s forward has no meaning if another module uses 0.15 m/s.</p>
+        <p>So this design chooses a <strong>small <code>str, Enum</code> vocabulary</strong>, a single <code>ACTION_VELOCITIES</code> lookup table, and a required <code>action_to_twist</code> entry point that applies config clamps before any command reaches the safety gate or ROS.</p>
+        <p>This pattern appears in real systems as <strong>schema-first robotics APIs</strong> — game engines use action enums, ROS navigation stacks use discrete cmd profiles, and ML pipelines use fixed label sets so train and deploy share one contract.</p>
+      </section>
+
+      <section id="prerequisites">
+        <h2>Prerequisites</h2>
+        <p>Before reading this module, you should understand:</p>
+        <ul>
+          <li><strong>Python enums</strong> — <code>DiscreteAction</code> is a <code>str, Enum</code> so tokens serialize to JSON and compare as strings.</li>
+          <li><strong>ROS <code>Twist</code> basics</strong> — Lite-VLA maps actions to <code>linear.x</code> (forward m/s) and <code>angular.z</code> (yaw rad/s). See <a href="../../architecture_summary.html"><code>../../architecture_summary.md</code></a> for how <code>/cmd_vel</code> fits the stack.</li>
+          <li><strong>MVP design points</strong> — nominal speeds come from <a href="../../mvp_definition.html"><code>../../mvp_definition.md</code></a> (0.2 m/s forward, ±0.6 rad/s turns).</li>
+          <li><strong>Epic pipeline order</strong> — parser extracts tokens (<a href="discrete-action-parser.html"><code>discrete-action-parser.md</code></a>); this module maps valid tokens; safety gate fail-safes invalid input (<a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a>).</li>
+        </ul>
+      </section>
+
+      <section id="concept-primer-vocabulary">
+        <h2>Concept primer / vocabulary</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Term</th>
+              <th>Meaning in this project</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>DiscreteAction</code></td>
+              <td>Enum of the five allowed MVP action tokens; the type-safe handle for a valid label.</td>
+            </tr>
+            <tr>
+              <td><code>ACTION_NAMES</code></td>
+              <td>Tuple of token strings in enum order — used by parser regex and iteration scripts.</td>
+            </tr>
+            <tr>
+              <td><code>ACTION_VELOCITIES</code></td>
+              <td>Nominal <code>(linear_x, angular_z)</code> per action before config clamping; training/demo semantics.</td>
+            </tr>
+            <tr>
+              <td><code>action_to_twist</code></td>
+              <td>Single runtime mapper from token → clamped velocity pair; required <code>max_*</code> keyword args.</td>
+            </tr>
+            <tr>
+              <td><code>clamp_velocity</code></td>
+              <td>Axis-local sign-preserving clamp to <code>[-limit, limit]</code>; reused by safety gate.</td>
+            </tr>
+            <tr>
+              <td><code>Twist</code></td>
+              <td>ROS geometry message; Lite-VLA publishes <code>linear.x</code> and <code>angular.z</code> to <code>/cmd_vel</code>.</td>
+            </tr>
+            <tr>
+              <td><code>safety.max_linear_vel</code></td>
+              <td>Config ceiling (m/s) passed into <code>action_to_twist</code>; may be lower than nominal design points.</td>
+            </tr>
+            <tr>
+              <td><code>safety.max_angular_vel</code></td>
+              <td>Config ceiling (rad/s) for angular velocity clamping.</td>
+            </tr>
+            <tr>
+              <td>Nominal vs. config limit</td>
+              <td>Nominal = what the action *means* for labeling; config = what the robot *may receive* at deploy time.</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="guided-code-reading">
+        <h2>Guided code reading</h2>
+        <p>Read these in order:</p>
+        <ol>
+          <li><strong><code>litevla/actions/schema.py</code></strong><ul><li>Start with <code>DiscreteAction</code> and <code>ACTION_VELOCITIES</code> — this is the whole vocabulary contract.</li><li>Then read <code>is_valid_action</code>, <code>clamp_velocity</code>, and <code>action_to_twist</code>.</li><li>Ignore imports and module docstring on first pass.</li></ul></li>
+        </ol>
+        <ol>
+          <li><strong><code>litevla/actions/__init__.py</code></strong><ul><li>See which symbols are exported as the public API (<code>ACTION_NAMES</code>, <code>action_to_twist</code>, etc.).</li></ul></li>
+        </ol>
+        <ol>
+          <li><strong><code>tests/test_action_schema.py</code></strong><ul><li>Tests document the behavioral contracts better than comments — especially clamping and alias rejection.</li></ul></li>
+        </ol>
+        <ol>
+          <li><strong><code>configs/default.example.yaml</code></strong> (<code>safety</code> section)<ul><li>See how deploy limits are configured separately from nominal table values.</li></ul></li>
+        </ol>
+        <p>While reading, ask:</p>
+        <ul>
+          <li>Where does data enter? — As <code>DiscreteAction</code> or exact string token at <code>action_to_twist</code>.</li>
+          <li>Where is it validated? — <code>DiscreteAction(name)</code> inside <code>is_valid_action</code> / <code>action_to_twist</code>; invalid strings raise <code>ValueError</code>.</li>
+          <li>Where can it fail? — Unknown token strings raise <code>ValueError</code> (fail-fast); callers must not let this reach <code>/cmd_vel</code> without the safety gate.</li>
+          <li>Who owns the final side effect? — Not this module; it returns floats only. ROS publishing is downstream.</li>
+        </ul>
+      </section>
+
+      <section id="file-and-artifact-index">
+        <h2>File and artifact index</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>File or artifact</th>
+              <th>What it is</th>
+              <th>Why it matters</th>
+              <th>First thing to inspect</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>litevla/actions/schema.py</code></td>
+              <td>Discrete vocabulary and velocity mapping</td>
+              <td>Single source of truth for tokens and nominal speeds</td>
+              <td><code>DiscreteAction</code> enum and <code>ACTION_VELOCITIES</code> dict</td>
+            </tr>
+            <tr>
+              <td><code>litevla/actions/__init__.py</code></td>
+              <td>Public re-exports</td>
+              <td>Application code imports <code>litevla.actions</code>, not internal files</td>
+              <td><code>__all__</code> list</td>
+            </tr>
+            <tr>
+              <td><code>tests/test_action_schema.py</code></td>
+              <td>Unit tests for schema contracts</td>
+              <td>Executable spec for clamping, aliases, MVP limits</td>
+              <td><code>test_action_to_twist_clamps_to_config_limits</code></td>
+            </tr>
+            <tr>
+              <td><code>configs/default.example.yaml</code></td>
+              <td>Example deploy config</td>
+              <td>Shows <code>safety.max_*</code> separate from nominal constants</td>
+              <td><code>safety:</code> section</td>
+            </tr>
+            <tr>
+              <td><code>scripts/run_dummy_pipeline.py</code></td>
+              <td>Smoke script</td>
+              <td>End-to-end schema + config integration without ROS</td>
+              <td>Loop over <code>ACTION_NAMES</code> calling <code>action_to_twist</code></td>
+            </tr>
+            <tr>
+              <td><code>docs/mvp_definition.md</code></td>
+              <td>MVP acceptance criteria</td>
+              <td>Authoritative design-point speeds</td>
+              <td>Linear/angular limits</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="api-contract-and-data-flow">
+        <h2>API contract and data flow</h2>
+        <p>### What “contract” means here</p>
+        <p>For this module, <strong>contract</strong> means the promise it makes to every caller: if you pass a known <code>DiscreteAction</code> (or its exact string value) plus required safety limits, you get back a <code>(linear_x, angular_z)</code> pair in SI units, already clamped to those limits. The contract does <strong>not</strong> promise to accept aliases, prose, or partial matches — that is the parser’s job. It does <strong>not</strong> promise fail-safe zero velocity on bad input — that is the safety gate’s job.</p>
+        <p>### Task-local flow</p>
         <pre><code class="language-text">DiscreteAction | exact str token
         │
         ├──&gt; ACTION_VELOCITIES lookup (nominal m/s, rad/s)
@@ -52,68 +206,147 @@
         ├──&gt; clamp_velocity per axis (config safety limits)
         │
         └──&gt; (linear_x, angular_z)  ──&gt; parser / safety / ROS consumers</code></pre>
-
-        <h3>Contract</h3>
+        <p>### Contract table</p>
+        <p>In the table below, <strong>Surface</strong> means “which part of the API you interact with,” and <strong>Rule</strong> means “what that surface guarantees.”</p>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><strong>Input</strong></td><td><code>DiscreteAction</code> or exact string matching an enum value</td></tr>
-              <tr><td><strong>Config</strong></td><td><code>max_linear_vel</code>, <code>max_angular_vel</code> from <code>safety</code> (SI units)</td></tr>
-              <tr><td><strong>Output</strong></td><td><code>(linear_x, angular_z)</code> for <code>Twist.linear.x</code> / <code>Twist.angular.z</code></td></tr>
-              <tr><td><strong>Invariant</strong></td><td>Every enum member has exactly one nominal velocity pair</td></tr>
-              <tr><td><strong>Validation</strong></td><td><code>is_valid_action(name)</code> — exact token only; no aliases</td></tr>
-              <tr><td><strong>Errors</strong></td><td>Unknown strings in <code>action_to_twist</code> raise <code>ValueError</code></td></tr>
+            <thead><tr>
+              <th>Surface</th>
+              <th>Rule</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><strong>Input</strong></td>
+              <td><code>DiscreteAction</code> or exact string matching an enum value (e.g. <code>&quot;MOVE_FORWARD&quot;</code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Config</strong></td>
+              <td><code>max_linear_vel</code>, <code>max_angular_vel</code> from <code>safety</code> section (SI units: m/s, rad/s)</td>
+            </tr>
+            <tr>
+              <td><strong>Output</strong></td>
+              <td><code>(linear_x, angular_z)</code> floats for <code>Twist.linear.x</code> / <code>Twist.angular.z</code></td>
+            </tr>
+            <tr>
+              <td><strong>Invariant</strong></td>
+              <td>Every enum member has exactly one nominal velocity pair in <code>ACTION_VELOCITIES</code></td>
+            </tr>
+            <tr>
+              <td><strong>Validation</strong></td>
+              <td><code>is_valid_action(name)</code> — exact token only; no aliases</td>
+            </tr>
+            <tr>
+              <td><strong>Error behavior</strong></td>
+              <td>Unknown strings in <code>action_to_twist</code> raise <code>ValueError</code> (fail-fast here; safety gate fail-safes later)</td>
+            </tr>
             </tbody>
           </table>
         </div>
-
-        <h3>Vocabulary</h3>
+        <p>### Action vocabulary</p>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th scope="col">Action</th>
-                <th scope="col">Meaning</th>
-                <th scope="col">Nominal linear_x (m/s)</th>
-                <th scope="col">Nominal angular_z (rad/s)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>MOVE_FORWARD</code></td><td>Drive toward the goal</td><td>0.2</td><td>0.0</td></tr>
-              <tr><td><code>TURN_LEFT</code></td><td>Rotate left in place</td><td>0.0</td><td>0.6</td></tr>
-              <tr><td><code>TURN_RIGHT</code></td><td>Rotate right in place</td><td>0.0</td><td>−0.6</td></tr>
-              <tr><td><code>SLOW_DOWN</code></td><td>Reduce forward speed near target</td><td>0.1</td><td>0.0</td></tr>
-              <tr><td><code>STOP</code></td><td>Halt immediately</td><td>0.0</td><td>0.0</td></tr>
+            <thead><tr>
+              <th>Action</th>
+              <th>Meaning</th>
+              <th>Nominal <code>linear_x</code> (m/s)</th>
+              <th>Nominal <code>angular_z</code> (rad/s)</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>MOVE_FORWARD</code></td>
+              <td>Drive toward the goal</td>
+              <td>0.2</td>
+              <td>0.0</td>
+            </tr>
+            <tr>
+              <td><code>TURN_LEFT</code></td>
+              <td>Rotate left in place</td>
+              <td>0.0</td>
+              <td>0.6</td>
+            </tr>
+            <tr>
+              <td><code>TURN_RIGHT</code></td>
+              <td>Rotate right in place</td>
+              <td>0.0</td>
+              <td>−0.6</td>
+            </tr>
+            <tr>
+              <td><code>SLOW_DOWN</code></td>
+              <td>Reduce forward speed near target</td>
+              <td>0.1</td>
+              <td>0.0</td>
+            </tr>
+            <tr>
+              <td><code>STOP</code></td>
+              <td>Halt immediately</td>
+              <td>0.0</td>
+              <td>0.0</td>
+            </tr>
             </tbody>
           </table>
         </div>
-
-        <h3>Trade-offs</h3>
+        <p>### Naive approach vs chosen approach</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Approach</th>
+              <th>Why it seems attractive</th>
+              <th>Why we did or did not choose it</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Free-form model velocities in prose</td>
+              <td>Flexible; model can output any speed</td>
+              <td>Unparseable, untrainable, unsafe without heavy post-processing</td>
+            </tr>
+            <tr>
+              <td>Per-file <code>if/elif</code> speed tables</td>
+              <td>Quick to prototype</td>
+              <td>Drift across ML, ROS, and data tooling</td>
+            </tr>
+            <tr>
+              <td>Alias tokens (<code>FORWARD</code>, <code>GO</code>)</td>
+              <td>Friendlier model outputs</td>
+              <td>Breaks strict dataset labels and deterministic parser tests</td>
+            </tr>
+            <tr>
+              <td><strong><code>str, Enum</code> + single lookup table</strong></td>
+              <td>Slightly more ceremony</td>
+              <td>One vocabulary for train, eval, and deploy; type-checked call sites</td>
+            </tr>
+            <tr>
+              <td>Nominal table + config clamp</td>
+              <td>Two layers of limits</td>
+              <td>Stable labeling semantics with deploy-time safety tightening</td>
+            </tr>
+            <tr>
+              <td>Fail-fast <code>ValueError</code> on bad tokens</td>
+              <td>Crashes on bad input</td>
+              <td>Catches bugs in tests; safety gate owns fail-safe at publish boundary</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>### Trade-offs</p>
         <ul>
-          <li><strong><code>str, Enum</code></strong> — serializable tokens with type-checked call sites; parser may still emit strings.</li>
-          <li><strong>Nominal table + config clamp</strong> — stable labeling semantics; deployment can tighten limits without retraining.</li>
-          <li><strong>Strict tokens</strong> — <code>FORWARD</code>/<code>GO</code> rejected for deterministic parser and dataset QA.</li>
-          <li><strong>Fail-fast mapping</strong> — <code>ValueError</code> here; Story 1021 owns fail-safe <code>STOP</code> at ROS boundary.</li>
+          <li><strong><code>str, Enum</code> over plain strings</strong> — tokens stay serializable and comparable while giving type-checked call sites. Parser may still emit strings; coercion happens at the mapping boundary.</li>
+          <li><strong>Nominal table + config clamp</strong> — motion meaning (<code>ACTION_VELOCITIES</code>) stays stable for labeling and training; deployment limits (<code>safety.max_*</code>) can tighten without relabeling data.</li>
+          <li><strong>Strict tokens, no aliases</strong> — rejects <code>FORWARD</code>/<code>GO</code> so parser tests and dataset QA stay deterministic.</li>
+          <li><strong>Fail-fast mapping vs fail-safe publishing</strong> — <code>action_to_twist</code> raises on bad input so tests catch mistakes early; Story 1021 owns converting failures to zero velocity at the ROS boundary.</li>
         </ul>
       </section>
 
-      <section id="implementation">
+      <section id="implementation-breakdown">
         <h2>Implementation breakdown</h2>
-
-        <h3>Vocabulary and nominal motion profile</h3>
+        <p>### Vocabulary and nominal motion profile</p>
+        <p><strong>Snippet</strong> (<code>litevla/actions/schema.py</code>):</p>
         <pre><code class="language-python">DEFAULT_LINEAR_FORWARD: Final[float] = 0.2  # m/s
 DEFAULT_LINEAR_SLOW: Final[float] = 0.1  # m/s
 DEFAULT_ANGULAR_TURN: Final[float] = 0.6  # rad/s
 
 class DiscreteAction(str, Enum):
-    MOVE_FORWARD = "MOVE_FORWARD"
-    TURN_LEFT = "TURN_LEFT"
-    TURN_RIGHT = "TURN_RIGHT"
-    SLOW_DOWN = "SLOW_DOWN"
-    STOP = "STOP"
+    MOVE_FORWARD = &quot;MOVE_FORWARD&quot;
+    TURN_LEFT = &quot;TURN_LEFT&quot;
+    TURN_RIGHT = &quot;TURN_RIGHT&quot;
+    SLOW_DOWN = &quot;SLOW_DOWN&quot;
+    STOP = &quot;STOP&quot;
 
 ACTION_VELOCITIES: Final[dict[DiscreteAction, tuple[float, float]]] = {
     DiscreteAction.MOVE_FORWARD: (DEFAULT_LINEAR_FORWARD, 0.0),
@@ -122,10 +355,12 @@ ACTION_VELOCITIES: Final[dict[DiscreteAction, tuple[float, float]]] = {
     DiscreteAction.SLOW_DOWN: (DEFAULT_LINEAR_SLOW, 0.0),
     DiscreteAction.STOP: (0.0, 0.0),
 }</code></pre>
-        <p><strong>Design notes:</strong> Constants mirror MVP design points. <code>ACTION_NAMES</code> gives scripts stable iteration order.</p>
-        <p><strong>Risks:</strong> Enum renames break datasets and prompts. <code>TURN_RIGHT</code> is negative angular — do not assume unsigned magnitudes.</p>
-
-        <h3>Validation and clamping primitives</h3>
+        <p><strong>What to notice:</strong> Design-point constants are named (<code>DEFAULT_LINEAR_FORWARD</code>) and referenced in both the enum table and tests. <code>TURN_RIGHT</code> uses <strong>negative</strong> angular velocity.</p>
+        <p><strong>Why it is written this way:</strong> One source of truth mirrors <a href="../../mvp_definition.html"><code>docs/mvp_definition.md</code></a> so tests and docs reference the same numbers. <code>ACTION_NAMES</code> (derived from the enum) gives scripts a stable iteration order without duplicating the token list.</p>
+        <p><strong>Risks and gotchas:</strong> Changing enum order or names is a <strong>breaking contract change</strong> for datasets, prompts, and parser tests. Consumers must not assume unsigned angular magnitudes.</p>
+        <p>---</p>
+        <p>### Validation and clamping primitives</p>
+        <p><strong>Snippet:</strong></p>
         <pre><code class="language-python">def is_valid_action(name: str) -&gt; bool:
     try:
         DiscreteAction(name)
@@ -135,10 +370,12 @@ ACTION_VELOCITIES: Final[dict[DiscreteAction, tuple[float, float]]] = {
 
 def clamp_velocity(value: float, limit: float) -&gt; float:
     return max(-limit, min(limit, value))</code></pre>
-        <p><strong>Design notes:</strong> Non-throwing probe for parser pre-checks. Sign-preserving clamp reused by Story 1021.</p>
-        <p><strong>Risks:</strong> Exact spelling only — whitespace normalization is Story 1019. No NaN/Inf guard.</p>
-
-        <h3>Token-to-velocity mapping</h3>
+        <p><strong>What to notice:</strong> <code>is_valid_action</code> never raises — it is a probe for parser pre-checks. <code>clamp_velocity</code> is symmetric around zero.</p>
+        <p><strong>Why it is written this way:</strong> Non-throwing validation keeps parser logic simple. Sign-preserving clamp is reused by the safety gate for both discrete and future continuous paths.</p>
+        <p><strong>Risks and gotchas:</strong> <code>is_valid_action</code> requires <strong>exact</strong> case and spelling; whitespace normalization belongs in the parser, not here. <code>clamp_velocity</code> does not detect NaN/Inf inputs.</p>
+        <p>---</p>
+        <p>### Token-to-velocity mapping</p>
+        <p><strong>Snippet:</strong></p>
         <pre><code class="language-python">def action_to_twist(
     action: DiscreteAction | str,
     *,
@@ -153,35 +390,53 @@ def clamp_velocity(value: float, limit: float) -&gt; float:
         clamp_velocity(linear, max_linear_vel),
         clamp_velocity(angular, max_angular_vel),
     )</code></pre>
-        <p><strong>Design notes:</strong> Required config limits prevent accidental uncapped output.</p>
-        <p><strong>Risks:</strong> <code>ValueError</code> on bad tokens must not reach <code>/cmd_vel</code> without Story 1021 fallback.</p>
-
-        <pre><code class="language-diff-python diff-highlight">- for action in ("FORWARD", "STOP"):
+        <p><strong>What to notice:</strong> Config limits are <strong>required keyword arguments</strong> — callers cannot accidentally omit safety ceilings.</p>
+        <p><strong>Why it is written this way:</strong> Single runtime entry point for discrete-to-velocity conversion; forces every call site to pass deploy limits explicitly.</p>
+        <p><strong>Risks and gotchas:</strong> Invalid strings raise <code>ValueError</code> — callers must not let that propagate to <code>/cmd_vel</code> without the safety gate. Accepting raw strings is a convenience for tests and dummy mode.</p>
+        <p><strong>Before/after</strong> (why the shared contract matters):</p>
+        <pre><code class="language-diff-python diff-highlight">- for action in (&quot;FORWARD&quot;, &quot;STOP&quot;):
 -     print(action)
 + for action in ACTION_NAMES:
 +     linear, angular = action_to_twist(
 +         action,
-+         max_linear_vel=safety["max_linear_vel"],
-+         max_angular_vel=safety["max_angular_vel"],
++         max_linear_vel=safety[&quot;max_linear_vel&quot;],
++         max_angular_vel=safety[&quot;max_angular_vel&quot;],
 +     )</code></pre>
-
-        <h3>Runtime integration</h3>
+        <p>---</p>
+        <p>### Public API surface</p>
+        <p><strong>Snippet</strong> (<code>litevla/actions/__init__.py</code>):</p>
+        <pre><code class="language-python">from litevla.actions.schema import (
+    ACTION_NAMES,
+    DiscreteAction,
+    action_to_twist,
+    clamp_velocity,
+    is_valid_action,
+    # ...
+)</code></pre>
+        <p><strong>What to notice:</strong> Schema symbols are re-exported at package level.</p>
+        <p><strong>Why it is written this way:</strong> Application code imports <code>litevla.actions</code>, not <code>litevla.actions.schema</code>, so internal file layout can evolve without breaking ROS nodes or scripts.</p>
+        <p><strong>Risks and gotchas:</strong> Anything added to <code>__all__</code> becomes a semver-sensitive public contract.</p>
+        <p>---</p>
+        <p>### Runtime integration (config-driven)</p>
+        <p><strong>Config</strong> (<code>configs/default.example.yaml</code>):</p>
         <pre><code class="language-yaml">safety:
   max_linear_vel: 0.5
   max_angular_vel: 1.0</code></pre>
-        <pre><code class="language-python">safety = config["safety"]
+        <p><strong>Snippet</strong> (<code>scripts/run_dummy_pipeline.py</code>):</p>
+        <pre><code class="language-python">safety = config[&quot;safety&quot;]
 for action in ACTION_NAMES:
     linear, angular = action_to_twist(
         action,
-        max_linear_vel=safety["max_linear_vel"],
-        max_angular_vel=safety["max_angular_vel"],
+        max_linear_vel=safety[&quot;max_linear_vel&quot;],
+        max_angular_vel=safety[&quot;max_angular_vel&quot;],
     )
-    print(f"action={action:13s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s")</code></pre>
-        <p><strong>Design notes:</strong> Dummy pipeline validates schema + config without ROS.</p>
-        <p><strong>Risks:</strong> Example config allows 0.5 m/s — above MVP operational target; deployment must set appropriate limits.</p>
+    print(f&quot;action={action:13s}  linear={linear:.3f} m/s  angular={angular:.3f} rad/s&quot;)</code></pre>
+        <p><strong>What to notice:</strong> Example config allows 0.5 m/s — higher than MVP operational target (0.2 m/s).</p>
+        <p><strong>Why it is written this way:</strong> Dummy pipeline proves schema + config integration without ROS or model weights.</p>
+        <p><strong>Risks and gotchas:</strong> Deployment configs must set limits appropriate to the robot; the schema does not enforce MVP caps by itself.</p>
       </section>
 
-      <section id="decisions">
+      <section id="engineering-decisions">
         <h2>Engineering decisions</h2>
         <pre><code class="language-text">ADR: Five-token discrete vocabulary
 Status: Accepted
@@ -191,25 +446,47 @@ Alternatives Rejected: FORWARD alias (ambiguous); JSON velocity schema as primar
 Consequences: Dataset labels and prompts must use exact tokens; parser validates before calling action_to_twist.</code></pre>
       </section>
 
-      <section id="verification">
+      <section id="verification-patterns">
         <h2>Verification patterns</h2>
+        <p>Tests and scripts defend specific behavioral contracts:</p>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Contract defended</th><th scope="col">Where</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Token names uppercase, unique, stable order</td><td><code>test_action_names_are_uppercase_and_unique</code></td></tr>
-              <tr><td>Every action has velocity mapping</td><td><code>test_all_actions_have_velocity_mapping</code></td></tr>
-              <tr><td>Nominal values match MVP design points</td><td><code>test_nominal_velocities_match_mvp_design_points</code></td></tr>
-              <tr><td>Mapping at MVP limits (0.2 / 0.6)</td><td><code>test_action_to_twist_at_mvp_limits</code></td></tr>
-              <tr><td>Config clamp when limits &lt; nominal</td><td><code>test_action_to_twist_clamps_to_config_limits</code></td></tr>
-              <tr><td>Aliases rejected</td><td><code>test_is_valid_action</code>, <code>test_invalid_action_string_raises</code></td></tr>
-              <tr><td>Config integration</td><td><code>scripts/run_dummy_pipeline.py</code></td></tr>
+            <thead><tr>
+              <th>Contract defended</th>
+              <th>Where</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Token names uppercase, unique, stable order</td>
+              <td><code>test_action_names_are_uppercase_and_unique</code></td>
+            </tr>
+            <tr>
+              <td>Every action has a velocity mapping</td>
+              <td><code>test_all_actions_have_velocity_mapping</code></td>
+            </tr>
+            <tr>
+              <td>Nominal values match MVP design points</td>
+              <td><code>test_nominal_velocities_match_mvp_design_points</code></td>
+            </tr>
+            <tr>
+              <td>Mapping at MVP limits (0.2 / 0.6)</td>
+              <td><code>test_action_to_twist_at_mvp_limits</code></td>
+            </tr>
+            <tr>
+              <td>Config clamp when limits &lt; nominal</td>
+              <td><code>test_action_to_twist_clamps_to_config_limits</code></td>
+            </tr>
+            <tr>
+              <td>Aliases rejected (<code>FORWARD</code>)</td>
+              <td><code>test_is_valid_action</code>, <code>test_invalid_action_string_raises</code></td>
+            </tr>
+            <tr>
+              <td>End-to-end config integration</td>
+              <td><code>scripts/run_dummy_pipeline.py</code></td>
+            </tr>
             </tbody>
           </table>
         </div>
-
+        <p><strong>Snippet</strong> (clamping + fail-fast):</p>
         <pre><code class="language-python">def test_action_to_twist_clamps_to_config_limits() -&gt; None:
     linear, angular = action_to_twist(
         DiscreteAction.MOVE_FORWARD,
@@ -221,19 +498,102 @@ Consequences: Dataset labels and prompts must use exact tokens; parser validates
 
 def test_invalid_action_string_raises() -&gt; None:
     with pytest.raises(ValueError):
-        action_to_twist("FORWARD", max_linear_vel=0.2, max_angular_vel=0.6)</code></pre>
-
+        action_to_twist(&quot;FORWARD&quot;, max_linear_vel=0.2, max_angular_vel=0.6)</code></pre>
+        <p><strong>Run:</strong></p>
         <pre><code class="language-bash">pytest tests/test_action_schema.py -q
 python scripts/run_dummy_pipeline.py</code></pre>
+      </section>
+
+      <section id="failure-modes-and-debugging-path">
+        <h2>Failure modes and debugging path</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Symptom</th>
+              <th>Likely cause</th>
+              <th>How to investigate</th>
+              <th>Fix</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>ValueError</code> on <code>action_to_twist</code></td>
+              <td>Alias or typo in token (<code>FORWARD</code>, lowercase)</td>
+              <td>Check string against <code>ACTION_NAMES</code>; run <code>is_valid_action</code></td>
+              <td>Use exact enum value; route raw model text through parser + safety gate</td>
+            </tr>
+            <tr>
+              <td>Forward speed lower than expected</td>
+              <td>Config <code>max_linear_vel</code> below nominal 0.2</td>
+              <td>Print <code>safety</code> config; compare to <code>ACTION_VELOCITIES</code></td>
+              <td>Raise config limit or accept intentional deploy clamp</td>
+            </tr>
+            <tr>
+              <td>Turn direction inverted</td>
+              <td>Assuming positive angular always means left</td>
+              <td>Inspect <code>TURN_RIGHT</code> nominal (−0.6 rad/s)</td>
+              <td>Use <code>DiscreteAction</code> enum, not hand-rolled signs</td>
+            </tr>
+            <tr>
+              <td>Dataset labels rejected in training</td>
+              <td>Token not in <code>ACTION_NAMES</code></td>
+              <td>Grep dataset for action field values</td>
+              <td>Relabel to exact five tokens</td>
+            </tr>
+            <tr>
+              <td>Tests pass but robot too fast</td>
+              <td>Example config allows 0.5 m/s linear</td>
+              <td>Read <code>configs/default.example.yaml</code> vs production <code>local.yaml</code></td>
+              <td>Set deploy <code>safety.max_*</code> to robot-appropriate limits</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="engineering-principle-taught-by-this-task">
+        <h2>Engineering principle taught by this task</h2>
+        <p>This task teaches <strong>schema-first bounded contracts</strong>: define the smallest shared vocabulary and mapping table once, then let specialized modules (parser, safety, smoothing) own their adjacent concerns. Nominal semantics and deploy limits stay separate so training reproducibility does not fight operational safety.</p>
+      </section>
+
+      <section id="active-learning-checks">
+        <h2>Active learning checks</h2>
+        <p>Before modifying this module, answer:</p>
+        <ol>
+          <li>Why does <code>action_to_twist</code> require <code>max_linear_vel</code> and <code>max_angular_vel</code> as keyword arguments instead of reading config internally?</li>
+          <li>What happens if you add a sixth action to the enum but forget to update <code>ACTION_VELOCITIES</code>?</li>
+          <li>Why does this module raise on invalid tokens while the safety gate returns <code>STOP</code> at zero velocity?</li>
+          <li>How would you verify that a config change tightens deploy limits without changing nominal training semantics?</li>
+        </ol>
+      </section>
+
+      <section id="small-modification-exercise">
+        <h2>Small modification exercise</h2>
+        <p>Change <code>DEFAULT_LINEAR_SLOW</code> from <code>0.1</code> to <code>0.05</code> in <code>litevla/actions/schema.py</code>, then verify:</p>
+        <ol>
+          <li><code>pytest tests/test_action_schema.py -q</code> — update <code>test_nominal_velocities_match_mvp_design_points</code> if MVP doc still mandates 0.1 (or revert if exercise is exploratory only).</li>
+          <li><code>python scripts/run_dummy_pipeline.py</code> — confirm <code>SLOW_DOWN</code> prints <code>linear=0.050</code> (or clamped value if config is lower).</li>
+          <li>Grep the repo for <code>0.1</code> slow references in docs/tests to see blast radius of a nominal change.</li>
+        </ol>
       </section>
 
       <section id="open-questions">
         <h2>Open questions</h2>
         <ul>
-          <li>Should <code>action_to_twist</code> accept only <code>DiscreteAction</code> once Story 1019 owns string coercion?</li>
+          <li>Should <code>action_to_twist</code> accept only <code>DiscreteAction</code> once Story 1019 owns all string coercion?</li>
           <li>How will optional JSON velocities (Story 1018) merge with discrete tokens at the safety gate?</li>
         </ul>
       </section>
+
+      <section id="related-docs">
+        <h2>Related docs</h2>
+        <ul>
+          <li>Parser (noisy VLA text): <a href="discrete-action-parser.html"><code>discrete-action-parser.md</code></a></li>
+          <li>Safety gate (downstream): <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a></li>
+          <li>Epic walkthrough: <a href="index.html"><code>index.html</code></a></li>
+          <li>MVP acceptance criteria: <a href="../../mvp_definition.html"><code>../../mvp_definition.md</code></a></li>
+          <li>Architecture overview: <a href="../../architecture_summary.html"><code>../../architecture_summary.md</code></a></li>
+        </ul>
+      </section>
+
     </main>
 
     <footer class="doc-footer">

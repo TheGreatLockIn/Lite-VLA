@@ -10,39 +10,172 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 103 · Story 1019</p>
+      <p class="eyebrow">Action Interface, Parser, and Safety Layer (103) · Jira: Story 1019</p>
       <h1>Discrete action parser</h1>
-      <p class="doc-lead">
-        Extract a <code>DiscreteAction</code> from noisy VLA model text before velocity mapping.
-      </p>
+      <p class="doc-lead"><code>litevla.actions.parser</code> extracts a <strong><code>DiscreteAction</code></strong> from noisy VLA model text before velocity mapping. It owns normalization (whitespace, case, trailing punctuation) and token discovery in longer strings. It does <strong>not</strong> map failures to <code>STOP</code> — <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a> handles that at the publish boundary. Subtasks covered: <strong>10057</strong> (parser function), <strong>10058</strong> (normalization), <strong>10059</strong> (unit tests).</p>
       <nav class="doc-nav" aria-label="On this page">
         <a href="#summary">Summary</a> ·
-        <a href="#contract">Contract</a> ·
-        <a href="#implementation">Implementation</a> ·
-        <a href="#decisions">Decisions</a> ·
-        <a href="#verification">Verification</a>
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#backstory-why-this-exists">Backstory: why this exists</a> ·
+        <a href="#prerequisites">Prerequisites</a> ·
+        <a href="#concept-primer-vocabulary">Vocabulary</a> ·
+        <a href="#guided-code-reading">Code reading</a> ·
+        <a href="#file-and-artifact-index">File index</a> ·
+        <a href="#api-contract-and-data-flow">Contract</a> ·
+        <a href="#implementation-breakdown">Implementation</a> ·
+        <a href="#engineering-decisions">Decisions</a> ·
+        <a href="#verification-patterns">Verification</a> ·
+        <a href="#failure-modes-and-debugging-path">Debugging</a> ·
+        <a href="#engineering-principle-taught-by-this-task">Principle</a> ·
+        <a href="#active-learning-checks">Learning</a> ·
+        <a href="#small-modification-exercise">Exercise</a> ·
+        <a href="#open-questions">Questions</a> ·
+        <a href="#related-docs">Related</a>
       </nav>
     </header>
 
     <main>
       <section id="summary">
         <h2>Executive summary</h2>
-        <p>
-          <code>litevla.actions.parser</code> extracts a <strong><code>DiscreteAction</code></strong>
-          from noisy VLA model text before velocity mapping. It owns normalization (whitespace, case,
-          trailing punctuation) and token discovery in longer strings. It does <strong>not</strong> map
-          failures to <code>STOP</code> — Story 1021's safety gate handles that.
-        </p>
-        <p>
-          Subtasks covered: <strong>10057</strong> (parser function), <strong>10058</strong> (normalization),
-          <strong>10059</strong> (unit tests).
-        </p>
+        <p><code>litevla.actions.parser</code> extracts a <strong><code>DiscreteAction</code></strong> from noisy VLA model text before velocity mapping. It owns normalization (whitespace, case, trailing punctuation) and token discovery in longer strings. It does <strong>not</strong> map failures to <code>STOP</code> — <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a> handles that at the publish boundary.</p>
+        <p>Subtasks covered: <strong>10057</strong> (parser function), <strong>10058</strong> (normalization), <strong>10059</strong> (unit tests).</p>
       </section>
 
-      <section id="contract">
-        <h2>API contract and data flow</h2>
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p>Think of this module as a <strong>customs inspector</strong> at the border between free-form language model output and the rigid five-token contract.</p>
+        <p>It exists because VLMs rarely emit perfectly formatted <code>MOVE_FORWARD</code> — they add whitespace, lowercase, trailing periods, or wrap tokens in conversational prose. Something must translate that noise into a known <code>DiscreteAction</code> or honestly report “no valid token found.”</p>
+        <p>The key engineering tension is <strong>tolerance for benign formatting vs. rejection of ambiguous shorthand</strong> — the parser should accept <code>&quot; move_forward. &quot;</code> but must not invent aliases like <code>FORWARD</code> that would desync training labels.</p>
+        <p>A beginner mistake is returning <code>STOP</code> directly from the parser on failure — that blurs “could not parse” with “explicit stop command” and hides parse-failure metrics from the safety gate.</p>
+        <p>A senior engineer watches for <strong>regex drift</strong>: <code>_ACTION_TOKEN_PATTERN</code> is built from <code>ACTION_NAMES</code>, so new enum members auto-join the parser, but multi-token strings still return only the first match.</p>
+      </section>
 
-        <h3>Task-local flow</h3>
+      <section id="backstory-why-this-exists">
+        <h2>Backstory: why this exists</h2>
+        <p>Before this module existed, callers would either require exact model outputs (brittle in practice) or hand-roll string cleaning in every ROS node and test script.</p>
+        <p>The naive solution would be a large alias table (<code>FORWARD</code> → <code>MOVE_FORWARD</code>, <code>GO</code> → <code>MOVE_FORWARD</code>) or fuzzy matching against token substrings.</p>
+        <p>That breaks because aliases create a second vocabulary that datasets and <code>is_valid_action</code> do not recognize. Fuzzy matching turns <code>FORWARD</code> into a false positive and makes evaluation non-deterministic.</p>
+        <p>So this design chooses <strong>normalize → exact match → bounded regex search</strong> with vocabulary driven entirely by Story 1017’s <code>ACTION_NAMES</code>, returning <code>None</code> on failure so the safety gate owns fail-safe policy.</p>
+        <p>This pattern appears in real systems as <strong>structured extraction from LLM output</strong> — log parsers, intent classifiers, and command DSL extractors all separate “parse” from “act.”</p>
+      </section>
+
+      <section id="prerequisites">
+        <h2>Prerequisites</h2>
+        <p>Before reading this module, you should understand:</p>
+        <ul>
+          <li><strong>Discrete action vocabulary</strong> — <a href="action-schema.html"><code>action-schema.md</code></a> defines the five tokens and <code>is_valid_action</code>.</li>
+          <li><strong>Python <code>re</code> basics</strong> — word-boundary regex finds embedded tokens without matching substrings inside other words.</li>
+          <li><strong>Optional vs. exception</strong> — parser returns <code>None</code> instead of raising; understand why before reading the safety gate.</li>
+          <li><strong>Downstream fail-safe</strong> — <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a> converts <code>None</code> to zero-velocity <code>STOP</code>.</li>
+        </ul>
+      </section>
+
+      <section id="concept-primer-vocabulary">
+        <h2>Concept primer / vocabulary</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Term</th>
+              <th>Meaning in this project</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>parse_discrete_action</code></td>
+              <td>Main entry: raw VLA string → <code>DiscreteAction</code> or <code>None</code>.</td>
+            </tr>
+            <tr>
+              <td><code>normalize_action_text</code></td>
+              <td>Strip outer whitespace and uppercase; public for tests/debug.</td>
+            </tr>
+            <tr>
+              <td><code>_strip_trailing_punctuation</code></td>
+              <td>Remove trailing <code>.</code>, <code>!</code>, etc. from whole-string candidate.</td>
+            </tr>
+            <tr>
+              <td><code>_ACTION_TOKEN_PATTERN</code></td>
+              <td>Regex with <code>\b</code> word boundaries built from <code>ACTION_NAMES</code>.</td>
+            </tr>
+            <tr>
+              <td><code>None</code> return</td>
+              <td>Parse failure signal — not an error exception; safety gate interprets it.</td>
+            </tr>
+            <tr>
+              <td>First embedded token</td>
+              <td>In multi-token strings, left-to-right regex search wins.</td>
+            </tr>
+            <tr>
+              <td>VLA text</td>
+              <td>Raw string from vision-language model inference (may include prose).</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="guided-code-reading">
+        <h2>Guided code reading</h2>
+        <p>Read these in order:</p>
+        <ol>
+          <li><strong><code>litevla/actions/schema.py</code></strong> (briefly)<ul><li>Confirm <code>ACTION_NAMES</code> and <code>is_valid_action</code> — parser imports these, never duplicates the list.</li></ul></li>
+        </ol>
+        <ol>
+          <li><strong><code>litevla/actions/parser.py</code></strong><ul><li>Read <code>normalize_action_text</code> and <code>_strip_trailing_punctuation</code>.</li><li>Then <code>parse_discrete_action</code> two-phase logic: exact path, then regex.</li><li>Inspect how <code>_ACTION_TOKEN_PATTERN</code> is constructed at module load.</li></ul></li>
+        </ol>
+        <ol>
+          <li><strong><code>tests/test_action_parser.py</code></strong><ul><li>Parametrized cases show accepted noise and rejected aliases.</li></ul></li>
+        </ol>
+        <p>While reading, ask:</p>
+        <ul>
+          <li>Where does data enter? — Raw <code>text: str</code> at <code>parse_discrete_action</code>.</li>
+          <li>Where is it validated? — <code>is_valid_action</code> on exact candidate; regex match must be a known token name.</li>
+          <li>Where can it fail? — Returns <code>None</code> for empty, whitespace-only, or unrecognized text.</li>
+          <li>Who owns the final side effect? — Not this module; safety gate converts <code>None</code> to <code>STOP</code>.</li>
+        </ul>
+      </section>
+
+      <section id="file-and-artifact-index">
+        <h2>File and artifact index</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>File or artifact</th>
+              <th>What it is</th>
+              <th>Why it matters</th>
+              <th>First thing to inspect</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>litevla/actions/parser.py</code></td>
+              <td>VLA text → <code>DiscreteAction</code> extraction</td>
+              <td>Only module that understands noisy model output</td>
+              <td><code>parse_discrete_action</code></td>
+            </tr>
+            <tr>
+              <td><code>litevla/actions/schema.py</code></td>
+              <td>Vocabulary source</td>
+              <td>Parser regex is derived from <code>ACTION_NAMES</code></td>
+              <td><code>ACTION_NAMES</code> tuple</td>
+            </tr>
+            <tr>
+              <td><code>tests/test_action_parser.py</code></td>
+              <td>Parser contract tests</td>
+              <td>Shows exact vs. embedded vs. invalid cases</td>
+              <td><code>test_parse_invalid_outputs_return_none</code></td>
+            </tr>
+            <tr>
+              <td><code>litevla/actions/safety.py</code></td>
+              <td>Downstream consumer</td>
+              <td>Calls <code>parse_discrete_action</code> in <code>safe_command_from_text</code></td>
+              <td>Parse-failure branch</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="api-contract-and-data-flow">
+        <h2>API contract and data flow</h2>
+        <p>### What “contract” means here</p>
+        <p>For this module, <strong>contract</strong> means: given any string (including empty or prose-wrapped), the parser either returns a valid <code>DiscreteAction</code> from the Story 1017 vocabulary or returns <code>None</code>. It never raises, never clamps velocities, and never publishes <code>STOP</code> — it only reports whether a known token was found.</p>
+        <p>### Task-local flow</p>
         <pre><code class="language-text">VLA raw text
         │
         ├──&gt; normalize_action_text (strip, uppercase)
@@ -51,36 +184,101 @@
         │         or regex search for ACTION_NAMES token
         │
         └──&gt; DiscreteAction | None  ──&gt; action_to_twist (1017) / safety gate (1021)</code></pre>
-
-        <h3>Contract</h3>
+        <p>### Contract table</p>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><strong>Input</strong></td><td>Raw model string (may include whitespace, punctuation, prose)</td></tr>
-              <tr><td><strong>Output</strong></td><td><code>DiscreteAction</code> when a known token is found; <code>None</code> otherwise</td></tr>
-              <tr><td><strong>Vocabulary</strong></td><td>Exact tokens from Story 1017 — no aliases (<code>FORWARD</code>, <code>GO</code>)</td></tr>
-              <tr><td><strong>Multi-token text</strong></td><td>First embedded token wins (left-to-right search)</td></tr>
-              <tr><td><strong>Errors</strong></td><td>Returns <code>None</code> on empty, whitespace-only, or unrecognized text</td></tr>
+            <thead><tr>
+              <th>Surface</th>
+              <th>Rule</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><strong>Input</strong></td>
+              <td>Raw model string (may include whitespace, punctuation, prose)</td>
+            </tr>
+            <tr>
+              <td><strong>Output</strong></td>
+              <td><code>DiscreteAction</code> when a known token is found; <code>None</code> otherwise</td>
+            </tr>
+            <tr>
+              <td><strong>Vocabulary</strong></td>
+              <td>Exact tokens from Story 1017 — no aliases (<code>FORWARD</code>, <code>GO</code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Multi-token text</strong></td>
+              <td>First embedded token wins (left-to-right search)</td>
+            </tr>
+            <tr>
+              <td><strong>Error behavior</strong></td>
+              <td>Returns <code>None</code> on empty, whitespace-only, or unrecognized text</td>
+            </tr>
             </tbody>
           </table>
         </div>
+        <p>### Naive approach vs chosen approach</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Approach</th>
+              <th>Why it seems attractive</th>
+              <th>Why we did or did not choose it</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Alias table (<code>FORWARD</code> → <code>MOVE_FORWARD</code>)</td>
+              <td>Handles common model mistakes</td>
+              <td>Second vocabulary; breaks dataset strictness</td>
+            </tr>
+            <tr>
+              <td>Raise <code>ValueError</code> on failure</td>
+              <td>Forces explicit handling</td>
+              <td>Clutters hot path with try/except in ROS nodes</td>
+            </tr>
+            <tr>
+              <td>Return <code>STOP</code> from parser</td>
+              <td>Simple “always get an action”</td>
+              <td>Blurs parse failure with explicit stop intent</td>
+            </tr>
+            <tr>
+              <td>Fuzzy / substring match</td>
+              <td>Catches more outputs</td>
+              <td><code>FORWARD</code> false positives; non-deterministic eval</td>
+            </tr>
+            <tr>
+              <td><strong><code>None</code> + two-phase parse</strong></td>
+              <td>Slightly more caller logic</td>
+              <td>Clean boundary: parser reports, safety gate acts</td>
+            </tr>
+            <tr>
+              <td>Regex from <code>ACTION_NAMES</code></td>
+              <td>Rebuild pattern on enum change</td>
+              <td>Auto-syncs vocabulary; first-match semantics stay documented</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>### Trade-offs</p>
+        <ul>
+          <li><strong><code>None</code> vs raising</strong> — <code>None</code> lets callers (especially the safety gate) decide fail-safe policy without catching exceptions in the hot path.</li>
+          <li><strong>Exact match first, then regex</strong> — clean outputs avoid regex work; embedded tokens still parse from conversational wrappers.</li>
+          <li><strong>No alias table</strong> — keeps parser aligned with <code>is_valid_action</code> and dataset labels; ambiguous shorthand stays invalid.</li>
+          <li><strong>Deferred STOP</strong> — parser reports failure; Story 1021 publishes zero velocity.</li>
+        </ul>
       </section>
 
-      <section id="implementation">
+      <section id="implementation-breakdown">
         <h2>Implementation breakdown</h2>
-
-        <h3>Normalization (Subtask 10058)</h3>
+        <p>### Normalization (Subtask 10058)</p>
+        <p><strong>Snippet</strong> (<code>litevla/actions/parser.py</code>):</p>
         <pre><code class="language-python">def normalize_action_text(text: str) -&gt; str:
     return text.strip().upper()
 
 def _strip_trailing_punctuation(token: str) -&gt; str:
-    return _TRAILING_PUNCTUATION.sub("", token)</code></pre>
-        <p><strong>Design notes:</strong> Outer whitespace and case are normalized before comparison. Trailing punctuation is stripped from whole-string candidates.</p>
-
-        <h3>Parser function (Subtask 10057)</h3>
+    return _TRAILING_PUNCTUATION.sub(&quot;&quot;, token)</code></pre>
+        <p><strong>What to notice:</strong> Outer whitespace and case are normalized before comparison. Trailing <code>.</code>, <code>!</code>, etc. are stripped from the whole-string candidate.</p>
+        <p><strong>Why it is written this way:</strong> <code>&quot; move_forward. &quot;</code> becomes <code>MOVE_FORWARD</code> on the fast exact path without regex.</p>
+        <p><strong>Risks and gotchas:</strong> Leading punctuation on the full string is not stripped — regex search still finds embedded tokens. <code>normalize_action_text</code> is public for tests; production callers should use <code>parse_discrete_action</code>.</p>
+        <p>---</p>
+        <p>### Parser function (Subtask 10057)</p>
+        <p><strong>Snippet:</strong></p>
         <pre><code class="language-python">def parse_discrete_action(text: str) -&gt; DiscreteAction | None:
     if not text or not text.strip():
         return None
@@ -95,36 +293,127 @@ def _strip_trailing_punctuation(token: str) -&gt; str:
         return None
 
     return DiscreteAction(match.group(1).upper())</code></pre>
-        <p><strong>Design notes:</strong> Fast path for token-only outputs; regex with word boundaries for prose-wrapped tokens. Pattern is built from <code>ACTION_NAMES</code>.</p>
-        <p><strong>Risks:</strong> Multiple tokens return the first match only. <code>FORWARD</code> alone stays invalid.</p>
+        <p><strong>What to notice:</strong> Regex runs on <strong>original</strong> <code>text</code> (case-insensitive pattern), not only normalized form — embedded tokens in mixed-case prose still match.</p>
+        <p><strong>Why it is written this way:</strong> Two-phase parse — fast path for token-only outputs, regex with word boundaries for prose-wrapped tokens. Pattern is built from <code>ACTION_NAMES</code> so new enum members automatically join the parser vocabulary.</p>
+        <p><strong>Risks and gotchas:</strong> Multiple tokens in one string return the <strong>first</strong> match only. Substring false positives are avoided via <code>\b</code> word boundaries (e.g. <code>FORWARD</code> alone stays invalid).</p>
+        <p>---</p>
+        <p>### Public API surface</p>
+        <p><strong>Snippet</strong> (<code>litevla/actions/__init__.py</code>):</p>
+        <pre><code class="language-python">from litevla.actions.parser import normalize_action_text, parse_discrete_action</code></pre>
+        <p><strong>What to notice:</strong> Parser exports sit alongside schema and safety symbols at package level.</p>
+        <p><strong>Why it is written this way:</strong> Inference and ROS nodes import one package entry point.</p>
+        <p><strong>Risks and gotchas:</strong> Direct <code>action_to_twist</code> on raw model text bypasses this module — always route through safety gate in production.</p>
       </section>
 
-      <section id="decisions">
+      <section id="engineering-decisions">
         <h2>Engineering decisions</h2>
         <pre><code class="language-text">ADR: Return None on parse failure
 Status: Accepted
 Context: MVP requires deterministic handling of malformed VLA text (RSK-02).
 Decision: Parser returns None; Story 1021 maps None/invalid to STOP at publish time.
-Alternatives Rejected: Raising ValueError; returning STOP directly from parser.
-Consequences: Callers must check for None or delegate to safety gate.</code></pre>
+Alternatives Rejected: Raising ValueError (forces try/except at every call site); returning STOP directly (blurs parser vs safety boundaries).
+Consequences: Callers must check for None before action_to_twist or delegate to safety gate.</code></pre>
       </section>
 
-      <section id="verification">
+      <section id="verification-patterns">
         <h2>Verification patterns</h2>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Contract defended</th><th scope="col">Where</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>All five tokens parse exactly</td><td><code>test_parse_exact_valid_actions</code></td></tr>
-              <tr><td>Whitespace, case, punctuation tolerated</td><td><code>test_parse_normalized_and_noisy_outputs</code></td></tr>
-              <tr><td>Aliases and prose without tokens → None</td><td><code>test_parse_invalid_outputs_return_none</code></td></tr>
-              <tr><td>First embedded token wins</td><td><code>test_parse_returns_first_embedded_token</code></td></tr>
+            <thead><tr>
+              <th>Contract defended</th>
+              <th>Where</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>All five tokens parse exactly</td>
+              <td><code>test_parse_exact_valid_actions</code></td>
+            </tr>
+            <tr>
+              <td>Whitespace, case, punctuation tolerated</td>
+              <td><code>test_parse_normalized_and_noisy_outputs</code></td>
+            </tr>
+            <tr>
+              <td>Aliases and prose without tokens → None</td>
+              <td><code>test_parse_invalid_outputs_return_none</code></td>
+            </tr>
+            <tr>
+              <td>First embedded token wins</td>
+              <td><code>test_parse_returns_first_embedded_token</code></td>
+            </tr>
+            <tr>
+              <td>Normalization helper behavior</td>
+              <td><code>test_normalize_action_text_strips_and_uppercases</code></td>
+            </tr>
             </tbody>
           </table>
         </div>
+        <p><strong>Run:</strong></p>
         <pre><code class="language-bash">pytest tests/test_action_parser.py -q</code></pre>
+      </section>
+
+      <section id="failure-modes-and-debugging-path">
+        <h2>Failure modes and debugging path</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Symptom</th>
+              <th>Likely cause</th>
+              <th>How to investigate</th>
+              <th>Fix</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Valid-looking output returns <code>None</code></td>
+              <td>Alias (<code>FORWARD</code>) or typo</td>
+              <td>Print raw model string; test <code>parse_discrete_action</code> in REPL</td>
+              <td>Fix prompt to emit exact tokens; do not add aliases here</td>
+            </tr>
+            <tr>
+              <td>Wrong action from prose</td>
+              <td>Multiple tokens; first match wins</td>
+              <td>Inspect full model string for earlier token</td>
+              <td>Adjust prompt; consider last-token policy (open question)</td>
+            </tr>
+            <tr>
+              <td><code>MOVE_FORWARD.</code> fails exact path</td>
+              <td>Leading punctuation not stripped</td>
+              <td>Test <code>_strip_trailing_punctuation</code> vs. regex path</td>
+              <td>Usually regex still finds token; check edge case</td>
+            </tr>
+            <tr>
+              <td>Parser OK but robot stops</td>
+              <td>Downstream safety gate, not parser</td>
+              <td>Trace <code>safe_command_from_text</code></td>
+              <td>See <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a></td>
+            </tr>
+            <tr>
+              <td>New enum token not parsed</td>
+              <td>Forgot parser uses <code>ACTION_NAMES</code> at import</td>
+              <td>Restart process after enum change; verify pattern</td>
+              <td>Add enum member in schema only — pattern rebuilds automatically</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="engineering-principle-taught-by-this-task">
+        <h2>Engineering principle taught by this task</h2>
+        <p>This task teaches <strong>parse vs. act separation</strong>: extraction modules report structured facts (<code>DiscreteAction</code> or <code>None</code>); policy modules (safety gate) decide what the robot does with that report. Keeping parsing pure makes tests deterministic and concentrates fail-safe behavior in one place.</p>
+      </section>
+
+      <section id="active-learning-checks">
+        <h2>Active learning checks</h2>
+        <p>Before modifying this module, answer:</p>
+        <ol>
+          <li>Why does the parser return <code>None</code> instead of raising or returning <code>STOP</code>?</li>
+          <li>Why does regex search use the original <code>text</code> rather than only the normalized string?</li>
+          <li>What happens when the model outputs <code>&quot;TURN_LEFT then MOVE_FORWARD&quot;</code>?</li>
+          <li>How would you test that <code>FORWARD</code> alone is rejected without breaking <code>MOVE_FORWARD</code>?</li>
+        </ol>
+      </section>
+
+      <section id="small-modification-exercise">
+        <h2>Small modification exercise</h2>
+        <p>Add a unit test case to <code>tests/test_action_parser.py</code> for the input <code>&quot;Okay, I will MOVE_FORWARD now.&quot;</code> and verify <code>parse_discrete_action</code> returns <code>DiscreteAction.MOVE_FORWARD</code>. Run <code>pytest tests/test_action_parser.py -q</code> to confirm the embedded-token regex path works as documented.</p>
       </section>
 
       <section id="open-questions">
@@ -134,6 +423,16 @@ Consequences: Callers must check for None or delegate to safety gate.</code></pr
           <li>Should <code>parse_discrete_action</code> log parse failures for baseline evaluation (Story 1027)?</li>
         </ul>
       </section>
+
+      <section id="related-docs">
+        <h2>Related docs</h2>
+        <ul>
+          <li>Vocabulary contract: <a href="action-schema.html"><code>action-schema.md</code></a></li>
+          <li>Safety gate (downstream): <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a></li>
+          <li>Epic walkthrough: <a href="index.html"><code>index.html</code></a></li>
+        </ul>
+      </section>
+
     </main>
 
     <footer class="doc-footer">
@@ -143,6 +442,9 @@ Consequences: Callers must check for None or delegate to safety gate.</code></pr
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

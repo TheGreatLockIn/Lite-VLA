@@ -1,79 +1,292 @@
-# prompting-strategy
-**Jira Key:** [VLA-37](https://yashrajmote2001.atlassian.net/browse/VLA-37)
-**Epic:** Baseline Vision-Language Inference Prototype (VLA-5)
+# Baseline prompting strategy
+
+**Epic:** Baseline Vision-Language Inference Prototype (104) · **Jira:** VLA-37 / Story 1025
+
 **Human-readable version (browser):** [`prompting-strategy.html`](prompting-strategy.html)
 
+## Executive summary
+
+`litevla.prompting` owns the **text-side contract** for SmolVLM baseline navigation: which discrete action tokens the model may emit, how goal instructions are wrapped in LLaVA-style templates, and how few-shot visual demonstrations are sequenced with `<image>` placeholders.
+
+VLMs output free text, not robot commands. This module constrains the *prompt* so the model's continuation is more likely to be a single token from Epic 103's vocabulary (`MOVE_FORWARD`, `TURN_LEFT`, etc.). Parser and safety layers still treat model output as untrusted text — prompting reduces but does not eliminate hallucinated prose.
+
+## Mental model
+
+Think of this module as a **compiler from navigation intent to multimodal chat format**.
+
+It exists because Hugging Face SmolVLM expects a conversation template with explicit `<image>` slots, while the robot loop only has a plain English goal string and a camera frame.
+
+The key engineering tension is **constraint vs expressiveness**: stronger instructions reduce conversational answers but can overfit to template wording; few-shot examples teach spatial heuristics at the cost of longer prompts and more images per forward pass.
+
+A beginner mistake is assuming the system prompt alone guarantees valid tokens — pretrained VLMs bias toward helpful natural language.
+
+A senior engineer watches for **prompt version drift**, **`<image>` count matching image tensors**, and **alignment between `ALLOWED_ACTIONS` and Epic 103 schema**.
+
+## Backstory: why this exists
+
+Before this module, inference scripts inlined prompt strings. Changing "output exactly one token" wording required hunting through multiple files, and few-shot demos were copy-pasted with inconsistent `<image>` counts.
+
+The naive solution would be a single hard-coded f-string in `InferenceWrapper`.
+
+That breaks because prompt experiments (v1 vs v2, Webots-specific heuristics) need versioning, few-shot paths need ordered image path lists, and experiment logs must record which template was active.
+
+So this design chooses a **`PromptFormatter` + `PROMPT_VERSIONS` registry** with shared `ALLOWED_ACTIONS` and `FEW_SHOT_EXAMPLES`.
+
+This pattern appears in real systems as **prompt templates with schema validation** — same idea as versioned SQL migrations, but for model instructions.
+
+## Prerequisites
+
+- Epic 103 [`action-schema.md`](../action-interface-parser-and-safety-layer/action-schema.md) — five discrete tokens and nominal velocities.
+- Image preprocessing — reference frames are BGR on disk, RGB inside the model.
+- LLaVA-style format: `USER: <image>\n...\nASSISTANT:` tells the processor where to inject vision embeddings.
+
+## Concept primer / vocabulary
+
+| Term | Meaning in this project |
+|------|-------------------------|
+| VLM | Vision-language model; here SmolVLM-256M-Instruct. Outputs text, not `Twist` messages. |
+| Zero-shot | Prompt uses only the live camera image + goal text; no reference demonstrations. |
+| Few-shot | Prompt includes prior USER/ASSISTANT turns with reference images and gold actions before the live query. |
+| `<image>` token | Placeholder in the text stream; the processor replaces it with vision embeddings. Count must match image list length. |
+| `ALLOWED_ACTIONS` | Tuple of five exact uppercase tokens shared with parser and dataset labels. |
+| `prompt_version` | Config key (`v1`, `v2`) selecting system instructions from `PROMPT_VERSIONS`. |
+| Contract | Formatter promises: valid version → deterministic prompt string; few-shot → `(prompt, image_paths)` with matching `<image>` count. |
+
+## Guided code reading
+
+Read these in order:
+
+1. `litevla/prompting.py`
+   - Read `ALLOWED_ACTIONS` and `FEW_SHOT_EXAMPLES` first — the vocabulary and demo set.
+   - Skim `PROMPT_VERSIONS` v1 vs v2 system text differences.
+   - Then `PromptFormatter.format_prompt` and `format_few_shot_prompt`.
+
+2. `tests/test_prompting.py`
+   - `test_format_few_shot_prompt` proves `<image>` count = examples + 1.
+   - Version constraint tests show fail-fast on unknown `prompt_version`.
+
+3. `litevla/inference.py`
+   - See how `prompt_version` from config constructs `PromptFormatter`.
+   - Few-shot branch loads and preprocesses each path in `image_paths`.
+
+While reading, ask:
+- Where does the allowed vocabulary enter the prompt?
+- How many images does each method require?
+- What happens if `prompt_version` is misspelled?
+
+## File and artifact index
+
+| File or artifact | What it is | Why it matters | First thing to inspect |
+|------------------|------------|----------------|------------------------|
+| `litevla/prompting.py` | Templates, formatter, few-shot table | Source of truth for prompt text | `PROMPT_VERSIONS`, `format_few_shot_prompt` |
+| `data/examples/*.png` | Reference navigation frames | Few-shot visual demonstrations | Paths in `FEW_SHOT_EXAMPLES` |
+| `configs/default.example.yaml` | Runtime config | `model.prompt_version` default `v1` | `model:` section |
+| `litevla/config/schema.json` | Config validation | Restricts `prompt_version` to enum | `model.prompt_version` |
+| `litevla/experiment/run.py` | Experiment logging | Records `prompt_version` in `metadata.json` | Metadata extraction |
+
+## API contract and data flow
+
+### Task-local flow
+
+```text
+Goal instruction (str) + config.prompt_version
+        │
+        ├──> PromptFormatter
+        │         ├── format_prompt ──> single-image LLaVA string
+        │         └── format_few_shot_prompt ──> multi-image string + path list
+        │
+        └──> InferenceWrapper pairs string with PIL image(s) ──> SmolVLM generate ──> raw text
+```
+
+### Contract
+
+| Surface | Rule |
+|---------|------|
+| **Input** | `instruction: str` (goal text); `version` from config or constructor |
+| **Zero-shot output** | `str` with exactly one `<image>` before the live query `ASSISTANT:` |
+| **Few-shot output** | `tuple[str, list[str]]` — prompt plus ordered reference paths (live frame appended by wrapper) |
+| **Invariant** | `ALLOWED_ACTIONS` matches Epic 103 tokens; system prompt lists all five |
+| **Errors** | Unknown `version` → `ValueError` listing supported keys |
+
+Few-shot template shape (simplified):
+
+```text
+USER: <image>
+{system}
+{example_1_instruction}
+ASSISTANT: MOVE_FORWARD
+USER: <image>
+{example_2_instruction}
+ASSISTANT: TURN_LEFT
+...
+USER: <image>
+{live_instruction}
+ASSISTANT:
+```
+
+## Naive approach vs chosen approach
+
+| Approach | Why it seems attractive | Why we did or did not choose it |
+|----------|-------------------------|---------------------------------|
+| One static prompt string | Fastest to ship | Cannot A/B test v1/v2 or log template version |
+| Natural language "turn left a bit" | Easier for humans | Breaks discrete parser and dataset labels |
+| JSON action output in prompt | Structured | SmolVLM baseline is text-generation; parser owns structure |
+| Versioned `PromptFormatter` + few-shot table | More code | Reproducible experiments; `<image>` order is testable |
+| Rely on post-hoc parser only | Parser fixes everything | Conversational outputs waste tokens and add latency |
+
+## Implementation breakdown
+
+### Shared vocabulary
+
+**Snippet** (`litevla/prompting.py`):
+
+```python
+ALLOWED_ACTIONS = ("MOVE_FORWARD", "TURN_LEFT", "TURN_RIGHT", "STOP", "SLOW_DOWN")
+
+FEW_SHOT_EXAMPLES: list[dict[str, str]] = [
+    {
+        "image_path": "data/examples/red_cone_centered.png",
+        "instruction": "go to the red block",
+        "action": "MOVE_FORWARD",
+    },
+    # ... left, right, stop variants ...
+]
+```
+
+**What to notice:** Same five strings as `DiscreteAction` in Epic 103. Few-shot uses one instruction phrase with different visuals — teaches appearance, not phrasing variety.
+
+**Why it is written this way:** Single vocabulary source for prompts; tests assert list equality with schema.
+
+**Risks and gotchas:** Adding a sixth action requires coordinated changes in schema, parser, prompts, and datasets.
+
 ---
 
-## 1. Intent & Context
-To implement a robust and versioned baseline prompting strategy for the `SmolVLM-256M-Instruct` visual-language model (VLM). The goal is to constrain model outputs strictly to five allowed discrete action tokens: `MOVE_FORWARD`, `TURN_LEFT`, `TURN_RIGHT`, `STOP`, and `SLOW_DOWN`. 
+### Versioned system instructions
 
-This baseline prompting ensures the visual and language inputs are formatted in accordance with LLaVA-1.5 multimodal formatting conventions, which require an `<image>` placeholder token to position the image embeddings in the sequence of text inputs.
+**Snippet:**
 
----
+```python
+PROMPT_VERSIONS: dict[str, dict[str, str]] = {
+    "v1": {
+        "system": (
+            "You are an autonomous mobile robot navigator. "
+            # ... lists ALLOWED_ACTIONS ...
+            "Respond with exactly one action token ..."
+        ),
+        "user": "Goal Instruction: {instruction}",
+    },
+    "v2": {
+        "system": (
+            "You are a Pioneer 3-DX wheeled mobile robot navigating "
+            "a Webots simulation arena. "
+            # ... heuristic rules: centered → MOVE_FORWARD, etc. ...
+        ),
+        "user": "Navigate command: {instruction}",
+    },
+}
+```
 
-## 2. Core Interfaces
-The prompting module is defined in [`litevla/prompting.py`](file:///C:/Projects/Lite-VLA/litevla/prompting.py).
+**What to notice:** v2 adds explicit spatial heuristics for Webots. Both versions demand a single token, no markdown.
 
-### Few-Shot Examples Configuration
-- **`FEW_SHOT_EXAMPLES`**: A structured list of dictionaries mapping visual navigation states and instruction commands to target actions:
-  - `image_path`: Path to the reference simulation frame (stored under `data/examples/`).
-  - `instruction`: Text instruction goal matching simulation conventions (e.g. `"go to the red block"`).
-  - `action`: Expected target output token (e.g. `"MOVE_FORWARD"`, `"STOP"`, `"TURN_LEFT"`).
+**Why it is written this way:** Baseline benchmarking needs togglable templates without code forks.
 
-### PromptFormatter Class
-- **`__init__(self, version: str = "v1")`**:
-  - *Validation Logic:* Validates that `version` exists as a key in `PROMPT_VERSIONS` (defined in `litevla/prompting.py`). If the version is not found, it raises a `ValueError` indicating the invalid version and listing the supported versions.
-  - *State:* Stores the selected version string, system instruction prompt template, and user goal template.
-- **`format_prompt(self, instruction: str) -> str`**:
-  - *Input Shape:* Takes a single string argument `instruction` representing the goal command (e.g., `"go forward to the red block"`).
-  - *Output Shape:* Returns a formatted string (`str`) following the LLaVA-1.5 multimodal template structure.
-  - *Template format:*
-    `USER: <image>\n{system_instruction}\n\n{user_instruction_formatted}\nASSISTANT:`
-- **`format_few_shot_prompt(self, instruction: str) -> tuple[str, list[str]]`**:
-  - *Input Shape:* Takes a single string argument `instruction` for the current live query.
-  - *Output Shape:* Returns a tuple containing:
-    1. A formatted multimodal multi-image prompt string (`str`) containing sequentially placed `<image>` placeholders.
-    2. A list of image paths (`list[str]`) for the reference few-shot frames in chronological order (e.g., `["data/examples/red_cone_centered.png", ...]`).
-  - *Template format:*
-    `USER: <image>\n{system_instruction}\n\n{user_instr_ex1}\nASSISTANT: {action_ex1}\nUSER: <image>\n{user_instr_ex2}\nASSISTANT: {action_ex2}\n...\nUSER: <image>\n{user_instr_query}\nASSISTANT:`
+**Risks and gotchas:** Heuristic text can overfit simulation layouts; zero-shot eval may not improve with v2 on unseen augments.
 
 ---
 
-## 3. Color Space Mechanics & Multi-modal Integration
-While the text prompt provides the linguistic goal, the VLM correlates it with visual embeddings. 
-- **BGR to RGB Swapping:** The camera produces images in BGR format. The `ImagePreprocessor` converts them to RGB. Swapping BGR to RGB is essential because the VLM's visual encoder (`SigLIP-400M` or similar) was trained on RGB images. If colors are not swapped, a prompt referring to a "red block" would fail to align with the visual embeddings since red and blue channels would be flipped in the encoder's input space.
-- **Multimodal Insertion:** The prompt template includes the special `<image>` token. When parsing the prompt, the backend (`llama-cpp-python` / `clip.cpp`) looks for this token, extracts the visual features of the processed RGB image, and replaces/inserts the image embedding tensor at the position of the `<image>` token. For few-shot prompts, multiple `<image>` slots are filled using the sequence of preprocessed reference images and the current frame.
+### Formatter methods
 
----
+**Snippet:**
 
-## 4. In-Memory Formats & Prompt Embedding
-The model handler is configured to ingest images in compressed in-memory formats:
-- **JPEG Format:** Lossy compression. Highly efficient with a minimal memory footprint in RAM, making it the preferred default to reduce latency during prompt feature extraction.
-- **PNG Format:** Lossless compression. Retains full color fidelity, which is critical if the prompt contains fine-grained visual instructions (e.g., identifying small labels or distant landmarks), though it increases latency due to larger byte sizes.
-- **In-Memory Loading:** The preprocessed bytes (JPEG/PNG) are kept in memory and passed directly to the model's visual loader, preventing SSD wear and latency spikes. Reference images for few-shot examples are saved under `data/examples/`.
+```python
+def format_prompt(self, instruction: str) -> str:
+    goal_text = self.user_template.format(instruction=instruction)
+    return f"USER: <image>\n{self.system_instruction}\n\n{goal_text}\nASSISTANT:"
 
----
+def format_few_shot_prompt(self, instruction: str) -> tuple[str, list[str]]:
+    # First example includes system block; later examples omit it
+    # ...
+    return prompt_str, image_paths
+```
 
-## 5. Unit Test Coverage
-Unit tests are implemented in [`tests/test_prompting.py`](file:///C:/Projects/Lite-VLA/tests/test_prompting.py):
-- **`test_allowed_actions_list`**: Asserts that `ALLOWED_ACTIONS` matches the exact expected sequence of 5 discrete actions: `MOVE_FORWARD`, `TURN_LEFT`, `TURN_RIGHT`, `STOP`, `SLOW_DOWN`.
-- **`test_prompt_formatter_invalid_version`**: Validates that initializing `PromptFormatter` with an unsupported version string (e.g., `"v3"`) raises a `ValueError` with a clean error message.
-- **`test_prompt_formatter_valid_versions`**: Iterates through all keys in `PROMPT_VERSIONS` (e.g. `"v1"`, `"v2"`) and asserts that `PromptFormatter` initializes without error and correctly maps the system instructions and user templates.
-- **`test_format_prompt_structure`**: Verifies that the prompt output matches the LLaVA-1.5 formatting structure: starts with `"USER: <image>\n"`, ends with `"\nASSISTANT:"`, and contains the correct formatted goal instruction and the `<image>` token exactly once.
-- **`test_prompt_v1_constraints`**: Verifies that the `"v1"` template prompt contains the exact list of allowed actions and explicit instructions to output exactly one action token.
-- **`test_prompt_v2_constraints`**: Verifies that the `"v2"` template prompt contains instructions targeting Pioneer 3-DX robot navigation under Webots and maps out the heuristic rules for visual steering.
-- **`test_format_few_shot_prompt`**: Asserts that formatting a few-shot query returns a valid string and lists the correct reference image paths. It verifies that the number of `<image>` tokens matches the reference count plus one, and ensures the correct chronological sequence of image paths is returned.
-- **`test_format_few_shot_prompt_v2`**: Confirms that few-shot formatting works correctly for version `"v2"` prompt configurations and injects simulation specific constraints.
+**What to notice:** Few-shot returns paths only for reference frames; `InferenceWrapper` appends the live query image after preprocessing.
 
----
+**Why it is written this way:** Matches LLaVA multi-turn layout; keeps formatter pure (no I/O).
 
-## 6. Configuration & Experiment Run Logging
-To enable repeatable benchmarking across different prompt templates, the active prompt template version is configured inside the model settings and automatically captured in the experiment logs:
-- **Configuration Schema:** A `prompt_version` configuration field is added under `model:` inside [`litevla/config/schema.json`](file:///C:/Projects/Lite-VLA/litevla/config/schema.json). Valid values are restricted to the supported versions `["v1", "v2"]` via an enum constraint.
-- **Default Settings:** The default configuration in [`litevla/config/loader.py`](file:///C:/Projects/Lite-VLA/litevla/config/loader.py) assigns `"v1"` as the baseline value.
-- **Run Metadata Logging:** The context manager [`ExperimentRun`](file:///C:/Projects/Lite-VLA/litevla/experiment/run.py#L173) in [`litevla/experiment/run.py`](file:///C:/Projects/Lite-VLA/litevla/experiment/run.py) automatically extracts `prompt_version` from the configuration mapping at runtime, logging it into the final `metadata.json` output for the experiment run.
-- **Validation Tests:** 
-  - [`tests/test_config_loader.py`](file:///C:/Projects/Lite-VLA/tests/test_config_loader.py) validates that config loading fails cleanly if required fields are missing.
-  - [`tests/test_experiment_logging.py`](file:///C:/Projects/Lite-VLA/tests/test_experiment_logging.py) asserts that the exact `prompt_version` used in the configuration is recorded properly in the experiment run metadata.
+**Risks and gotchas:** Missing files under `data/examples/` fail at inference time with `FileNotFoundError`, not at format time.
 
+## Engineering decisions
+
+```text
+ADR: Discrete action constraints and multimodal few-shot
+Status: Accepted
+Context: VLMs hallucinate prose; Webots steering benefits from visual demonstrations.
+Decision: Five-token vocabulary; FEW_SHOT_EXAMPLES with chronological <image> slots.
+Alternatives Rejected: Open vocabulary motion; text-only few-shot without images.
+Consequences: Prompt length and image count grow in few-shot mode; latency increases.
+```
+
+```text
+ADR: prompt_version in config and experiment metadata
+Status: Accepted
+Context: Benchmark comparisons require knowing which template produced a run.
+Decision: schema.json enum + ExperimentRun logs prompt_version.
+Alternatives Rejected: Ad-hoc string in script globals.
+Consequences: New template versions need schema + test updates.
+```
+
+## Verification patterns
+
+| Contract defended | Where |
+|-------------------|-------|
+| `ALLOWED_ACTIONS` exact five tokens | `test_allowed_actions_list` |
+| Unknown version rejected | `test_prompt_formatter_invalid_version` |
+| LLaVA structure (USER/ASSISTANT, `<image>`) | `test_format_prompt_structure` |
+| v1 lists allowed actions | `test_prompt_v1_constraints` |
+| v2 Webots heuristics present | `test_prompt_v2_constraints` |
+| Few-shot `<image>` count and paths | `test_format_few_shot_prompt` |
+| Config schema + metadata logging | `test_config_loader.py`, `test_experiment_logging.py` |
+
+**Run:**
+
+```bash
+pytest tests/test_prompting.py -v
+pytest tests/test_config_loader.py tests/test_experiment_logging.py -q
+```
+
+### Failure modes and debugging path
+
+| Symptom | Likely cause | How to investigate | Fix |
+|---------|--------------|--------------------|-----|
+| Model replies with sentences | Weak constraint or wrong template version | Log full prompt; check `metadata.json` `prompt_version` | Use v1/v2 with explicit "one token only"; enable few-shot |
+| `ValueError: Unsupported prompt version` | Typo in config | `load_config` output | Set `model.prompt_version` to `v1` or `v2` |
+| Vision/text misalignment in few-shot | `<image>` count ≠ images passed to processor | Count `<image>` in string vs `len(images_list)` | Fix `format_few_shot_prompt` or wrapper append order |
+| Few-shot `FileNotFoundError` | Missing `data/examples` assets | `ls data/examples` | Restore seed images from repo |
+| Valid rate 100% but semantic accuracy low | Prompt OK; model weak on spatial reasoning | Compare zero-shot vs few-shot eval | Tune v2 heuristics or plan fine-tuning (later epic) |
+
+## Engineering principle taught by this task
+
+This task teaches that **VLMs are text generators, not robot controllers** — prompting is the first line of defense, not the last. Structure the model's input like a strict API request; still parse and safety-gate the output.
+
+## Active learning checks
+
+1. Why does the formatter return image *paths* while the wrapper loads pixels?
+2. How many `<image>` tokens appear in a few-shot prompt with four examples?
+3. What is the difference between syntax accuracy and semantic accuracy in eval?
+4. Why must `ALLOWED_ACTIONS` stay synchronized with `DiscreteAction`?
+
+## Small modification exercise
+
+Add a comment-only duplicate of the v2 system block describing when to output `SLOW_DOWN`, without changing `PROMPT_VERSIONS` yet. Run `pytest tests/test_prompting.py` to confirm no drift. Then switch local config to `prompt_version: v2`, run `python scripts/evaluate_baseline.py`, and compare `metadata.json` / `results.json` prompt fields to a v1 run.
+
+## Open questions
+
+- Should `SLOW_DOWN` appear in few-shot examples (currently only four spatial refs)?
+- Is v2's heuristic text helping zero-shot eval or only memorizing seed layouts?
+- Do we need a `v3` with JSON-only output once parser supports structured extraction?
+
+## Related docs
+
+- Discrete tokens: [`../action-interface-parser-and-safety-layer/action-schema.md`](../action-interface-parser-and-safety-layer/action-schema.md)
+- Inference integration: [`inference-wrapper.md`](inference-wrapper.md)
+- Zero-shot metrics: [`zero-shot-evaluation.md`](zero-shot-evaluation.md)

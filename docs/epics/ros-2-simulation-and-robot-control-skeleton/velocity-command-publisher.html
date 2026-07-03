@@ -10,141 +10,153 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 102 · Jira VLA-3 · VLA-25</p>
+      <p class="eyebrow">Epic 102 · VLA-25 / Story 1013</p>
       <h1>Velocity command publisher</h1>
-      <p class="doc-lead">
-        <code>CmdVelPublisher</code> is the shared actuation sink for Epic 102: bounded twists to <code>/cmd_vel</code> aligned with <code>ros2_control.yml</code>.
-      </p>
+      <p class="doc-lead">Shared CmdVelPublisher and twist helpers — actuation sink used by the heartbeat.</p>
+      <nav class="doc-nav" aria-label="On this page">
+        <a href="#summary">Summary</a> · <a href="#mental-model">Mental model</a> · <a href="#backstory">Backstory</a> · <a href="#prerequisites">Prerequisites</a> · <a href="#vocabulary">Vocabulary</a> · <a href="#guided-reading">Code reading</a> · <a href="#file-index">File index</a> · <a href="#contract">Contract</a> · <a href="#implementation">Implementation</a> · <a href="#decisions">Decisions</a> · <a href="#verification">Verification</a> · <a href="#failure-modes">Debugging</a> · <a href="#principle">Principle</a> · <a href="#learning">Learning</a> · <a href="#related">Related</a>
+      </nav>
     </header>
 
     <main>
-      <section id="executive-summary">
-        <h2>Executive summary</h2>
-        <p><code>CmdVelPublisher</code> is the shared <strong>actuation sink</strong> for Epic 102: any node that needs to move the robot should call this library rather than publishing <code>geometry_msgs/Twist</code> directly. <code>clamp_velocity()</code> enforces MVP limits before messages reach <code>/cmd_vel</code>, keeping dummy, heartbeat, tester, and future model paths aligned with <code>ros2_control.yml</code>.</p>
-      </section>
-
-      <section id="api-contract">
-        <h2>API contract and data flow</h2>
-        <pre><code class="language-text">caller (tester / heartbeat / legacy direct use)
+<section id="summary">
+<h2>Executive summary</h2>
+<p><code>CmdVelPublisher</code> is the shared <strong>actuation library</strong> for Epic 102: the heartbeat controller (VLA-27) uses it as the sole path to <code>/cmd_vel</code>. <code>clamp_velocity()</code> enforces MVP limits before messages reach the diff-drive controller, keeping tester and heartbeat output aligned with <code>resource/ros2_control.yml</code>.</p>
+<p>Action sources (dummy, teleop, future model) publish <strong>intent</strong> on <code>/litevla/desired_twist</code>; only the heartbeat + <code>CmdVelPublisher</code> pair touches <code>/cmd_vel</code> in the nominal architecture.</p>
+</section>
+<section id="mental-model">
+<h2>Mental model</h2>
+<p>Think of <code>CmdVelPublisher</code> as <strong>the last mile to the motor controller</strong>—but only when called by the heartbeat.</p>
+<p>It exists because every node that needs to command motion must share one clamping and publishing implementation, not duplicate <code>Twist</code> construction.</p>
+<p>The key engineering tension is <strong>convenience vs ownership</strong>: the class can publish <code>/cmd_vel</code> directly (tests use this), but production traffic must flow through the heartbeat for timing and safety.</p>
+<p>A beginner mistake is calling <code>CmdVelPublisher</code> from teleop or dummy nodes, creating competing <code>/cmd_vel</code> writers.</p>
+<p>A senior engineer watches that <strong>only one runtime owner</strong> publishes <code>/cmd_vel</code> in integrated stacks, and that limits match <code>ros2_control.yml</code>.</p>
+</section>
+<section id="backstory">
+<h2>Backstory: why this exists</h2>
+<p>Before this module existed, each ROS node could construct and publish <code>geometry_msgs/Twist</code> independently, with copy-pasted clamp logic or none at all.</p>
+<p>The naive solution would be <code>node.create_publisher(Twist, &quot;/cmd_vel&quot;, 10)</code> in every command source.</p>
+<p>That breaks because limits drift between nodes, multiple publishers race on <code>/cmd_vel</code>, and unit tests cannot verify clamp math without spinning ROS.</p>
+<p>So this design chooses <strong><code>twist_utils.py</code> (pure functions) + <code>CmdVelPublisher</code> (ROS adapter)</strong> used primarily by <code>heartbeat_controller</code>, with <code>cmd_vel_tester</code> for isolated sim smoke.</p>
+<p>This pattern appears in real systems as a <strong>single actuation sink</strong> with shared safety primitives.</p>
+</section>
+<section id="prerequisites">
+<h2>Prerequisites</h2>
+<ul><li><code>geometry_msgs/Twist</code> — diff-drive uses <code>linear.x</code> and <code>angular.z</code>.</li><li><a href="control-heartbeat.html">control-heartbeat.md</a> — who calls <code>CmdVelPublisher</code> at runtime.</li><li><a href="webots-sim-environment.html">webots-sim-environment.md</a> — <code>ros2_control.yml</code> velocity limits.</li></ul>
+</section>
+<section id="vocabulary">
+<h2>Concept primer / vocabulary</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Term</th><th scope="col">Meaning in this project</th></tr></thead><tbody><tr><th scope="row"><code>CmdVelPublisher</code></th><td>Class wrapping a <code>/cmd_vel</code> publisher with clamping.</td></tr><tr><th scope="row"><code>clamp_velocity()</code></th><td>Symmetric per-axis limiter in <code>twist_utils.py</code>.</td></tr><tr><th scope="row"><code>make_twist()</code></th><td>Builds a <code>Twist</code> with only <code>linear.x</code> and <code>angular.z</code> set.</td></tr><tr><th scope="row"><code>/cmd_vel</code></th><td>Actuation topic consumed by <code>diffdrive_controller</code>.</td></tr><tr><th scope="row"><code>/litevla/desired_twist</code></th><td>Intent topic; <strong>not</strong> the same as <code>/cmd_vel</code>.</td></tr><tr><th scope="row"><code>cmd_vel_tester</code></th><td>Launchable node cycling test motions (subtask 10041).</td></tr></tbody></table></div>
+</section>
+<section id="guided-reading">
+<h2>Guided code reading</h2>
+<p>Read these in order:</p>
+<ol><li><code>litevla_bridge/twist_utils.py</code><ul><li>Pure clamp and <code>make_twist</code>; no ROS imports beyond <code>Twist</code>.</li><li>Run <code>test_twist_utils.py</code> mentally against each function.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/cmd_vel_publisher.py</code><ul><li>See how <code>publish_twist</code> always clamps before publish.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/heartbeat_controller.py</code><ul><li>Confirm heartbeat is the production caller of <code>CmdVelPublisher</code>.</li></ul></li></ol>
+<ol><li><code>litevla_bridge/cmd_vel_tester.py</code><ul><li>Isolated sim exercise; direct <code>/cmd_vel</code> for bench only.</li></ul></li></ol>
+<p>While reading, ask:</p>
+<ul><li>Who may call <code>CmdVelPublisher</code> in teleop/dummy stacks?</li><li>Do limits here match <code>ros2_control.yml</code>?</li></ul>
+</section>
+<section id="file-index">
+<h2>File and artifact index</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">File or artifact</th><th scope="col">What it is</th><th scope="col">Why it matters</th><th scope="col">First thing to inspect</th></tr></thead><tbody><tr><td><code>twist_utils.py</code></td><td>Pure velocity helpers</td><td>Testable without ROS runtime</td><td><code>clamp_velocity</code> signature</td></tr><tr><td><code>cmd_vel_publisher.py</code></td><td><code>/cmd_vel</code> adapter</td><td>Shared publish + clamp path</td><td><code>publish_twist</code></td></tr><tr><td><code>cmd_vel_tester.py</code></td><td>Sim motion cycles</td><td>Proves <code>/cmd_vel</code> reaches Webots</td><td>Step table</td></tr><tr><td><code>test/test_twist_utils.py</code></td><td>Unit tests</td><td>Defends clamp contracts</td><td>Boundary cases</td></tr><tr><td><code>launch/cmd_vel_test.launch.py</code></td><td>Sim launch</td><td>Operator smoke</td><td>Includes Webots</td></tr><tr><td><code>resource/ros2_control.yml</code></td><td>Sim limits</td><td>Source of truth for max speeds</td><td><code>max_velocity</code> fields</td></tr></tbody></table></div>
+</section>
+<section id="contract">
+<h2>API contract and data flow</h2>
+<h3>What &quot;contract&quot; means here</h3>
+<p><strong>Contract</strong> = any call to <code>publish_twist(linear_x, angular_z)</code> results in a <code>geometry_msgs/Twist</code> on <code>/cmd_vel</code> whose components are clamped to configured maxima. <code>publish_stop()</code> always emits zeros.</p>
+<h3>Task-local flow</h3>
+<pre><code class="language-text">heartbeat_controller (production)
     ──&gt; CmdVelPublisher.publish_twist(linear_x, angular_z)
     ──&gt; clamp_velocity()
     ──&gt; geometry_msgs/Twist
     ──&gt; /cmd_vel
-    ──&gt; diffdrive_controller (Webots)</code></pre>
+    ──&gt; diffdrive_controller (Webots)
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Parameter</th>
-                <th scope="col">Default</th>
-                <th scope="col">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>cmd_vel_topic</code></td>
-                <td><code>/cmd_vel</code></td>
-                <td>Matches <code>configs/default.example.yaml</code></td>
-              </tr>
-              <tr>
-                <td><code>max_linear_vel</code></td>
-                <td><code>0.2</code></td>
-                <td>Matches <code>resource/ros2_control.yml</code></td>
-              </tr>
-              <tr>
-                <td><code>max_angular_vel</code></td>
-                <td><code>0.6</code></td>
-                <td>Webots diff-drive limit</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <p><strong>Invariant:</strong> Published twists never exceed configured maxima; <code>publish_stop()</code> always sends zeros.</p>
-      </section>
-
-      <section id="implementation">
-        <h2>Implementation breakdown</h2>
-
-        <h3>Twist helpers (<code>twist_utils.py</code>)</h3>
-        <pre><code class="language-python">def clamp_velocity(linear_x, angular_z, *, max_linear_vel, max_angular_vel):
-    ...
-def make_twist(linear_x, angular_z) -&gt; Twist:
-    ...</code></pre>
-        <p>Pure functions — fully covered by <code>test_twist_utils.py</code> without ROS runtime.</p>
-
-        <h3>Publisher class (<code>cmd_vel_publisher.py</code>)</h3>
-        <pre><code class="language-python">publisher = CmdVelPublisher(node, cmd_vel_topic="/cmd_vel")
+cmd_vel_tester (bench only)
+    ──&gt; CmdVelPublisher ──&gt; /cmd_vel</code></pre>
+<h3>Contract table</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Row label</th><th scope="col">Meaning</th></tr></thead><tbody><tr><th scope="row">Parameter</th><td>ROS parameter or constructor argument name.</td></tr><tr><th scope="row">Default</th><td>Value when unset in launch/config.</td></tr><tr><th scope="row">Notes</th><td>How it relates to sim or config elsewhere.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">Parameter</th><th scope="col">Default</th><th scope="col">Notes</th></tr></thead><tbody><tr><td><code>cmd_vel_topic</code></td><td><code>/cmd_vel</code></td><td>Matches <code>configs/default.example.yaml</code></td></tr><tr><td><code>max_linear_vel</code></td><td><code>0.2</code></td><td>Matches <code>resource/ros2_control.yml</code></td></tr><tr><td><code>max_angular_vel</code></td><td><code>0.6</code></td><td>Webots diff-drive limit</td></tr></tbody></table></div>
+<p><strong>Invariant:</strong> Published twists never exceed configured maxima; <code>publish_stop()</code> always sends zeros.</p>
+<h3>Naive approach vs chosen approach</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Approach</th><th scope="col">Why it seems attractive</th><th scope="col">Why we did or did not choose it</th></tr></thead><tbody><tr><td>Each node publishes <code>/cmd_vel</code> directly</td><td>Fewer hops</td><td>Competing owners; inconsistent clamps</td></tr><tr><td>Shared <code>CmdVelPublisher</code> via heartbeat only</td><td>Extra indirection</td><td>One clamp implementation; one actuation owner</td></tr><tr><td>Config limits only in YAML</td><td>Single file</td><td>Runtime nodes still need enforced clamps before publish</td></tr><tr><td>Pure <code>twist_utils</code> + thin publisher</td><td>Two files</td><td>Enables fast unit tests without <code>rclpy</code> spin</td></tr></tbody></table></div>
+</section>
+<section id="implementation">
+<h2>Implementation breakdown</h2>
+<h3>Twist helpers (`twist_utils.py`)</h3>
+<pre><code class="language-python">def clamp_velocity(
+    linear_x: float,
+    angular_z: float,
+    max_linear: float,
+    max_angular: float,
+) -&gt; tuple[float, float]:
+    max_linear = abs(max_linear)
+    max_angular = abs(max_angular)
+    linear_x = max(-max_linear, min(max_linear, linear_x))
+    angular_z = max(-max_angular, min(max_angular, angular_z))
+    return linear_x, angular_z</code></pre>
+<p><strong>What to notice:</strong> Symmetric limits; only X and Z axes used (diff-drive convention).</p>
+<p><strong>Why it is written this way:</strong> Pure functions — fully covered by <code>test_twist_utils.py</code> without ROS runtime.</p>
+<p><strong>Risks and gotchas:</strong> Does not validate NaN/Inf; heartbeat should not pass non-finite values.</p>
+<h3>Publisher class (`cmd_vel_publisher.py`)</h3>
+<pre><code class="language-python">publisher = CmdVelPublisher(node, cmd_vel_topic=&quot;/cmd_vel&quot;)
 publisher.publish_twist(0.15, 0.0)
 publisher.publish_stop()</code></pre>
-        <ul>
-          <li><strong>Design note:</strong> Accepts a <code>rclpy.Node</code> so heartbeat and testers share one implementation.</li>
-          <li><strong>Gotcha:</strong> Post–VLA-27 architecture routes most traffic through <code>heartbeat_controller</code>; direct <code>/cmd_vel</code> publish is for tests and legacy paths.</li>
-        </ul>
-
-        <h3>Sim tester (<code>cmd_vel_tester.py</code>, subtask 10041)</h3>
-        <p>Cycles forward → left → right → stop with <code>step_duration_sec</code> dwell (default 2 s).</p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Step</th>
-                <th scope="col">linear.x</th>
-                <th scope="col">angular.z</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>forward</td>
-                <td>0.15</td>
-                <td>0</td>
-              </tr>
-              <tr>
-                <td>turn_left</td>
-                <td>0</td>
-                <td>0.4</td>
-              </tr>
-              <tr>
-                <td>turn_right</td>
-                <td>0</td>
-                <td>-0.4</td>
-              </tr>
-              <tr>
-                <td>stop</td>
-                <td>0</td>
-                <td>0</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="verification">
-        <h2>Verification patterns</h2>
-        <pre><code class="language-bash">colcon test --packages-select litevla_bridge
+<p><strong>What to notice:</strong> Accepts a <code>rclpy.Node</code> so heartbeat and testers share one implementation; stores <code>last_twist</code> for diagnostics.</p>
+<p><strong>Why it is written this way:</strong> Dependency injection of the node keeps the class testable and avoids duplicate publishers.</p>
+<p><strong>Risks and gotchas:</strong> Post–VLA-27 architecture routes production traffic through <code>heartbeat_controller</code>; direct <code>/cmd_vel</code> publish is for tests and legacy paths only.</p>
+<h3>Sim tester (`cmd_vel_tester.py`, subtask 10041)</h3>
+<p>Cycles forward → left → right → stop with <code>step_duration_sec</code> dwell (default 2 s).</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Step</th><th scope="col">linear.x</th><th scope="col">angular.z</th></tr></thead><tbody><tr><td>forward</td><td>0.15</td><td>0</td></tr><tr><td>turn_left</td><td>0</td><td>0.4</td></tr><tr><td>turn_right</td><td>0</td><td>-0.4</td></tr><tr><td>stop</td><td>0</td><td>0</td></tr></tbody></table></div>
+</section>
+<section id="decisions">
+<h2>Engineering decisions</h2>
+<p><strong>ADR: Shared publisher, heartbeat-owned <code>/cmd_vel</code></strong></p>
+<ul><li><strong>Status:</strong> Accepted (VLA-27)</li><li><strong>Context:</strong> Multiple sources need motion, but diff-drive expects steady, clamped commands.</li><li><strong>Decision:</strong> <code>CmdVelPublisher</code> is the only <code>/cmd_vel</code> implementation; heartbeat is the only production caller.</li><li><strong>Alternatives rejected:</strong> Per-source publishers (race conditions, limit drift).</li><li><strong>Consequences:</strong> Test nodes may still use <code>CmdVelPublisher</code> directly for isolated benches.</li></ul>
+</section>
+<section id="verification">
+<h2>Verification patterns</h2>
+<pre><code class="language-bash">colcon test --packages-select litevla_bridge
 ./ros_ws/scripts/run_webots_mvp.sh
 ros2 launch litevla_bridge cmd_vel_test.launch.py
 ros2 topic echo /cmd_vel</code></pre>
-      </section>
-
-      <section id="related">
-        <h2>Related</h2>
-        <ul>
-          <li><a href="camera-frame-subscriber.html">camera-frame-subscriber</a> (VLA-24)</li>
-          <li><a href="control-heartbeat.html">control-heartbeat</a> (VLA-27)</li>
-        </ul>
-      </section>
+<div class="table-wrap"><table><thead><tr><th scope="col">Contract defended</th><th scope="col">Where</th></tr></thead><tbody><tr><td>Clamp at boundaries</td><td><code>test_twist_utils.py</code></td></tr><tr><td><code>make_twist</code> only sets X/Z</td><td><code>test_twist_utils.py</code></td></tr><tr><td>Sim motion visible</td><td><code>cmd_vel_test.launch.py</code></td></tr></tbody></table></div>
+</section>
+<section id="failure-modes">
+<h2>Failure modes and debugging path</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">How to investigate</th><th scope="col">Fix</th></tr></thead><tbody><tr><td>Robot does not move</td><td>No <code>/cmd_vel</code> or inactive controller</td><td><code>ros2 topic hz /cmd_vel</code></td><td>Use heartbeat path; check controllers</td></tr><tr><td>Motion faster than expected</td><td>Limits mismatch</td><td>Compare params with <code>ros2_control.yml</code></td><td>Align <code>max_linear_vel</code> / <code>max_angular_vel</code></td></tr><tr><td>Jerky motion</td><td>Multiple <code>/cmd_vel</code> publishers</td><td><code>ros2 topic info /cmd_vel</code></td><td>Remove direct publishes from action sources</td></tr><tr><td>Tester works; teleop does not</td><td>Teleop publishes intent only</td><td><code>ros2 topic echo /litevla/desired_twist</code></td><td>Ensure heartbeat is running</td></tr></tbody></table></div>
+</section>
+<section id="principle">
+<h2>Engineering principle taught by this task</h2>
+<p>This task teaches <strong>shared side-effect primitives with a single runtime owner</strong>: extract clamp/publish logic for reuse, but route production actuation through one node so safety and timing stay centralized.</p>
+</section>
+<section id="learning">
+<h2>Active learning checks</h2>
+<ol><li>Why does teleop not import <code>CmdVelPublisher</code>?</li><li>What is the difference between <code>/litevla/desired_twist</code> and <code>/cmd_vel</code>?</li><li>Which file can you unit test without <code>rclpy.init()</code>?</li><li>What happens if dummy and heartbeat both publish <code>/cmd_vel</code>?</li></ol>
+</section>
+<section id="learning">
+<h2>Small modification exercise</h2>
+<p>Lower <code>max_linear_vel</code> to <code>0.1</code> in <code>cmd_vel_test.launch.py</code> (or params). Run the tester and confirm <code>ros2 topic echo /cmd_vel</code> never exceeds 0.1 on <code>linear.x</code>. Ensure <code>test_twist_utils.py</code> still passes.</p>
+</section>
+<section id="related">
+<h2>Related</h2>
+<ul><li><a href="camera-frame-subscriber.html">camera-frame-subscriber.md</a> (VLA-24)</li><li><a href="control-heartbeat.html">control-heartbeat.md</a> (VLA-27)</li></ul>
+</section>
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 102 task documentation</p>
+      <p>Lite-VLA · Epic 102 · <code>velocity-command-publisher.md</code> is the agent source of truth.</p>
     </footer>
   </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>

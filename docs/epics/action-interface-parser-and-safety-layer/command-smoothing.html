@@ -10,141 +10,427 @@
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 103 · Story 1022</p>
+      <p class="eyebrow">Action Interface, Parser, and Safety Layer (103) · Jira: Story 1022</p>
       <h1>Command smoothing</h1>
-      <p class="doc-lead">
-        Per-axis rate limiting between the safety gate and <code>/cmd_vel</code>, with immediate <code>STOP</code> bypass.
-      </p>
+      <p class="doc-lead"><code>litevla.actions.smoothing</code> is the <strong>rate-limiting layer</strong> between the safety gate (Story 1021) and ROS <code>/cmd_vel</code> publishing. It reduces jerky velocity changes when VLA inference updates at ~5 Hz while the low-level heartbeat runs at 10–100 Hz (RSK-05). The MVP uses a <strong>per-axis slew-rate limiter</strong> with an immediate <strong>STOP bypass</strong> so emergency and parse-failure stops are never delayed. Subtasks covered: <strong>10066</strong> (strategy), <strong>10067</strong> (rate limiter), <strong>10068</strong> (STOP bypass), <strong>10254</strong> and <strong>10255</strong> (learning).</p>
       <nav class="doc-nav" aria-label="On this page">
         <a href="#summary">Summary</a> ·
-        <a href="#contract">Contract</a> ·
-        <a href="#learning">Learning</a> ·
-        <a href="#implementation">Implementation</a> ·
-        <a href="#decisions">Decisions</a> ·
-        <a href="#verification">Verification</a>
+        <a href="#mental-model">Mental model</a> ·
+        <a href="#backstory-why-this-exists">Backstory: why this exists</a> ·
+        <a href="#prerequisites">Prerequisites</a> ·
+        <a href="#concept-primer-vocabulary">Vocabulary</a> ·
+        <a href="#guided-code-reading">Code reading</a> ·
+        <a href="#file-and-artifact-index">File index</a> ·
+        <a href="#api-contract-and-data-flow">Contract</a> ·
+        <a href="#implementation-breakdown">Implementation</a> ·
+        <a href="#engineering-decisions">Decisions</a> ·
+        <a href="#verification-patterns">Verification</a> ·
+        <a href="#failure-modes-and-debugging-path">Debugging</a> ·
+        <a href="#engineering-principle-taught-by-this-task">Principle</a> ·
+        <a href="#active-learning-checks">Learning</a> ·
+        <a href="#small-modification-exercise">Exercise</a> ·
+        <a href="#open-questions">Questions</a> ·
+        <a href="#related-docs">Related</a>
       </nav>
     </header>
 
     <main>
       <section id="summary">
         <h2>Executive summary</h2>
-        <p>
-          <code>litevla.actions.smoothing</code> is the <strong>rate-limiting layer</strong> between the safety gate
-          (Story 1021) and ROS <code>/cmd_vel</code> publishing. It reduces jerky velocity changes when VLA inference
-          updates at ~5&nbsp;Hz while the heartbeat runs at 10–100&nbsp;Hz (RSK-05).
-        </p>
-        <p>
-          Subtasks covered: <strong>10066</strong> (strategy), <strong>10067</strong> (rate limiter),
-          <strong>10068</strong> (STOP bypass), <strong>10254</strong> and <strong>10255</strong> (learning).
-        </p>
+        <p><code>litevla.actions.smoothing</code> is the <strong>rate-limiting layer</strong> between the safety gate (Story 1021) and ROS <code>/cmd_vel</code> publishing. It reduces jerky velocity changes when VLA inference updates at ~5 Hz while the low-level heartbeat runs at 10–100 Hz (RSK-05). The MVP uses a <strong>per-axis slew-rate limiter</strong> with an immediate <strong>STOP bypass</strong> so emergency and parse-failure stops are never delayed.</p>
+        <p>Subtasks covered: <strong>10066</strong> (strategy), <strong>10067</strong> (rate limiter), <strong>10068</strong> (STOP bypass), <strong>10254</strong> and <strong>10255</strong> (learning).</p>
       </section>
 
-      <section id="contract">
+      <section id="mental-model">
+        <h2>Mental model</h2>
+        <p>Think of this module as a <strong>shock absorber</strong> between discrete model decisions and continuous wheel commands.</p>
+        <p>It exists because the VLA updates intent slowly (~5 Hz) while the robot control loop runs fast (10–100 Hz). Without interpolation, each new token would snap wheel speeds instantly, causing jerk that simulators, real drivetrains, and operators experience as unstable motion.</p>
+        <p>The key engineering tension is <strong>smooth motion vs. immediate stop</strong> — ramping is desirable for <code>MOVE_FORWARD</code> → <code>TURN_LEFT</code> transitions, but catastrophic for <code>STOP</code> and parse-failure fallbacks.</p>
+        <p>A beginner mistake is placing smoothing <strong>before</strong> the safety gate, which could rate-limit an unsafe raw velocity before clamping, or delaying zero-velocity stops.</p>
+        <p>A senior engineer watches for <strong><code>dt</code> and <code>heartbeat_hz</code> coupling</strong> — slew limits are per-second; wrong <code>dt</code> makes ramps too fast or too slow.</p>
+      </section>
+
+      <section id="backstory-why-this-exists">
+        <h2>Backstory: why this exists</h2>
+        <p>Before this module existed, safe commands from the gate went directly to <code>/cmd_vel</code> at heartbeat rate, repeating the same target until the next inference step — but each new inference step still caused a step change in target velocity.</p>
+        <p>The naive solution would be a moving average or exponential smoothing over recent commands.</p>
+        <p>That breaks because discrete MVP actions jump between incompatible setpoints (<code>MOVE_FORWARD</code> vs. <code>STOP</code>). Averaging blends incompatible intents and makes <code>STOP</code> asymptotic instead of immediate.</p>
+        <p>So this design chooses a <strong>stateful per-axis slew-rate limiter</strong> toward the latest safe target, with an explicit <strong>STOP bypass</strong> that resets state and passes zero immediately.</p>
+        <p>This pattern appears in real systems as <strong>slew rate limiting</strong> in motor controllers, audio parameter smoothing, and animation retargeting — always with an emergency bypass.</p>
+      </section>
+
+      <section id="prerequisites">
+        <h2>Prerequisites</h2>
+        <p>Before reading this module, you should understand:</p>
+        <ul>
+          <li><strong><code>SafeCommand</code></strong> — output of <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a>; smoothing input type.</li>
+          <li><strong><code>DiscreteAction.STOP</code></strong> — bypass trigger, including parse-failure stops from safety gate.</li>
+          <li><strong>Control loop timing</strong> — <code>runtime.heartbeat_hz</code> in config; <code>dt = 1 / hz</code> per tick.</li>
+          <li><strong>RSK-05</strong> — jerk between inference rate and actuation rate (see epic walkthrough).</li>
+        </ul>
+      </section>
+
+      <section id="concept-primer-vocabulary">
+        <h2>Concept primer / vocabulary</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Term</th>
+              <th>Meaning in this project</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>CommandSmoother</code></td>
+              <td>Stateful per-axis rate limiter; holds current <code>linear_x</code> / <code>angular_z</code>.</td>
+            </tr>
+            <tr>
+              <td><code>SmoothingConfig</code></td>
+              <td><code>enabled</code>, <code>max_linear_rate</code>, <code>max_angular_rate</code> (per second).</td>
+            </tr>
+            <tr>
+              <td><code>step_toward</code></td>
+              <td>Pure helper: move current toward target by at most <code>max_delta</code>.</td>
+            </tr>
+            <tr>
+              <td>Slew rate</td>
+              <td>Max velocity change per second; <code>max_delta = rate * dt</code> per tick.</td>
+            </tr>
+            <tr>
+              <td>STOP bypass</td>
+              <td><code>DiscreteAction.STOP</code> skips smoothing; resets state to zero immediately.</td>
+            </tr>
+            <tr>
+              <td>Setpoint tracking</td>
+              <td>Each inference updates target; smoother approaches incrementally.</td>
+            </tr>
+            <tr>
+              <td><code>step_velocities</code></td>
+              <td>ROS convenience wrapper when node tracks twist + action separately.</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="guided-code-reading">
+        <h2>Guided code reading</h2>
+        <p>Read these in order:</p>
+        <ol>
+          <li><strong><code>litevla/actions/smoothing.py</code></strong> — <code>step_toward</code> and <code>is_stop_bypass</code> (pure logic).</li>
+          <li><strong><code>SmoothingConfig</code> / <code>smoothing_config_from_mapping</code></strong> — config wiring.</li>
+          <li><strong><code>CommandSmoother.step</code></strong> — STOP branch, disabled branch, rate-limited branch.</li>
+          <li><strong><code>tests/test_action_smoothing.py</code></strong> — ramp, bypass, retargeting, disabled mode.</li>
+        </ol>
+        <p>While reading, ask:</p>
+        <ul>
+          <li>Where does data enter? — <code>SafeCommand</code> target each heartbeat tick.</li>
+          <li>Where is it validated? — Assumes upstream safety gate already clamped; no re-clamp here.</li>
+          <li>Where can it fail? — NaN/<code>dt &lt;= 0</code> edge cases passthrough; not sanitized.</li>
+          <li>Who owns the final side effect? — ROS heartbeat publishes smoothed values to <code>/cmd_vel</code>.</li>
+        </ul>
+      </section>
+
+      <section id="file-and-artifact-index">
+        <h2>File and artifact index</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>File or artifact</th>
+              <th>What it is</th>
+              <th>Why it matters</th>
+              <th>First thing to inspect</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><code>litevla/actions/smoothing.py</code></td>
+              <td>Rate limiter implementation</td>
+              <td>Jerk reduction between gate and ROS</td>
+              <td><code>CommandSmoother.step</code></td>
+            </tr>
+            <tr>
+              <td><code>litevla/actions/safety.py</code></td>
+              <td>Upstream <code>SafeCommand</code> producer</td>
+              <td>Smoother never re-parses model text</td>
+              <td><code>SafeCommand</code> dataclass</td>
+            </tr>
+            <tr>
+              <td><code>tests/test_action_smoothing.py</code></td>
+              <td>Smoothing contracts</td>
+              <td>STOP bypass, ramp math, retargeting</td>
+              <td><code>test_stop_bypass_is_immediate</code></td>
+            </tr>
+            <tr>
+              <td><code>configs/default.example.yaml</code></td>
+              <td><code>smoothing</code> section</td>
+              <td>Default rates and <code>enabled</code> flag</td>
+              <td><code>max_linear_rate</code>, <code>max_angular_rate</code></td>
+            </tr>
+            <tr>
+              <td><code>ros_ws/.../heartbeat_controller.py</code></td>
+              <td>Runtime integration</td>
+              <td>Owns <code>CommandSmoother</code> instance</td>
+              <td>Timer tick + <code>step</code> call</td>
+            </tr>
+            <tr>
+              <td><code>scripts/run_dummy_pipeline.py</code></td>
+              <td>Ramp demo</td>
+              <td>Visualize smoothing without ROS</td>
+              <td>Smoothing demo section</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="api-contract-and-data-flow">
         <h2>API contract and data flow</h2>
+        <p>### What “contract” means here</p>
+        <p>For this module, <strong>contract</strong> means: given a <strong>safe</strong> target <code>SafeCommand</code> and elapsed <code>dt</code>, return a <code>SafeCommand</code> whose velocities move toward the target at most <code>max_*_rate * dt</code> per axis per tick — except when the target action is <code>STOP</code>, in which case output is immediate zero with no ramp. Smoothed values never exceed the safe target the gate already approved.</p>
+        <p>### Task-local flow</p>
         <pre><code class="language-text">SafeCommand (from safety gate 1021)
         │
         ├──&gt; action is STOP? ──&gt; snap to (0.0, 0.0), reset state
         │
         └──&gt; CommandSmoother.step(dt) ──&gt; rate-limited SafeCommand ──&gt; /cmd_vel</code></pre>
-
+        <p>### Contract table</p>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Surface</th><th scope="col">Rule</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><strong>Input</strong></td><td><code>SafeCommand</code> with clamped target velocities</td></tr>
-              <tr><td><strong>Output</strong></td><td>Smoothed <code>SafeCommand</code>; action/events preserved</td></tr>
-              <tr><td><strong>STOP bypass</strong></td><td><code>DiscreteAction.STOP</code> skips smoothing immediately</td></tr>
-              <tr><td><strong>Rate limits</strong></td><td><code>smoothing.max_linear_rate</code> / <code>max_angular_rate</code> (per second)</td></tr>
-              <tr><td><strong>Disabled</strong></td><td><code>smoothing.enabled: false</code> passes targets through</td></tr>
+            <thead><tr>
+              <th>Surface</th>
+              <th>Rule</th>
+            </tr></thead><tbody>
+            <tr>
+              <td><strong>Input</strong></td>
+              <td><code>SafeCommand</code> with clamped target velocities and discrete action</td>
+            </tr>
+            <tr>
+              <td><strong>Output</strong></td>
+              <td><code>SafeCommand</code> with smoothed <code>(linear_x, angular_z)</code>; action/events preserved</td>
+            </tr>
+            <tr>
+              <td><strong>STOP bypass</strong></td>
+              <td><code>DiscreteAction.STOP</code> (including parse-failure STOP) skips smoothing</td>
+            </tr>
+            <tr>
+              <td><strong>Rate limits</strong></td>
+              <td>Config <code>smoothing.max_linear_rate</code> / <code>smoothing.max_angular_rate</code> (units: per second)</td>
+            </tr>
+            <tr>
+              <td><strong>Disabled</strong></td>
+              <td>When <code>smoothing.enabled: false</code>, target passes through unchanged</td>
+            </tr>
             </tbody>
           </table>
         </div>
+        <p>### Naive approach vs chosen approach</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Approach</th>
+              <th>Why it seems attractive</th>
+              <th>Why we did or did not choose it</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Moving average / EMA</td>
+              <td>Simple one-liner smooth</td>
+              <td>Blends incompatible discrete commands; STOP becomes gradual</td>
+            </tr>
+            <tr>
+              <td>Fixed-duration lerp</td>
+              <td>Predictable ramp time</td>
+              <td>Restarts every inference step; still needs STOP special case</td>
+            </tr>
+            <tr>
+              <td>Smooth before safety gate</td>
+              <td>Earlier filtering</td>
+              <td>Could delay or distort clamping; unsafe targets get interpolated</td>
+            </tr>
+            <tr>
+              <td><strong>Per-axis slew limiter</strong></td>
+              <td>Slightly more state</td>
+              <td>Clean retargeting; independent linear/angular; testable <code>step_toward</code></td>
+            </tr>
+            <tr>
+              <td>STOP bypass on action enum</td>
+              <td>Special case</td>
+              <td>Guarantees fail-safe timing; works for parse-failure STOP</td>
+            </tr>
+            <tr>
+              <td>After safety gate</td>
+              <td>Extra latency stage</td>
+              <td>Rate limits change only; absolute bounds already enforced upstream</td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>### Trade-offs</p>
+        <ul>
+          <li><strong>Rate limiter vs. moving average</strong> — discrete MVP targets jump between fixed velocities; averaging would blend incompatible commands. A slew limiter retargets cleanly when inference flips actions mid-ramp.</li>
+          <li><strong>After safety gate</strong> — smoothing limits *rate of change*; safety still owns absolute bounds. Smoothed values cannot exceed the target the gate already approved.</li>
+          <li><strong>dt-based stepping</strong> — works at any heartbeat rate; tune rates in m/s² and rad/s² rather than per-tick magic numbers.</li>
+        </ul>
+        <p>### Learning context (RSK-05)</p>
+        <p>Default rates (<code>0.5</code> m/s² linear, <code>1.5</code> rad/s² angular) reach MVP nominal speeds (0.2 m/s, 0.6 rad/s) from rest in ~400 ms. STOP bypass ensures parse-failure and explicit stops publish zero on the same tick — smoothing must not re-introduce motion after the safety gate says stop.</p>
       </section>
 
-      <section id="learning">
-        <h2>Learning notes</h2>
-        <h3>Subtask 10254 — Control-rate decoupling</h3>
-        <ul>
-          <li><strong>Slew rate</strong> — <code>max_delta = rate * dt</code> per heartbeat tick.</li>
-          <li><strong>Setpoint tracking</strong> — each inference step sets a new target; smoother approaches incrementally.</li>
-          <li><strong>Defaults</strong> — 0.5&nbsp;m/s² and 1.5&nbsp;rad/s² reach MVP nominal speeds in ~400&nbsp;ms.</li>
-        </ul>
-
-        <h3>Subtask 10255 — STOP bypass</h3>
-        <ul>
-          <li><strong>Immediate zero</strong> — no ramp-down on emergency or parse-failure <code>STOP</code>.</li>
-          <li><strong>Action label</strong> — bypass checks discrete action, not velocity magnitude.</li>
-          <li><strong>Timeout</strong> — heartbeat resets smoother on action/camera timeout.</li>
-        </ul>
-      </section>
-
-      <section id="implementation">
+      <section id="implementation-breakdown">
         <h2>Implementation breakdown</h2>
-
-        <h3>Strategy (Subtask 10066)</h3>
-        <p><strong>Decision:</strong> per-axis slew-rate limiter. Rejected moving average (blends discrete jumps) and fixed lerp (restart complexity).</p>
-
-        <h3>Rate limiter (Subtask 10067)</h3>
+        <p>### Strategy (Subtask 10066)</p>
+        <p><strong>Decision:</strong> per-axis slew-rate limiter toward the latest safe target.</p>
+        <p><strong>What to notice:</strong> Rejected moving average and fixed lerp explicitly in ADR.</p>
+        <p><strong>Why it is written this way:</strong> Discrete command jumps need setpoint tracking, not blending.</p>
+        <p><strong>Risks and gotchas:</strong> Tuning must account for <code>heartbeat_hz</code> and inference rate together.</p>
+        <p>---</p>
+        <p>### Rate limiter (Subtask 10067)</p>
+        <p><strong>Snippet</strong> (<code>litevla/actions/smoothing.py</code>):</p>
         <pre><code class="language-python">def step_toward(current: float, target: float, max_delta: float) -&gt; float:
     delta = target - current
     if abs(delta) &lt;= max_delta:
         return target
     return current + math.copysign(max_delta, delta)</code></pre>
-
-        <h3>STOP bypass (Subtask 10068)</h3>
+        <p><strong>What to notice:</strong> Pure function; <code>max_delta &lt;= 0</code> returns target immediately.</p>
+        <p><strong>Why it is written this way:</strong> Testable independent of stateful smoother; separate linear and angular axes.</p>
+        <p><strong>Risks and gotchas:</strong> <code>dt &lt;= 0</code> in <code>CommandSmoother.step</code> passthroughs to target; NaN inputs not sanitized (same as schema/safety).</p>
+        <p>---</p>
+        <p>### STOP bypass (Subtask 10068)</p>
         <pre><code class="language-python">if is_stop_bypass(target.action):
     self.reset()
     return target</code></pre>
-
-        <h3>Integration</h3>
+        <p><strong>What to notice:</strong> Bypass checks <strong>action enum</strong>, not velocity magnitude — <code>SLOW_DOWN</code> at low speed is not a bypass.</p>
+        <p><strong>Why it is written this way:</strong> Parse-failure STOP from <code>safe_command_from_text</code> must not ramp down.</p>
+        <p><strong>Risks and gotchas:</strong> ROS heartbeat should also reset smoother on action/camera timeout before publishing zero.</p>
+        <p>---</p>
+        <p>### Integration</p>
         <ul>
-          <li><code>scripts/run_dummy_pipeline.py</code> — smoothing ramp demo</li>
-          <li><code>heartbeat_controller.py</code> — applies <code>CommandSmoother</code> each timer tick</li>
-          <li><code>configs/default.example.yaml</code> — <code>smoothing</code> section</li>
+          <li><strong><code>scripts/run_dummy_pipeline.py</code></strong> — prints a smoothing ramp demo using config <code>smoothing</code> and <code>runtime.heartbeat_hz</code>.</li>
+          <li><strong><code>ros_ws/.../heartbeat_controller.py</code></strong> — owns a <code>CommandSmoother</code>; applies it each timer tick before <code>CmdVelPublisher</code>.</li>
+          <li><strong>Config</strong> — <code>smoothing</code> section in <code>configs/default.example.yaml</code> and <code>litevla/config/schema.json</code>.</li>
+        </ul>
+        <p><strong>What to notice:</strong> Smoother sits <strong>after</strong> safety gate in the pipeline.</p>
+        <p><strong>Why it is written this way:</strong> Absolute limits are already enforced; smoothing only shapes how fast you approach the safe target.</p>
+        <p><strong>Risks and gotchas:</strong> Story 1053 must wire model path through the same smoother for consistent behavior.</p>
+      </section>
+
+      <section id="engineering-decisions">
+        <h2>Engineering decisions</h2>
+        <p><strong>ADR: Per-axis slew-rate limiter</strong></p>
+        <ul>
+          <li><strong>Status:</strong> Accepted (Story 1022)</li>
+          <li><strong>Context:</strong> RSK-05 — jerk between ~5 Hz VLA outputs and 10–100 Hz actuation.</li>
+          <li><strong>Decision:</strong> Stateful <code>CommandSmoother</code> with configurable per-second rates and STOP bypass.</li>
+          <li><strong>Alternatives rejected:</strong> moving average (wrong for discrete jumps), fixed lerp (restart complexity).</li>
+          <li><strong>Consequences:</strong> tune <code>max_*_rate</code> and <code>heartbeat_hz</code> together in sim; Story 1053 wires model path through the same smoother.</li>
         </ul>
       </section>
 
-      <section id="decisions">
-        <h2>Engineering decisions</h2>
-        <pre><code class="language-text">ADR: Per-axis slew-rate limiter
-Status: Accepted
-Context: RSK-05 — jerk between ~5 Hz VLA outputs and 10–100 Hz actuation.
-Decision: Stateful CommandSmoother with configurable rates and STOP bypass.
-Alternatives Rejected: moving average; fixed-duration lerp.
-Consequences: Tune max_*_rate and heartbeat_hz together in sim.</code></pre>
+      <section id="verification-patterns">
+        <h2>Verification patterns</h2>
+        <pre><code class="language-bash">pytest tests/test_action_smoothing.py -q
+python scripts/run_dummy_pipeline.py</code></pre>
+        <p>Contracts defended:</p>
+        <ul>
+          <li>max delta per tick respects <code>rate * dt</code></li>
+          <li>ramp reaches nominal target after sufficient steps</li>
+          <li><code>STOP</code> and parse-failure STOP are immediate (no residual velocity)</li>
+          <li>disabled smoothing passes targets through</li>
+          <li>mid-ramp retargeting follows new setpoint</li>
+        </ul>
       </section>
 
-      <section id="verification">
-        <h2>Verification patterns</h2>
+      <section id="failure-modes-and-debugging-path">
+        <h2>Failure modes and debugging path</h2>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr><th scope="col">Contract</th><th scope="col">Test</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Max delta per tick</td><td><code>test_rate_limiter_respects_max_delta_per_tick</code></td></tr>
-              <tr><td>Reaches target</td><td><code>test_rate_limiter_reaches_target_after_enough_steps</code></td></tr>
-              <tr><td>STOP immediate</td><td><code>test_stop_bypass_is_immediate</code></td></tr>
-              <tr><td>Parse-failure STOP</td><td><code>test_parse_failure_stop_bypasses_smoothing</code></td></tr>
-              <tr><td>Disabled passthrough</td><td><code>test_disabled_smoothing_passes_target_through</code></td></tr>
-              <tr><td>Mid-ramp retarget</td><td><code>test_retargeting_mid_ramp</code></td></tr>
+            <thead><tr>
+              <th>Symptom</th>
+              <th>Likely cause</th>
+              <th>How to investigate</th>
+              <th>Fix</th>
+            </tr></thead><tbody>
+            <tr>
+              <td>Robot sluggish to start moving</td>
+              <td>Slew rates too low for <code>dt</code></td>
+              <td>Print <code>max_*_rate</code>, <code>heartbeat_hz</code>, compute <code>rate * dt</code></td>
+              <td>Raise rates or heartbeat</td>
+            </tr>
+            <tr>
+              <td>Jerky motion despite smoothing</td>
+              <td>Smoothing disabled or bypassed</td>
+              <td>Check <code>smoothing.enabled</code> in config</td>
+              <td>Enable smoothing</td>
+            </tr>
+            <tr>
+              <td>Delayed stop</td>
+              <td>STOP not reaching smoother as <code>DiscreteAction.STOP</code></td>
+              <td>Trace <code>SafeCommand.action</code> from safety gate</td>
+              <td>Fix upstream; verify <code>is_stop_bypass</code></td>
+            </tr>
+            <tr>
+              <td>Overshoot never reaches target</td>
+              <td><code>dt</code> too small or rate too low</td>
+              <td>Run <code>test_rate_limiter_reaches_target_after_enough_steps</code></td>
+              <td>Tune rates / hz together</td>
+            </tr>
+            <tr>
+              <td>Sim OK, hardware jerky</td>
+              <td>Heartbeat vs. inference mismatch</td>
+              <td>Compare sim <code>heartbeat_hz</code> to deployment</td>
+              <td>Align config across environments</td>
+            </tr>
             </tbody>
           </table>
         </div>
-        <pre><code class="language-bash">pytest tests/test_action_smoothing.py -q
-python scripts/run_dummy_pipeline.py</code></pre>
       </section>
+
+      <section id="engineering-principle-taught-by-this-task">
+        <h2>Engineering principle taught by this task</h2>
+        <p>This task teaches <strong>rate decoupling</strong>: producers and consumers often run at different frequencies. Insert a stateful adapter that respects the fast loop’s <code>dt</code>, preserves emergency bypass semantics, and never weakens upstream safety bounds — only the *trajectory* toward those bounds.</p>
+      </section>
+
+      <section id="active-learning-checks">
+        <h2>Active learning checks</h2>
+        <p>Before modifying this module, answer:</p>
+        <ol>
+          <li>Why is smoothing placed after the safety gate, not before?</li>
+          <li>Why does STOP bypass check <code>target.action</code> instead of whether velocities are near zero?</li>
+          <li>What happens to smoother state when a new inference target arrives mid-ramp?</li>
+          <li>How would you test that parse-failure STOP produces zero velocity on the first tick after smoothing?</li>
+        </ol>
+      </section>
+
+      <section id="small-modification-exercise">
+        <h2>Small modification exercise</h2>
+        <p>Set <code>smoothing.max_linear_rate</code> to <code>0.25</code> in config (half the default) and run <code>python scripts/run_dummy_pipeline.py</code>. Observe the printed ramp takes roughly twice as long to reach 0.2 m/s. Confirm with <code>pytest tests/test_action_smoothing.py -q</code> that STOP bypass tests still pass unchanged.</p>
+      </section>
+
+      <section id="open-questions">
+        <h2>Open questions</h2>
+        <ul>
+          <li>Raise default <code>heartbeat_hz</code> to 25–50 Hz when smoothing is enabled in sim launches?</li>
+          <li>Expose smoother diagnostics (current vs. target) on <code>/litevla/diagnostics</code>?</li>
+          <li>Continuous JSON velocity path (Story 1020) — same smoother applies to numeric targets.</li>
+        </ul>
+      </section>
+
+      <section id="related-docs">
+        <h2>Related docs</h2>
+        <ul>
+          <li>Safety gate (upstream): <a href="safety-clamp-and-fallback.html"><code>safety-clamp-and-fallback.md</code></a></li>
+          <li>Action schema: <a href="action-schema.html"><code>action-schema.md</code></a></li>
+          <li>Epic walkthrough: <a href="index.html"><code>index.html</code></a></li>
+        </ul>
+      </section>
+
     </main>
 
     <footer class="doc-footer">
-      <p>Lite-VLA epic task documentation.</p>
+      <p>Lite-VLA · Epic 103 · <code>command-smoothing.md</code> is the agent source of truth.</p>
     </footer>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
   <script src="../../scripts/doc-code.js"></script>
 </body>
 </html>
