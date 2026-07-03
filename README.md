@@ -143,6 +143,55 @@ The `litevla_bridge` package holds camera, velocity, dummy-action, heartbeat, an
 
 Match the folder boundaries above when adding new code. If you are unsure where something belongs, check `docs/` for conventions or open a discussion before introducing a new top-level directory.
 
+### Agent rules branch (`agent-rules`)
+
+Agent instructions and shared doc tooling are maintained on a dedicated `agent-rules` branch. Teammates on feature branches can pull the latest rules without switching branches or merging `main`.
+
+**Files on `agent-rules`:**
+
+| Path | Purpose |
+|------|---------|
+| `AGENTS.md` | Root agent contract |
+| `docs/AGENTS.md` | Cross-cutting doc conventions |
+| `docs/epics/AGENTS.md` | Epic walkthrough and task-doc framework |
+| `docs/styles/` | Shared doc CSS (`doc.css`, `presentation.css`, `prism-litevla.css`) |
+| `docs/scripts/doc-code.js` | Code-panel initializer for human HTML docs |
+
+**Sync latest rules while on your feature branch** (you do not leave your branch):
+
+```bash
+git fetch origin agent-rules
+
+git checkout origin/agent-rules -- \
+  AGENTS.md \
+  docs/AGENTS.md \
+  docs/epics/AGENTS.md \
+  docs/styles/ \
+  docs/scripts/
+```
+
+This replaces only the paths above. Your feature code (`litevla/`, `tests/`, epic task docs, etc.) is untouched. The synced files are staged — use them locally in Cursor without committing them on your feature branch if you prefer to keep the PR focused on code.
+
+**When you change any of these files**, commit and push them to `agent-rules` so teammates can sync. When the updates are ready for everyone on `main`, open a PR from `agent-rules` → `main`.
+
+To publish rule changes from your machine:
+
+```bash
+git stash push -m "wip"    # only if you have uncommitted work you need to keep
+git checkout agent-rules
+git pull origin agent-rules
+
+# copy or cherry-pick your rule-file edits, then:
+git add AGENTS.md docs/AGENTS.md docs/epics/AGENTS.md docs/styles/ docs/scripts/
+git commit -m "Update agent rules and doc tooling"
+git push origin agent-rules
+
+git checkout <your-feature-branch>
+git stash pop              # if you stashed above
+```
+
+Epic walkthroughs and Jira task docs (`docs/epics/<epic>/`) stay on feature branches with the code they document — they are not part of `agent-rules`.
+
 ### CI checks
 
 Every pull request runs automated checks via [GitHub Actions](.github/workflows/ci.yml):
