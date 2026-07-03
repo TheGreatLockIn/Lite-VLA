@@ -56,6 +56,17 @@ def _parse_args() -> argparse.Namespace:
         help="Do not ingest data/raw/episodes (reference + synthetic only).",
     )
     parser.add_argument(
+        "--no-balance-actions",
+        action="store_true",
+        help="Do not downsample majority actions to match the smallest action class.",
+    )
+    parser.add_argument(
+        "--per-action-cap",
+        type=int,
+        default=None,
+        help="Max rows per action when balancing (default: min action count in pool).",
+    )
+    parser.add_argument(
         "--write-artifacts",
         action="store_true",
         help="After build, run validation and write DATASET_CARD.md + validation_report.json (VLA-47).",
@@ -78,7 +89,10 @@ def _print_summary(result: BuildResult) -> None:
         f" reference={stats.reference_base},"
         f" synthetic={stats.synthetic_augmented},"
         f" raw_episode={stats.raw_episode},"
-        f" skipped_missing={stats.skipped_missing_image}"
+        f" skipped_invalid_raw={stats.skipped_invalid_raw_action},"
+        f" skipped_missing={stats.skipped_missing_image},"
+        f" balanced={stats.records_before_balance}->{stats.records_after_balance}"
+        f" (dropped={stats.rebalanced_dropped})"
     )
 
 
@@ -96,6 +110,8 @@ def main() -> int:
             reference_images_dir=args.reference_images_dir,
             raw_episodes_dir=args.raw_episodes_dir,
             include_raw_episodes=not args.skip_raw_episodes,
+            balance_actions=not args.no_balance_actions,
+            per_action_cap=args.per_action_cap,
         )
     except DatasetBuildError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
