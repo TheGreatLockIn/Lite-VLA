@@ -14,7 +14,7 @@
       <h1>Supervised Fine-Tuning and Model Evaluation</h1>
       <p class="doc-lead">Fine-tune a compact multimodal model to output robot actions.</p>
       <nav class="doc-nav" aria-label="Story navigation">
-        <a href="#intent">Intent</a> | <a href="#c4-context">C4 context</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
+        <a href="#intent">Intent</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
       </nav>
     </header>
 
@@ -25,41 +25,6 @@
         <p><strong>Scope:</strong> Training format, LoRA config, training loop, checkpoints, validation, manual inspection, and comparison against baseline.</p>
         <p><strong>Success criteria:</strong> First adapter trains successfully; validation metrics are reported; model outputs valid actions; results are reproducible from config.</p>
         <p class="update-note">This page is seeded from the Jira import CSV. Future agents should update it as implementation work starts, changes, or completes.</p>
-      </section>
-
-      <section id="c4-context" class="visual-card">
-        <h2>C4 System Context</h2>
-        <pre class="mermaid">
-C4Context
-title Supervised Fine-Tuning and Model Evaluation - System Context
-Person(team, "Lite-VLA Team", "Implements, reviews, and explains this epic")
-System(repo, "Lite-VLA Repository", "ROS 2, ML, data, deployment, docs, tests")
-System(presentation, "Epic Presentation", "Living ADR, code walkthrough, and visual explanation")
-System_Ext(jira, "Jira Epic/Stories", "Source ordering and planning context")
-Rel(team, repo, "changes code and tests")
-Rel(team, presentation, "uses for walkthroughs")
-Rel(jira, presentation, "defines task order")
-Rel(presentation, repo, "documents intent, flow, and decisions")
-        </pre>
-      </section>
-
-      <section class="visual-card">
-        <h2>C4 Container View</h2>
-        <pre class="mermaid">
-C4Container
-title Supervised Fine-Tuning and Model Evaluation - Container View Template
-Person(team, "Lite-VLA Team", "Builds and reviews the epic")
-System_Ext(presentation, "Epic Presentation", "Living walkthrough for this epic")
-System_Boundary(repo, "Lite-VLA Repository") {
-  Container(code, "Changed Code", "Python / ROS 2 / config / docs", "Modules and files touched by this epic")
-  Container(interfaces, "Interfaces And Data", "Schemas / ROS topics / model IO / artifacts", "Contracts that connect modules")
-  Container(validation, "Validation Evidence", "pytest / smoke tests / benchmarks / demo checks", "Proof that the implementation works")
-}
-Rel(team, code, "implements")
-Rel(code, interfaces, "reads and writes")
-Rel(code, validation, "validated by")
-Rel(validation, presentation, "summarized in")
-        </pre>
       </section>
 
       <section id="stories">
@@ -75,19 +40,36 @@ Rel(validation, presentation, "summarized in")
         </ol>
 
       <article class="task-card" id="story-1036">
-        <span class="status-pill">Seeded</span>
+        <span class="status-pill">Completed</span>
         <h3>Story 1036: Prepare model training format</h3>
         <dl>
           <dt>Intent</dt>
-          <dd>Convert labeled examples into the model-specific supervised fine-tuning format.</dd>
+          <dd>Convert labeled examples into the model-specific supervised fine-tuning format. Deliverable: <a href="prepare-model-training-format.html">prepare-model-training-format.html</a></dd>
           <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
+          <dd>
+            Created the <code>SFTDataFormatter</code> class in <code>litevla/training/formatter.py</code>. 
+            It converts visual frames, goal commands, and target actions into standard Hugging Face conversation dictionaries, tokenizes them using the VLM processor, and constructs a training labels mask by replacing all prompt tokens with <code>-100</code>.
+            We registered <code>SFTDataFormatter</code> in <code>litevla/training/__init__.py</code>.
+          </dd>
           <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
+          <dd>
+            <strong>Inputs:</strong> Image array/PIL object + goal instruction + correct action string.<br>
+            <strong>Outputs:</strong> A dictionary containing tokenized <code>input_ids</code>, masked target <code>labels</code>, and image features (<code>pixel_values</code>).<br>
+            <strong>Flow:</strong> Demonstration Logs ➔ Conversation Formatting ➔ Tokenizer/Processor ➔ Masking (first N tokens set to <code>-100</code>) ➔ Training Batch payload.
+          </dd>
           <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
+          <dd>
+            <strong>ADR: Unified Multimodal Token Length Alignment</strong><br>
+            <strong>Status:</strong> Accepted<br>
+            <strong>Context:</strong> Prompt tokenization offsets must match the full sequence tokens exactly. Tokenizing text without image tags causes alignment mismatch due to dynamic visual placeholder expansion.<br>
+            <strong>Decision:</strong> Tokenize both the prompt prefix and the full conversation using the same image matrix.
+          </dd>
           <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
+          <dd>
+            Created unit tests in <code>tests/test_training_formatter.py</code> verifying conversation building, numpy/PIL image standardization, and token masking. Verified that all tests execute and pass successfully:<br>
+            <pre><code>pytest tests/test_training_formatter.py -v
+pytest</code></pre>
+          </dd>
         </dl>
       </article>
       <article class="task-card" id="story-1037">

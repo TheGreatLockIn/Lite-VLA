@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prepare Model Training Format — Lite-VLA</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="index.html">Back to epic index</a>
+      <p class="eyebrow">Epic 106 · Story 1036</p>
+      <h1>Prepare Model Training Format</h1>
+      <p class="doc-lead">Convert raw robotic logs into standard Hugging Face conversation formats with masked target labels.</p>
+    </header>
+    <main>
+      <section>
+        <h2>Jira Task Info</h2>
+        <ul>
+          <li><strong>Story:</strong> VLA-1036: Prepare model training format</li>
+          <li><strong>Epic:</strong> Supervised Fine-Tuning and Model Evaluation (VLA-7)</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>1. Executive Summary</h2>
+        <p>The model training format module converts raw VLA demonstration records (consisting of camera frames, instruction prompts, and target movement commands) into tokenized inputs and targets formatted specifically for the vision-language model (<code>SmolVLM-256M-Instruct</code>). It enforces standard conversational structuring, standardizes multiple camera image formats (OpenCV BGR matrices, RGB matrices, PIL images), and applies prompt label masking using a parallel target tensor where prompt tokens are replaced by <code>-100</code> to prevent gradient updates on the instruction text.</p>
+      </section>
+
+      <section>
+        <h2>2. Mental Model, Backstory, Prerequisites, and Vocabulary</h2>
+        
+        <h3>Mental Model</h3>
+        <p>Think of this module as a <strong>grading scorecard mask</strong> or <strong>scorecard compiler</strong>.</p>
+        <p>It exists because we want the VLM model to learn to predict the robot action, but ignore the instruction prompt itself during gradient descent. The key engineering tension is prompt-vs-response token length alignment. Because visual tokens expand dynamically depending on image dimensions and layout parameters, simple text-only token offset checks trigger index misalignment.</p>
+        <p>A beginner mistake is tokenizing the prompt text without the image to determine the label offset. A senior engineer watches for identical visual placeholder counts across both the prompt and full target tokenizations.</p>
+
+        <h3>Backstory: why this exists</h3>
+        <p>Before this module existed, training a visual-language model on flat sequences would calculate loss on both the prompt instruction (input) and the action word (output).</p>
+        <p>The naive solution would be to evaluate cross-entropy loss on every single generated token. However, this breaks down because the model wastes its capacity predicting the prompt itself (which is already given by the user). It causes the VLM to overfit to instruction prefixes, degrade output precision, and generate noisy textual descriptions instead of deterministic steering signals.</p>
+        <p>So this design chooses <strong>label masking</strong>, replacing all prompt tokens in the training labels tensor with the ignore-index constant <code>-100</code>. This pattern appears in real systems as instruction-masking or SFT prefix-masking in large language model fine-tuning.</p>
+
+        <h3>Vocabulary</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Term</th>
+                <th>Meaning in this project</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>input_ids</code></td>
+                <td>PyTorch integer tensor representing tokenized conversation inputs.</td>
+              </tr>
+              <tr>
+                <td><code>labels</code></td>
+                <td>Parallel PyTorch target integer tensor containing action labels masked with <code>-100</code>.</td>
+              </tr>
+              <tr>
+                <td><code>-100</code></td>
+                <td>The standard ignore-index constant used by PyTorch <code>CrossEntropyLoss</code> to bypass gradient updates.</td>
+              </tr>
+              <tr>
+                <td>Chat Template</td>
+                <td>Jinja/Python text templates mapping roles (<code>user</code>, <code>assistant</code>) to special wrapper tags.</td>
+              </tr>
+              <tr>
+                <td><code>SFTDataFormatter</code></td>
+                <td>Class that converts visual states and commands into SFT target tensors.</td>
+              </tr>
+              <tr>
+                <td>Conversational Dict</td>
+                <td>A standard Python dictionary structured with <code>role</code> and <code>content</code> keys to represent chat turns.</td>
+              </tr>
+              <tr>
+                <td>VLM Processor</td>
+                <td>A unified utility class combining a text tokenizer and an image preprocessor to construct model inputs.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>3. Under the Hood: Step-by-Step Token Masking</h2>
+        <p>In Supervised Fine-Tuning (SFT), we pass the entire combined prompt and response text to the model. We want the model to learn to predict the action token, but ignore the user's instructions. We achieve this by tokenizing the prompt prefix and the full sequence, then masking the prompt prefix tokens in our labels tensor.</p>
+
+        <h3>The Role of Conversational Dict Formatting</h3>
+        <p>SmolVLM was pre-trained using very specific chat syntax tags (e.g. <code>&lt;|im_start|&gt;user\n</code>, <code>&lt;|im_start|&gt;assistant\n</code>). To format our data correctly, we represent our training records as <strong>Conversational Dicts</strong>. By passing these dicts to the processor's chat template compiler (<code>processor.apply_chat_template</code>), the processor automatically injects these model-specific separators. This guarantees that our training data matches the exact formatting syntax the model was built on, preventing attention-mask issues.</p>
+
+        <h3>The Role of the VLM Processor</h3>
+        <p>Unlike text-only language models that use tokenizers, or vision-only models that use image processors, a VLM uses a unified <strong>multimodal Processor</strong>. It tokenizes the compiled chat template text, standardizes the pixel values of the camera image, and returns a single dictionary containing <code>input_ids</code> and <code>pixel_values</code> ready for PyTorch.</p>
+
+        <h3>Deep Dive: How Prompt Masking Works in Memory</h3>
+        <p>Let's look at a concrete sequence trace for a single training record:</p>
+        <ul>
+          <li><strong>Instruction:</strong> <code>"Go left."</code></li>
+          <li><strong>Target Action:</strong> <code>"TURN_LEFT"</code></li>
+        </ul>
+
+        <h4>1. Tokenizing the Prompt Prefix</h4>
+        <p>First, we format and tokenize the prompt prefix: <code>"USER: &lt;image&gt; Go left. ASSISTANT:"</code>.<br>
+        The tokenizer converts this to <strong>5 tokens</strong> (<strong>$N = 5$</strong>):<br>
+        <code>[1002, 3811, 492, 18, 93]</code></p>
+
+        <h4>2. Tokenizing the Full Sequence</h4>
+        <p>Next, we format and tokenize the full conversation: <code>"USER: &lt;image&gt; Go left. ASSISTANT: TURN_LEFT &lt;/s&gt;"</code>.<br>
+        The tokenizer converts this to <strong>7 tokens</strong> (<strong>$M = 7$</strong>):<br>
+        <code>[1002, 3811, 492, 18, 93, 14325, 2]</code><br>
+        <em>(where <code>14325</code> represents the action token "TURN_LEFT", and <code>2</code> represents the End-of-Sequence token <code>&lt;/s&gt;</code>)</em></p>
+
+        <h4>3. Creating the Labels Mask</h4>
+        <p>We clone the full sequence token IDs for our target labels, and replace the first $N$ ($5$) tokens with <code>-100</code>:<br>
+        <code>[-100, -100, -100, -100, -100, 14325, 2]</code></p>
+
+        <p>During backpropagation, PyTorch scans through the tensors token-by-token:</p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Index</th>
+                <th>Token Text</th>
+                <th>Input ID (<code>input_ids</code>)</th>
+                <th>Target ID in <code>labels</code></th>
+                <th>Does PyTorch calculate loss?</th>
+                <th>Why?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>0</strong></td>
+                <td><code>USER:</code></td>
+                <td><code>1002</code></td>
+                <td><code>-100</code></td>
+                <td><strong>No</strong></td>
+                <td>Prompt token; ignored by PyTorch</td>
+              </tr>
+              <tr>
+                <td><strong>1</strong></td>
+                <td><code>&lt;image&gt;</code></td>
+                <td><code>3811</code></td>
+                <td><code>-100</code></td>
+                <td><strong>No</strong></td>
+                <td>Prompt token; ignored by PyTorch</td>
+              </tr>
+              <tr>
+                <td><strong>2</strong></td>
+                <td><code>Go</code></td>
+                <td><code>492</code></td>
+                <td><code>-100</code></td>
+                <td><strong>No</strong></td>
+                <td>Prompt token; ignored by PyTorch</td>
+              </tr>
+              <tr>
+                <td><strong>3</strong></td>
+                <td><code>left.</code></td>
+                <td><code>18</code></td>
+                <td><code>-100</code></td>
+                <td><strong>No</strong></td>
+                <td>Prompt token; ignored by PyTorch</td>
+              </tr>
+              <tr>
+                <td><strong>4</strong></td>
+                <td><code>ASSISTANT:</code></td>
+                <td><code>93</code></td>
+                <td><code>-100</code></td>
+                <td><strong>No</strong></td>
+                <td>Prompt token; ignored by PyTorch</td>
+              </tr>
+              <tr>
+                <td><strong>5</strong></td>
+                <td><code>TURN_LEFT</code></td>
+                <td><code>14325</code></td>
+                <td><code>14325</code></td>
+                <td><strong>Yes!</strong></td>
+                <td>Model is graded on predicting the correct action</td>
+              </tr>
+              <tr>
+                <td><strong>6</strong></td>
+                <td><code>&lt;/s&gt;</code></td>
+                <td><code>2</code></td>
+                <td><code>2</code></td>
+                <td><strong>Yes!</strong></td>
+                <td>Model is graded on generating the end tag</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>4. Guided Code Reading and File Index</h2>
+        
+        <h3>Guided Code Reading</h3>
+        <p>Read these in order:</p>
+        <ol>
+          <li><code>litevla/training/formatter.py</code>:
+            <ul>
+              <li>First inspect the <code>format_conversation</code> method to see how system prompts and user inputs are nested.</li>
+              <li>Look at the <code>__call__</code> operator to see how images are standardized and token lengths are computed.</li>
+            </ul>
+          </li>
+          <li><code>tests/test_training_formatter.py</code>:
+            <ul>
+              <li>Inspect <code>test_formatter_label_masking</code> to see how the <code>-100</code> mask is verified at the token-offset level.</li>
+            </ul>
+          </li>
+        </ol>
+
+        <h3>File Index</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>File or artifact</th>
+                <th>What it is</th>
+                <th>Why it matters</th>
+                <th>First thing to inspect</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>litevla/training/formatter.py</code></td>
+                <td>Data formatting class</td>
+                <td>Prepares PyTorch inputs and labels for training</td>
+                <td>The alignment between prompt token length and masking offset</td>
+              </tr>
+              <tr>
+                <td><code>tests/test_training_formatter.py</code></td>
+                <td>Executable unit tests</td>
+                <td>Defends the formatting and masking contract</td>
+                <td>Mock setup for the Hugging Face processor</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. API Contract and Data Flow</h2>
+        <p>The formatter maps inputs through conversation templates and processor tokenizers to yield training tensors.</p>
+        
+        <pre class="mermaid">
+flowchart LR
+    Img[Camera Frame PIL/Numpy] --> Form[SFTDataFormatter]
+    Ins[Goal Instruction] --> Form
+    Act[Ground-Truth Action] --> Form
+    
+    Form --> Out_ids[input_ids Tensor]
+    Form --> Out_lbls[labels Mask Tensor]
+    Form --> Out_pix[pixel_values Tensor]
+        </pre>
+
+        <h3>Data Contract Formats</h3>
+        <ul>
+          <li><strong>Input:</strong>
+            <ul>
+              <li><code>image</code> (<code>PIL.Image.Image</code> or <code>numpy.ndarray</code>): Input visual frame.</li>
+              <li><code>instruction</code> (<code>str</code>): Goal command text.</li>
+              <li><code>action</code> (<code>str</code>): The correct navigation action (e.g. <code>"MOVE_FORWARD"</code>).</li>
+            </ul>
+          </li>
+          <li><strong>Output:</strong> A dictionary containing:
+            <ul>
+              <li><code>input_ids</code> (<code>torch.Tensor</code>): 1D integer tensor representing the tokenized conversation tokens.</li>
+              <li><code>labels</code> (<code>torch.Tensor</code>): 1D target integer tensor matching <code>input_ids</code>, where prompt tokens are set to <code>-100</code> and the action tokens are kept intact.</li>
+              <li><code>pixel_values</code> (<code>torch.Tensor</code>): Vision features extracted by the VLM processor.</li>
+            </ul>
+          </li>
+        </ul>
+
+        <h3>Naive Approach vs Chosen Approach</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Approach</th>
+                <th>Why it seems attractive</th>
+                <th>Why we did or did not choose it</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Tokenize prompt without image to find offset</td>
+                <td>Faster execution, fewer inputs passed during the offset check</td>
+                <td><strong>Rejected.</strong> Mismatches offsets due to dynamic visual placeholder expansion in Hugging Face multimodal templates.</td>
+              </tr>
+              <tr>
+                <td>Tokenize prompt and full text using the same image</td>
+                <td>Guarantees exact token alignment</td>
+                <td><strong>Chosen.</strong> Expanded visual placeholders occupy identical token lengths in both passes, making offset calculations robust.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>6. Implementation Breakdown</h2>
+
+        <h3>Conversational Structuring</h3>
+        <p>The <code>SFTDataFormatter</code> formats inputs into standard Hugging Face messages:</p>
+        <pre><code class="language-python"># litevla/training/formatter.py
+def format_conversation(self, instruction: str, action: str) -> list[dict[str, Any]]:
+    user_text = self.user_template.format(instruction=instruction)
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": f"{self.system_instruction}\n\n{user_text}"},
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": action},
+            ],
+        },
+    ]
+    return messages</code></pre>
+        <p><strong>What to notice:</strong> The formatting groups system instructions and user templates into the user's turn, while the target action word belongs strictly to the assistant's turn.</p>
+
+        <h3>Prompt Masking Implementation</h3>
+        <p>To calculate prompt lengths accurately across visual tokens, the formatter runs the processor twice, passing the same image to both:</p>
+        <pre><code class="language-python"># litevla/training/formatter.py
+prompt_encoding = self.processor(text=prompt_text, images=image, return_tensors="pt")
+full_encoding = self.processor(text=full_text, images=image, return_tensors="pt")
+
+prompt_len = prompt_encoding["input_ids"].shape[1]
+full_len = full_encoding["input_ids"].shape[1]
+
+# Squeeze batch dimension and clone for labels
+input_ids = full_encoding["input_ids"].squeeze(0)
+labels = input_ids.clone()
+# Mask prompt prefix with -100
+labels[:prompt_len] = -100</code></pre>
+        <p><strong>What to notice:</strong> Image matrices are converted from OpenCV BGR to PIL RGB format before they are tokenized, ensuring compatibility with Hugging Face's image preprocessing expectations.</p>
+      </section>
+
+      <section>
+        <h2>7. Engineering Decisions</h2>
+        <h3>ADR: Unified Multimodal Token Length Alignment</h3>
+        <ul>
+          <li><strong>Status:</strong> Accepted</li>
+          <li><strong>Context:</strong> To construct the labels mask, we need the exact token offset where the prompt ends and the assistant's action starts. Visual placeholder tokens are expanded dynamically by the processor based on the model's visual projection layout. Tokenizing the prompt without the image causes mismatching offsets.</li>
+          <li><strong>Decision:</strong> Pass the same image matrix to both the prompt prefix tokenization and the full conversation tokenization passes.</li>
+          <li><strong>Consequences:</strong> The expanded vision tokens map to identical offsets in both passes, making sequence length subtraction perfectly deterministic and safe.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>8. Verification Patterns and Debugging</h2>
+        <h3>Executable Unit Tests</h3>
+        <p>Unit tests in <code>tests/test_training_formatter.py</code> verify:</p>
+        <ul>
+          <li><strong>Initialization validation:</strong> Formatter checks config prompt version validity.</li>
+          <li><strong>Conversational dict generation:</strong> Verifies correct system prompt injection and roles layout.</li>
+          <li><strong>Image standardization:</strong> Confirms that PIL, BGR matrices (OpenCV), and RGB matrices are mapped safely.</li>
+          <li><strong>Prompt masking accuracy:</strong> Validates that the first $N$ tokens in <code>labels</code> are exactly <code>-100</code> and target tokens are preserved.</li>
+        </ul>
+
+        <h3>Run Commands</h3>
+        <pre><code class="language-bash">.venv\Scripts\pytest tests/test_training_formatter.py -v
+.venv\Scripts\pytest</code></pre>
+
+        <h3>Failure Modes and Debugging Path</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Symptom</th>
+                <th>Likely cause</th>
+                <th>How to investigate</th>
+                <th>Fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Formatter crashes with <code>TypeError</code></td>
+                <td>Raw image is not a PIL Image or numpy array</td>
+                <td>Check input type in log metrics</td>
+                <td>Ensure image inputs go through OpenCV/PIL loading before passing to formatter</td>
+              </tr>
+              <tr>
+                <td>Formatter offsets mismatch</td>
+                <td>Different images or <code>None</code> passed to the prompt tokenizer</td>
+                <td>Verify token shape outputs for both encodings</td>
+                <td>Pass the identical image reference to both <code>prompt_encoding</code> and <code>full_encoding</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>9. Engineering Principle and Active Learning</h2>
+        
+        <h3>Engineering Principle Taught by this Task</h3>
+        <p>This task teaches the <strong>"prefix-masking"</strong> pattern. When training autoregressive language or visual models on instruction datasets, we must configure target masks to ignore the prompt tokens. Calculating loss on prompt prefixes causes model degradation because it shifts training updates away from generating outputs toward memorizing user queries.</p>
+
+        <h3>Active Learning Checks</h3>
+        <ol>
+          <li>Why does PyTorch use <code>-100</code> as the default ignore index in its loss function?</li>
+          <li>What happens if we do not mask the prompt tokens during training?</li>
+          <li>How does the processor handle image inputs when they are passed as numpy BGR matrices vs. PIL images?</li>
+          <li>How would you adjust <code>SFTDataFormatter</code> if the visual model starts using multi-image input sequences?</li>
+        </ol>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA · Epic 106 · <code>prepare-model-training-format.md</code> is the agent source of truth.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
+</body>
+</html>
