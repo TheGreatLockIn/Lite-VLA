@@ -3,129 +3,285 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dataset validation checks — Epic 105</title>
+  <title>Dataset validation checks — Lite-VLA</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-45 / Story 1033</p>
       <h1>Dataset validation checks</h1>
-      <p class="doc-lead">
-        Automated quality gate: schema validation, image path checks, duplicate ids, and label distribution reports with JSON output.
-      </p>
-      <nav class="doc-nav" aria-label="On this page">
-        <a href="#summary">Summary</a> ·
-        <a href="#contract">Contract</a> ·
-        <a href="#implementation">Implementation</a> ·
-        <a href="#decisions">Decisions</a> ·
-        <a href="#verification">Verification</a> ·
-        <a href="#related">Related</a>
-      </nav>
     </header>
-
     <main>
-      <section id="summary">
-        <h2>Executive summary</h2>
-        <p>
-          VLA-45 owns the <strong>automated quality gate</strong> on processed JSONL before fine-tuning and after human review (VLA-44). Unlike <code>read_jsonl()</code> which fails on the first bad row, <code>validate_dataset()</code> scans the entire file, collects every schema/filesystem problem with line numbers, and emits action/source distribution summaries with imbalance warnings.
-        </p>
-      </section>
-
-      <section id="contract">
-        <h2>API contract and data flow</h2>
-        <pre><code class="language-text">train.jsonl ──&gt; validate_dataset()
-                  ├── per-line JSON + parse_training_record()
-                  ├── image exists under repo_root  [optional]
+      <p><strong>Epic:</strong> Dataset Generation, Labeling, and Validation (105) · <strong>Jira epic:</strong> VLA-6 · <strong>Story:</strong> VLA-45 / 1033 · <strong>Subtasks:</strong> 10099 (schema), 10100 (images), 10101 (distribution)</p>
+<p><strong>Human-readable version (browser):</strong> <a href="dataset-validation.html"><code>dataset-validation.html</code></a></p>
+<h2 id="executive-summary">Executive summary</h2>
+<p>VLA-45 owns the <strong>automated quality gate</strong> on processed JSONL before fine-tuning and after human review (VLA-44). Unlike <code>read_jsonl()</code> which fails on the first bad row, <code>validate_dataset()</code> scans the entire file, collects every schema/filesystem problem with line numbers, and emits action/source distribution summaries with imbalance warnings. Output feeds CI, the CLI, and VLA-47 <code>validation_report.json</code> artifacts.</p>
+<h2 id="mental-model">Mental model</h2>
+<p>Think of the validator as a <strong>pre-flight checklist with a printed diagnostic report</strong>.</p>
+<p>It exists because dataset bugs are expensive — a missing PNG or duplicate <code>id</code> discovered mid-epoch wastes GPU time and produces confusing loss curves.</p>
+<p>The key engineering tension is <strong>fail-fast loading vs collect-all-errors QA</strong>: training wants to stop immediately; release review wants every issue in one pass.</p>
+<p>A beginner mistake is running training without validation, or treating imbalance <strong>warnings</strong> as hard failures.</p>
+<p>A senior engineer watches for <strong><code>report.valid</code> vs <code>warning_count</code></strong> — warnings inform release notes; only errors block <code>valid</code>.</p>
+<h2 id="backstory-why-this-exists">Backstory: why this exists</h2>
+<p>Wrapping <code>read_jsonl()</code> in a try/except loop seems enough for QA. The naive approach stops at the first bad line.</p>
+<p>That breaks because a spreadsheet import may introduce dozens of bad actions — you need line numbers for <em>all</em> of them before sending work back to reviewers.</p>
+<p>So this design chooses a non-throwing scanner that aggregates <code>ValidationIssue</code> objects into <code>DatasetValidationReport</code>, with optional image and review-CSV gates.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>VLA-41 schema: <a href="dataset-schema.md">dataset-schema.md</a></li>
+<li>Optional VLA-44 review CSV: <a href="labeling-workflow.md">labeling-workflow.md</a></li>
+</ul>
+<h2 id="vocabulary">Vocabulary</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning in this project</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>DatasetValidationReport</code></strong></td>
+<td>Aggregated scan result for one JSONL file</td>
+</tr>
+<tr>
+<td><strong><code>ValidationIssue</code></strong></td>
+<td>One error or warning with <code>code</code>, <code>line</code>, <code>record_id</code></td>
+</tr>
+<tr>
+<td><strong><code>report.valid</code></strong></td>
+<td>True when <code>error_count == 0</code> (warnings allowed)</td>
+</tr>
+<tr>
+<td><strong><code>resolve_image_path</code></strong></td>
+<td>Repo-root join rule shared with VLA-46 loader</td>
+</tr>
+<tr>
+<td><strong><code>action_imbalance</code></strong></td>
+<td>Warning when one action exceeds 50% of rows</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="guided-code-reading">Guided code reading</h2>
+<ol>
+<li><code>litevla/data/validator.py</code> — <code>validate_dataset</code>, issue codes, <code>IMBALANCE_WARNING_RATIO</code>.</li>
+<li><code>scripts/validate_dataset.py</code> — CLI flags (<code>--skip-image-check</code>, <code>--review-csv</code>, <code>--write-artifacts</code>).</li>
+<li><code>tests/test_dataset_validator.py</code> — contracts per issue type.</li>
+<li><code>litevla/data/versioning.py</code> — consumes reports for release artifacts.</li>
+</ol>
+<h2 id="api-contract-and-data-flow">API contract and data flow</h2>
+<pre><code class="language-text">train.jsonl ──&gt; validate_dataset()
+                  ├── per-line: JSON parse
+                  ├── parse_training_record()  (VLA-41 + Epic 103)
+                  ├── resolve_image_path() + is_file()   [optional]
                   ├── duplicate id tracking
-                  └── action/source counters
-              ──&gt; DatasetValidationReport ──&gt; validation_report.json</code></pre>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th scope="col">Check</th><th scope="col">Severity</th><th scope="col">Code</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Invalid JSON</td><td>error</td><td><code>invalid_json</code></td></tr>
-              <tr><td>Schema / action</td><td>error</td><td><code>schema_invalid</code></td></tr>
-              <tr><td>Missing PNG</td><td>error</td><td><code>missing_image</code></td></tr>
-              <tr><td>Duplicate id</td><td>error</td><td><code>duplicate_id</code></td></tr>
-              <tr><td>Empty dataset</td><td>error</td><td><code>empty_dataset</code></td></tr>
-              <tr><td>Missing id</td><td>warning</td><td><code>missing_id</code></td></tr>
-              <tr><td>Action &gt; 50% of rows</td><td>warning</td><td><code>action_imbalance</code></td></tr>
-              <tr><td>Missing action token</td><td>warning</td><td><code>missing_action_coverage</code></td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p><strong>Trade-off:</strong> Collect-all-errors scanning vs fail-fast <code>read_jsonl()</code> — validator is for QA; loader still fails on first bad row.</p>
-      </section>
+                  └── Counter: action + source
+              ──&gt; DatasetValidationReport
+                      ├── valid (error_count == 0)
+                      └── issues[] with code + line + record_id
+              ──&gt; validation_report.json  (VLA-47)
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Severity</th>
+<th>Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Invalid JSON</td>
+<td>error</td>
+<td><code>invalid_json</code></td>
+</tr>
+<tr>
+<td>Schema / action</td>
+<td>error</td>
+<td><code>schema_invalid</code></td>
+</tr>
+<tr>
+<td>Missing PNG</td>
+<td>error</td>
+<td><code>missing_image</code></td>
+</tr>
+<tr>
+<td>Duplicate <code>id</code></td>
+<td>error</td>
+<td><code>duplicate_id</code></td>
+</tr>
+<tr>
+<td>One action &gt; 50%</td>
+<td>warning</td>
+<td><code>action_imbalance</code></td>
+</tr>
+<tr>
+<td>Missing action token</td>
+<td>warning</td>
+<td><code>missing_action_coverage</code></td>
+</tr>
+<tr>
+<td>Pending review row</td>
+<td>error</td>
+<td>via <code>--review-csv</code> gate</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="naive-approach-vs-chosen-approach">Naive approach vs chosen approach</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Why it seems attractive</th>
+<th>Why we did or did not choose it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fail on first error (<code>read_jsonl</code>)</td>
+<td>Simple</td>
+<td>Poor QA feedback for batch imports</td>
+</tr>
+<tr>
+<td>Collect-all-errors report</td>
+<td>More code</td>
+<td>Enables CI artifacts and reviewer loops</td>
+</tr>
+<tr>
+<td>Imbalance as hard error</td>
+<td>Strict balance</td>
+<td>Blocks MVP starter set; warning only</td>
+</tr>
+<tr>
+<td>Optional image check</td>
+<td>Complexity</td>
+<td>Fixtures CI lacks gitignored PNGs</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="implementation-breakdown">Implementation breakdown</h2>
+<h3 id="report-types">Report types</h3>
+<p><strong>Snippet</strong> (<code>litevla/data/validator.py</code>):</p>
+<pre><code class="language-python">@dataclass
+class DatasetValidationReport:
+    jsonl_path: str
+    record_count: int = 0
+    error_count: int = 0
+    warning_count: int = 0
+    action_counts: dict[str, int] = field(default_factory=dict)
+    ...
 
-      <section id="implementation">
-        <h2>Implementation breakdown</h2>
-        <h3>Core API (<code>litevla/data/validator.py</code>)</h3>
-        <pre><code class="language-python">report = validate_dataset(
-    "data/processed/v0.1.0/train.jsonl",
-    check_images=True,
-    warn_on_imbalance=True,
-)
-assert report.valid  # error_count == 0</code></pre>
-        <ul>
-          <li><strong>Design note:</strong> <code>valid</code> ignores warnings — imbalance does not block release.</li>
-          <li><strong>Gotcha:</strong> CI on fixtures uses <code>check_images=False</code> because PNGs are gitignored.</li>
-        </ul>
-        <h3>CLI (<code>scripts/validate_dataset.py</code>)</h3>
-        <pre><code class="language-bash">python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train.jsonl
+    @property
+    def valid(self) -&gt; bool:
+        return self.error_count == 0
+</code></pre>
+<p><strong>Risks and gotchas:</strong> Warnings increment <code>warning_count</code> but do not flip <code>valid</code> to False.</p>
+<hr />
+<h3 id="shared-image-path-resolution">Shared image path resolution</h3>
+<pre><code class="language-python">def resolve_image_path(image_path: str, *, repo_root: Path) -&gt; Path:
+    path = Path(image_path)
+    if path.is_absolute():
+        return path
+    return repo_root / path
+</code></pre>
+<p>Same rule as <code>LiteVLADataset.resolve_image_path()</code> — validate and train must agree.</p>
+<h3 id="cli">CLI</h3>
+<pre><code class="language-bash">python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train.jsonl
 python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check
-python scripts/validate_dataset.py --version v0.1.0 --write-artifacts</code></pre>
-      </section>
-
-      <section id="decisions">
-        <h2>Engineering decisions</h2>
-        <h3>ADR: Collect-all-errors validator (10099)</h3>
-        <p><strong>Status:</strong> Accepted<br>
-        <strong>Decision:</strong> Aggregate all row errors into <code>DatasetValidationReport</code> instead of failing on first bad line.</p>
-        <h3>ADR: Image check optional (10100)</h3>
-        <p><strong>Status:</strong> Accepted<br>
-        <strong>Decision:</strong> <code>check_images</code> flag; default on for release, off for schema-only CI.</p>
-        <h3>ADR: Imbalance as warning (10101)</h3>
-        <p><strong>Status:</strong> Accepted<br>
-        <strong>Decision:</strong> <code>action_imbalance</code> at 50% threshold is warning only.</p>
-      </section>
-
-      <section id="verification">
-        <h2>Verification patterns</h2>
-        <pre><code class="language-bash">pytest tests/test_dataset_validator.py -q
-python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check</code></pre>
-        <p>Defends: schema errors, missing images, duplicate ids, distribution warnings, JSON report write.</p>
-      </section>
-
-      <section id="open-questions">
-        <h2>Open questions</h2>
-        <ul>
-          <li>Cross-check <code>label_review.csv</code> for leftover <code>pending</code> rows (future).</li>
-          <li>Validate <code>val.jsonl</code> separately in release CI (supported via <code>build_version_artifacts</code>).</li>
-        </ul>
-      </section>
-
-      <section id="related">
-        <h2>Related</h2>
-        <ul>
-          <li><a href="dataset-schema.html">VLA-41 schema</a></li>
-          <li><a href="labeling-workflow.html">VLA-44 review</a></li>
-          <li><a href="dataset-versioning.html">VLA-47 artifacts</a></li>
-          <li><a href="dataset-loader.html">VLA-46 loader</a></li>
-        </ul>
-      </section>
+python scripts/validate_dataset.py --version v0.1.0 --write-artifacts
+</code></pre>
+<p>Exit code: <code>0</code> if <code>report.valid</code>, else <code>1</code>.</p>
+<h2 id="engineering-decisions">Engineering decisions</h2>
+<pre><code class="language-text">ADR: Collect-all-errors validator (10099)
+Status: Accepted
+Decision: validate_dataset() never raises on row errors; aggregates into report.
+Alternatives Rejected: try/except around read_jsonl only (loses full scan).
+</code></pre>
+<pre><code class="language-text">ADR: Imbalance as warning not error (10101)
+Status: Accepted
+Decision: action_imbalance warns at 50% threshold; does not set valid=False.
+Consequences: Epic 106 can proceed; team reviews warnings in validation_report.json.
+</code></pre>
+<h2 id="verification-patterns-and-failure-modes">Verification patterns and failure modes</h2>
+<pre><code class="language-bash">pytest tests/test_dataset_validator.py -q
+python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Investigation</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>missing_image</code> errors</td>
+<td>PNG not on disk</td>
+<td>Open <code>image_path</code> from report</td>
+<td>Build/copy images or fix paths</td>
+</tr>
+<tr>
+<td><code>duplicate_id</code></td>
+<td>Re-import or builder bug</td>
+<td>Grep ids in JSONL</td>
+<td>Regenerate unique ids</td>
+</tr>
+<tr>
+<td><code>schema_invalid</code> line N</td>
+<td>Bad action or extra key</td>
+<td>Read issue message</td>
+<td>Fix row or re-import CSV</td>
+</tr>
+<tr>
+<td>CI passes but train fails images</td>
+<td><code>--skip-image-check</code> in CI</td>
+<td>Run full validate locally</td>
+<td>Add PNGs before training</td>
+</tr>
+<tr>
+<td><code>pending</code> review blocks release</td>
+<td><code>--review-csv</code> gate</td>
+<td>Open label_review.csv</td>
+<td>Approve or reject rows</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="engineering-principle-taught-by-this-task">Engineering principle taught by this task</h2>
+<p><strong>Separate transport validation from policy warnings.</strong> Schema and filesystem errors are blockers; distribution skew is signal for humans, not always a build failure.</p>
+<h2 id="active-learning-checks">Active learning checks</h2>
+<ol>
+<li>When should you use <code>read_jsonl()</code> vs <code>validate_dataset()</code>?</li>
+<li>Why does CI use <code>--skip-image-check</code> on fixtures?</li>
+<li>Does <code>action_imbalance</code> make <code>report.valid</code> false?</li>
+<li>Which issue codes are errors vs warnings?</li>
+</ol>
+<h2 id="open-questions">Open questions</h2>
+<ul>
+<li><strong>Val split in CI:</strong> Validate <code>val.jsonl</code> separately in release pipeline (supported via <code>build_version_artifacts</code>).</li>
+</ul>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="dataset-schema.md">dataset-schema.md</a> (VLA-41 schema under test)</li>
+<li><a href="labeling-workflow.md">labeling-workflow.md</a> (VLA-44 — run validator after import)</li>
+<li><a href="dataset-versioning.md">dataset-versioning.md</a> (VLA-47 — consumes reports)</li>
+<li><a href="dataset-loader.md">dataset-loader.md</a> (VLA-46 — fail-fast load after validate in CI)</li>
+</ul>
     </main>
-
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 105 task documentation</p>
+      <p>Lite-VLA documentation</p>
     </footer>
   </div>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-  <script src="../../scripts/doc-code.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+<script src="../../scripts/doc-code.js"></script>
+  
 </body>
 </html>

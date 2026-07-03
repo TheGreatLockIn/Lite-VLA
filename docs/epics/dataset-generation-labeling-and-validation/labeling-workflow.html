@@ -3,148 +3,310 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Labeling workflow — Epic 105</title>
+  <title>Labeling workflow — Lite-VLA</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <p class="eyebrow">Epic 105 · Jira VLA-6 · VLA-44 / Story 1032</p>
       <h1>Labeling workflow</h1>
-      <p class="doc-lead">
-        Human review via CSV export/import: guidelines, template, checklist, and <code>scripts/label_review.py</code> round-trip into validated JSONL.
-      </p>
-      <nav class="doc-nav" aria-label="On this page">
-        <a href="#summary">Summary</a> ·
-        <a href="#contract">Contract</a> ·
-        <a href="#guidelines">Guidelines</a> ·
-        <a href="#checklist">Checklist</a> ·
-        <a href="#implementation">Implementation</a> ·
-        <a href="#verification">Verification</a> ·
-        <a href="#open-questions">Open questions</a> ·
-        <a href="#related">Related</a>
-      </nav>
     </header>
-
     <main>
-      <section id="summary">
-        <h2>Executive summary</h2>
-        <p>
-          VLA-44 owns the <strong>human review path</strong> between VLA-43 processed JSONL and training-ready data. Reviewers work in a spreadsheet-friendly CSV (<code>data/templates/label_review.csv</code>), not in JSONL directly. Export → edit → import preserves traceability via <code>id</code>, <code>review_status</code>, and <code>metadata.review</code> on merged rows. Approved and corrected rows become <code>source: manual_review</code>; rejected rows are dropped from the import output.
-        </p>
-      </section>
-
-      <section id="contract">
-        <h2>API contract and data flow</h2>
-        <pre><code class="language-text">processed/v0.1.0/train.jsonl
+      <p><strong>Epic:</strong> Dataset Generation, Labeling, and Validation (105) · <strong>Jira epic:</strong> VLA-6 · <strong>Story:</strong> VLA-44 / 1032 · <strong>Subtasks:</strong> 10096 (guidelines), 10097 (template), 10098 (checklist)</p>
+<p><strong>Human-readable version (browser):</strong> <a href="labeling-workflow.html"><code>labeling-workflow.html</code></a></p>
+<h2 id="executive-summary">Executive summary</h2>
+<p>VLA-44 owns the <strong>human review path</strong> between VLA-43 processed JSONL and training-ready data. Reviewers work in a spreadsheet-friendly CSV (<code>data/templates/label_review.csv</code>), not in JSONL directly. Export → edit → import preserves traceability via <code>id</code>, <code>review_status</code>, and <code>metadata.review</code> on merged rows. Approved and corrected rows become <code>source: manual_review</code>; rejected rows are dropped from the import output.</p>
+<h2 id="mental-model">Mental model</h2>
+<p>Think of labeling as a <strong>code review for robot demonstrations</strong>.</p>
+<p>It exists because automated builders and teleop logs produce <em>proposed</em> actions that can be wrong — humans must confirm “what should the robot do next?” before fine-tuning memorizes mistakes.</p>
+<p>The key engineering tension is <strong>reviewer ergonomics vs machine contracts</strong>: spreadsheets are easy for people; JSONL + schema are easy for pipelines.</p>
+<p>A beginner mistake is editing <code>train.jsonl</code> by hand, using synonym actions (<code>FORWARD</code>), or leaving rows <code>pending</code> then importing for training.</p>
+<p>A senior engineer watches for <strong>id stability</strong> — export/import matches on <code>id</code> only; renamed rows silently become orphans.</p>
+<h2 id="backstory-why-this-exists">Backstory: why this exists</h2>
+<p>Spreadsheet-first labeling is tempting for a small team. The naive path is “everyone edits the training file.”</p>
+<p>That breaks because one stray comma corrupts JSONL, nested review metadata does not fit columns cleanly, and invalid actions slip in without <code>parse_action()</code>.</p>
+<p>So this design chooses <strong>CSV round-trip through validated import</strong>, with guidelines locking labels to Epic 103 tokens only.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>Epic 103 action meanings: <a href="../action-interface-parser-and-safety-layer/action-schema.md">action-schema.md</a></li>
+<li>VLA-41 record shape: <a href="dataset-schema.md">dataset-schema.md</a></li>
+</ul>
+<h2 id="vocabulary">Vocabulary</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning in this project</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>action_proposed</code></strong></td>
+<td>Builder or teleop label — do not edit unless wrong</td>
+</tr>
+<tr>
+<td><strong><code>action_reviewed</code></strong></td>
+<td>Human correction; required when <code>review_status=corrected</code></td>
+</tr>
+<tr>
+<td><strong><code>review_status</code></strong></td>
+<td><code>pending</code>, <code>approved</code>, <code>corrected</code>, or <code>rejected</code></td>
+</tr>
+<tr>
+<td><strong><code>manual_review</code></strong></td>
+<td>Training <code>source</code> after successful human merge</td>
+</tr>
+<tr>
+<td><strong><code>metadata.review</code></strong></td>
+<td>Nested audit trail on imported JSONL rows</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="guided-code-reading">Guided code reading</h2>
+<ol>
+<li><code>data/templates/label_review.csv</code> — column headers (<code>REVIEW_COLUMNS</code>).</li>
+<li><code>data/templates/label_review_checklist.md</code> — printable QA steps.</li>
+<li><code>litevla/data/label_review.py</code> — <code>export_jsonl_to_review_csv</code>, <code>import_review_csv_to_jsonl</code>.</li>
+<li><code>scripts/label_review.py</code> — CLI (<code>export</code>, <code>import</code>, <code>bulk-approve</code>).</li>
+<li><code>tests/test_label_review.py</code> — merge semantics.</li>
+</ol>
+<h2 id="api-contract-and-data-flow">API contract and data flow</h2>
+<pre><code class="language-text">processed/v0.1.0/train.jsonl
         │
         ▼
   label_review.py export  ──&gt;  label_review.csv  (spreadsheet)
         │
         ▼  human sets review_status, action_reviewed, reviewer, notes
         │
-  label_review.py import  ──&gt;  train_reviewed.jsonl</code></pre>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th scope="col">Contract</th><th scope="col">Rule</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Review format</td><td>CSV with fixed columns</td></tr>
-              <tr><td>Training format</td><td>JSONL only — CSV never enters training directly</td></tr>
-              <tr><td><code>review_status</code></td><td><code>pending</code> | <code>approved</code> | <code>corrected</code> | <code>rejected</code></td></tr>
-              <tr><td>Final action</td><td><code>corrected</code> → <code>action_reviewed</code>; else proposed or reviewed</td></tr>
-              <tr><td>Traceability</td><td><code>metadata.review</code> stores reviewer, notes, original action/source</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="guidelines">
-        <h2>Labeling guidelines (10096)</h2>
-        <p>Answer: <strong>“What should the robot do next?”</strong> given the image and instruction.</p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th scope="col">Action</th><th scope="col">When to use</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><code>MOVE_FORWARD</code></td><td>Clear path toward target; target visible ahead</td></tr>
-              <tr><td><code>TURN_LEFT</code> / <code>TURN_RIGHT</code></td><td>Target off-center or not visible</td></tr>
-              <tr><td><code>SLOW_DOWN</code></td><td>Approaching target cautiously</td></tr>
-              <tr><td><code>STOP</code></td><td>Goal reached, blocked, or halt required</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p><strong>Do not use:</strong> teleop-only tokens (<code>MOVE_BACKWARD</code>, combos), or synonyms (<code>FORWARD</code>, <code>GO</code>).</p>
-      </section>
-
-      <section id="checklist">
-        <h2>Review checklist (10098)</h2>
-        <p>Printable checklist: <a href="../../../data/templates/label_review_checklist.md">label_review_checklist.md</a></p>
-        <ul>
-          <li>No training rows left <code>pending</code></li>
-          <li><code>corrected</code> rows have valid <code>action_reviewed</code></li>
-          <li>Rejected rows document <code>review_notes</code></li>
-          <li>Spot-check after import</li>
-        </ul>
-      </section>
-
-      <section id="implementation">
-        <h2>Implementation breakdown</h2>
-        <h3>Template</h3>
-        <p><code>data/templates/label_review.csv</code> — column headers + two example rows.</p>
-        <h3>CLI</h3>
-        <pre><code class="language-bash">python scripts/label_review.py export \
+  label_review.py import  ──&gt;  train_reviewed.jsonl  (validated JSONL)
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Contract</th>
+<th>Rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Review format</td>
+<td>CSV with fixed columns in <code>REVIEW_COLUMNS</code></td>
+</tr>
+<tr>
+<td>Training format</td>
+<td>JSONL only — CSV never enters training directly</td>
+</tr>
+<tr>
+<td><code>review_status</code></td>
+<td><code>pending</code> | <code>approved</code> | <code>corrected</code> | <code>rejected</code></td>
+</tr>
+<tr>
+<td>Final action</td>
+<td><code>corrected</code> → <code>action_reviewed</code>; else <code>action_reviewed</code> or <code>action_proposed</code></td>
+</tr>
+<tr>
+<td>Rejected rows</td>
+<td>Omitted from import output</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="labeling-guidelines-10096">Labeling guidelines (10096)</h3>
+<p>Answer: <strong>“What should the robot do next?”</strong> given the image and instruction — not the full plan to the goal.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Action</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MOVE_FORWARD</code></td>
+<td>Clear path toward the instruction target; target visible ahead</td>
+</tr>
+<tr>
+<td><code>TURN_LEFT</code> / <code>TURN_RIGHT</code></td>
+<td>Target off-center or not visible; reorient before driving</td>
+</tr>
+<tr>
+<td><code>SLOW_DOWN</code></td>
+<td>Target nearby or approach phase; still moving but cautiously</td>
+</tr>
+<tr>
+<td><code>STOP</code></td>
+<td>Goal reached, obstacle blocks path, or safe halt required</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Do not use in training labels:</strong> teleop-only tokens, synonyms (<code>FORWARD</code>, <code>LEFT</code>, <code>GO</code>).</p>
+<h3 id="naive-approach-vs-chosen-approach">Naive approach vs chosen approach</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Why it seems attractive</th>
+<th>Why we did or did not choose it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Edit JSONL in VS Code</td>
+<td>Direct</td>
+<td>Easy to break schema; no spreadsheet UX</td>
+</tr>
+<tr>
+<td>Custom labeling GUI</td>
+<td>Nice UX</td>
+<td>Out of MVP scope</td>
+</tr>
+<tr>
+<td>CSV export/import round-trip</td>
+<td>Extra scripts</td>
+<td>Familiar tools + schema validation on import</td>
+</tr>
+<tr>
+<td>Keep rejected rows in training</td>
+<td>Preserve counts</td>
+<td>Poison examples; reject drops row</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="implementation-breakdown">Implementation breakdown</h2>
+<h3 id="csv-template-and-columns">CSV template and columns</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>Matches JSONL <code>id</code> (export generates <code>anon_NNNNN</code> if missing)</td>
+</tr>
+<tr>
+<td><code>action_proposed</code></td>
+<td>Auto label — do not edit unless wrong</td>
+</tr>
+<tr>
+<td><code>action_reviewed</code></td>
+<td>Required when <code>review_status=corrected</code></td>
+</tr>
+<tr>
+<td><code>review_status</code></td>
+<td>Workflow gate</td>
+</tr>
+<tr>
+<td><code>reviewer</code></td>
+<td>Who approved/corrected/rejected</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="python-api">Python API</h3>
+<p><strong>Snippet</strong> (<code>litevla/data/label_review.py</code>):</p>
+<pre><code class="language-python">export_jsonl_to_review_csv(jsonl_path, csv_path) -&gt; int
+import_review_csv_to_jsonl(jsonl_path=..., csv_path=..., output_path=...) -&gt; ImportReviewStats
+</code></pre>
+<p><strong>Risks and gotchas:</strong> <code>read_review_csv</code> validates headers and actions at parse time. Import matches on <code>id</code> only.</p>
+<h3 id="cli">CLI</h3>
+<pre><code class="language-bash">python scripts/label_review.py export \
   --jsonl data/processed/v0.1.0/train.jsonl \
   --output data/processed/v0.1.0/label_review.csv
 
 python scripts/label_review.py import \
   --jsonl data/processed/v0.1.0/train.jsonl \
   --csv data/processed/v0.1.0/label_review.csv \
-  --output data/processed/v0.1.0/train_reviewed.jsonl</code></pre>
-        <h3>Python API</h3>
-        <p><code>litevla/data/label_review.py</code> — <code>export_jsonl_to_review_csv</code>, <code>import_review_csv_to_jsonl</code>.</p>
-      </section>
-
-      <section id="decisions">
-        <h2>Engineering decisions</h2>
-        <p><strong>ADR: CSV for review, JSONL for training (10097)</strong> — Accepted. Spreadsheet UX for humans; validated JSONL for training.</p>
-        <p><strong>ADR: Reject drops row on import (10098)</strong> — Accepted. Rejected examples never reach training output.</p>
-      </section>
-
-      <section id="verification">
-        <h2>Verification patterns</h2>
-        <pre><code class="language-bash">pytest tests/test_label_review.py -q</code></pre>
-      </section>
-
-      <section id="open-questions">
-        <h2>Open questions</h2>
-        <ul>
-          <li><strong>Val split review:</strong> Export/import val.jsonl separately or review train only for MVP (current default: train).</li>
-          <li><strong>Pending-row gate:</strong> Cross-check <code>label_review.csv</code> for leftover <code>pending</code> rows before release (future VLA-45 extension).</li>
-        </ul>
-      </section>
-
-      <section id="related">
-        <h2>Related</h2>
-        <ul>
-          <li><a href="dataset-schema.html">VLA-41 schema</a></li>
-          <li><a href="synthetic-starter-dataset.html">VLA-43 builder</a></li>
-          <li><a href="dataset-validation.html">VLA-45 validator</a> (run after import)</li>
-          <li><a href="dataset-versioning.html">VLA-47 versioning</a> (release reviewed JSONL)</li>
-          <li><a href="../action-interface-parser-and-safety-layer/action-schema.html">Epic 103 actions</a></li>
-        </ul>
-      </section>
+  --output data/processed/v0.1.0/train_reviewed.jsonl
+</code></pre>
+<h2 id="engineering-decisions">Engineering decisions</h2>
+<pre><code class="language-text">ADR: CSV for review, JSONL for training (10097)
+Status: Accepted
+Decision: Round-trip CSV via export/import; merged rows use source: manual_review.
+Alternatives Rejected: Hand-edited JSONL; custom GUI for MVP.
+</code></pre>
+<pre><code class="language-text">ADR: Reject drops row on import (10098)
+Status: Accepted
+Decision: review_status=rejected excludes row from output JSONL.
+Consequences: Keep rejection reasons in review_notes for audit.
+</code></pre>
+<h2 id="verification-patterns-and-failure-modes">Verification patterns and failure modes</h2>
+<pre><code class="language-bash">pytest tests/test_label_review.py -q
+python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl --output /tmp/review.csv
+python scripts/label_review.py import --jsonl data/fixtures/sample_train.jsonl --csv /tmp/review.csv --output /tmp/out.jsonl
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Investigation</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import fails on action</td>
+<td>Synonym in <code>action_reviewed</code></td>
+<td>Read <code>LabelReviewError</code></td>
+<td>Use Epic 103 token</td>
+</tr>
+<tr>
+<td>Rows missing after import</td>
+<td><code>rejected</code> or <code>pending</code></td>
+<td>Check <code>review_status</code> column</td>
+<td>Approve or correct rows</td>
+</tr>
+<tr>
+<td>Duplicate merge confusion</td>
+<td>Changed <code>id</code> in CSV</td>
+<td>Diff ids export vs import</td>
+<td>Never rename ids between steps</td>
+</tr>
+<tr>
+<td>Release blocked on pending</td>
+<td>VLA-45 <code>--review-csv</code> gate</td>
+<td>Run validator with review CSV</td>
+<td>Clear pending or exclude rows</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="engineering-principle-taught-by-this-task">Engineering principle taught by this task</h2>
+<p><strong>Human interfaces and machine contracts should differ deliberately.</strong> Optimize the review surface for people (CSV), then re-validate aggressively when re-entering the typed pipeline (JSONL).</p>
+<h2 id="active-learning-checks">Active learning checks</h2>
+<ol>
+<li>Why is CSV never the canonical training format?</li>
+<li>What happens to a <code>rejected</code> row during import?</li>
+<li>When must <code>action_reviewed</code> be filled?</li>
+<li>How does <code>metadata.review</code> help post-hoc auditing?</li>
+</ol>
+<h2 id="open-questions">Open questions</h2>
+<ul>
+<li><strong>Val split review:</strong> Export/import <code>val.jsonl</code> separately or review train only for MVP (current default: train).</li>
+<li><strong>Pending-row gate:</strong> Use <code>validate_dataset(..., review_csv_path=...)</code> or CLI <code>--review-csv</code> before release.</li>
+</ul>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="dataset-schema.md">dataset-schema.md</a> (VLA-41 output contract)</li>
+<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a> (VLA-43 builder input)</li>
+<li><a href="dataset-validation.md">dataset-validation.md</a> (VLA-45 — run after import)</li>
+<li><a href="dataset-versioning.md">dataset-versioning.md</a> (VLA-47 — release reviewed JSONL)</li>
+<li><a href="../../../../data/templates/README.md"><code>data/templates/README.md</code></a></li>
+</ul>
     </main>
-
     <footer class="doc-footer">
-      <p>Lite-VLA · Epic 105 task documentation</p>
+      <p>Lite-VLA documentation</p>
     </footer>
   </div>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-  <script src="../../scripts/doc-code.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+<script src="../../scripts/doc-code.js"></script>
+  
 </body>
 </html>

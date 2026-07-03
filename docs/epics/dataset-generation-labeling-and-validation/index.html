@@ -12,9 +12,9 @@
       <a class="back-link" href="../index.html">Back to epic index</a>
       <p class="eyebrow">Epic 105 · Jira VLA-6</p>
       <h1>Dataset Generation, Labeling, and Validation</h1>
-      <p class="doc-lead">Image-instruction-action dataset for supervised fine-tuning: schema, raw capture, processed JSONL, validation, loader.</p>
+      <p class="doc-lead">Image-instruction-action dataset for supervised fine-tuning — taught as a two-layer pipeline from raw sim logs to versioned training releases.</p>
       <nav class="doc-nav" aria-label="Story navigation">
-        <a href="#intent">Intent</a> | <a href="#epic-flow">Epic flow</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
+        <a href="#intent">Intent</a> | <a href="#how-to-read">How to read</a> | <a href="#epic-flow">Epic flow</a> | <a href="#stories">Stories</a> | <a href="#adr-log">ADR log</a>
       </nav>
     </header>
 
@@ -40,6 +40,23 @@
             <tr><td>Noisy-text <code>parse_discrete_action</code></td><td>Yashraj / Epic 103</td><td>Dataset uses exact <code>parse_action()</code> tokens only; runtime parser is inference-time.</td></tr>
           </tbody>
         </table>
+      </section>
+
+      <section id="how-to-read" class="meta-card">
+        <h2>How to read this epic</h2>
+        <p>Each story below links to a <strong>task doc</strong> written for asynchronous learning — not just an inventory of files. Read them when you need to understand <em>why</em> the code is shaped the way it is and <em>how</em> to debug it safely.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Layer</th><th>Question the docs answer</th></tr></thead>
+            <tbody>
+              <tr><td><strong>System</strong></td><td>What role does this story play between sim capture and Epic 106 fine-tuning?</td></tr>
+              <tr><td><strong>Code</strong></td><td>Which modules, schemas, and scripts own the contract?</td></tr>
+              <tr><td><strong>Concept</strong></td><td>What general data/ML idea does this represent (schema gate, forward-fill join, QA report)?</td></tr>
+              <tr><td><strong>Mastery</strong></td><td>What would a senior engineer check before changing behavior or releasing a version?</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Recommended path for newcomers:</strong> VLA-41 schema → VLA-42 capture → VLA-43 builder → VLA-44 review → VLA-45 validate → VLA-46 loader → VLA-47 version artifacts.</p>
       </section>
 
       <section id="epic-flow" class="visual-card">
@@ -89,17 +106,25 @@ flowchart LR
           <dl>
             <dt>Intent</dt>
             <dd>Own the processed training record contract: JSONL rows with <code>image_path</code>, <code>instruction</code>, Epic 103 <code>action</code>, <code>timestamp</code>, <code>source</code>.</dd>
+            <dt>Mental model</dt>
+            <dd>Passport office for training rows — strict top-level shape, open <code>metadata</code>, fail-fast <code>parse_training_record()</code>.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
-                <li><code>data/schema/record.schema.json</code></li>
+                <li><code>data/schema/record.schema.json</code> — <code>additionalProperties: false</code>, five-action enum</li>
                 <li><code>litevla/data/schema.py</code> — <code>TrainingRecord</code>, <code>read_jsonl</code>, <code>parse_training_record</code></li>
                 <li><code>data/fixtures/sample_train.jsonl</code>, <code>data/README.md</code></li>
                 <li><code>configs/default.example.yaml</code> — <code>data:</code> paths</li>
               </ul>
             </dd>
+            <dt>Data And Control Flow</dt>
+            <dd>Raw logs and reference poses are <em>not</em> training rows until validated JSONL is written under <code>data/processed/</code>. Every downstream module calls the same parse path.</dd>
+            <dt>ADR Notes</dt>
+            <dd><strong>JSONL + Schema (VLA-169):</strong> CSV reserved for human review only. <strong>Epic 103 enum (VLA-170):</strong> teleop-only tokens stay in raw logs.</dd>
             <dt>Verification Patterns</dt>
             <dd><pre><code>pytest tests/test_dataset_schema.py -q</code></pre></dd>
+            <dt>Open Questions</dt>
+            <dd>Lazy indexing for corpora beyond ~10k rows (deferred to loader follow-up).</dd>
           </dl>
         </article>
 
@@ -110,6 +135,8 @@ flowchart LR
           <dl>
             <dt>Intent</dt>
             <dd>Save synchronized frames, sim-stamped command labels, and episode metadata from Webots teleop under <code>data/raw/episodes/</code>.</dd>
+            <dt>Mental model</dt>
+            <dd>Flight recorder — episode metadata written before ROS; frames at ~5 Hz; commands on action transitions only.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
@@ -118,9 +145,15 @@ flowchart LR
                 <li><code>run_episode_capture.sh</code> — ~5 Hz frames + teleop stack</li>
               </ul>
             </dd>
+            <dt>Data And Control Flow</dt>
+            <dd><code>/litevla/current_action</code> → <code>commands.jsonl</code>; <code>/image_raw</code> → <code>frames/{sec}_{nanosec}.png</code>; shared sim-time join key for VLA-43.</dd>
+            <dt>ADR Notes</dt>
+            <dd><strong>Sim-time alignment:</strong> all recorders use <code>use_sim_time</code>. <strong>Metadata first:</strong> crashed sim still leaves <code>episode.json</code>.</dd>
             <dt>Verification Patterns</dt>
             <dd><pre><code>pytest tests/test_episode_capture.py -q
 ./ros_ws/scripts/run_episode_capture.sh</code></pre></dd>
+            <dt>Open Questions</dt>
+            <dd>Dummy/scripted capture reuses same layout (future wiring).</dd>
           </dl>
         </article>
 
@@ -131,6 +164,8 @@ flowchart LR
           <dl>
             <dt>Intent</dt>
             <dd>Build ≥200 validated train/val JSONL rows from reference frames, raw episodes, and Pillow augmentations.</dd>
+            <dt>Mental model</dt>
+            <dd>Layer A → Layer B compiler — forward-fill labels, capped augmentation, deterministic seed split.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
@@ -139,6 +174,8 @@ flowchart LR
                 <li><code>scripts/build_starter_dataset.py</code></li>
               </ul>
             </dd>
+            <dt>Data And Control Flow</dt>
+            <dd>Reference manifest + raw episodes → validate each row → seed shuffle split → <code>processed/&lt;version&gt;/train.jsonl</code> + <code>val.jsonl</code>.</dd>
             <dt>Verification Patterns</dt>
             <dd><pre><code>pytest tests/test_dataset_builder.py -q
 python scripts/build_starter_dataset.py --write-artifacts
@@ -156,6 +193,8 @@ python scripts/build_starter_dataset.py --write-artifacts
           <dl>
             <dt>Intent</dt>
             <dd>Human review and correction of image-action pairs via CSV export/import; guidelines and checklist for Epic 103 actions only.</dd>
+            <dt>Mental model</dt>
+            <dd>Code review for demonstrations — CSV for humans, JSONL for machines; rejected rows never re-enter training.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
@@ -184,6 +223,8 @@ python scripts/label_review.py import ... --output data/processed/v0.1.0/train_r
           <dl>
             <dt>Intent</dt>
             <dd>Automated quality gate on processed JSONL: collect-all-errors schema scan, optional image existence checks, duplicate-id detection, and action/source distribution with imbalance warnings.</dd>
+            <dt>Mental model</dt>
+            <dd>Pre-flight checklist with a printed diagnostic — errors block release; imbalance warnings inform humans only.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
@@ -209,6 +250,8 @@ python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train_reviewed.
           <dl>
             <dt>Intent</dt>
             <dd>Bridge VLA-41 processed JSONL into Epic 106 fine-tuning via <code>torch.utils.data.Dataset</code> with PIL RGB load and optional transform hook.</dd>
+            <dt>Mental model</dt>
+            <dd>Typed iterator over validated rows — eager schema check at init; model-specific preprocessing stays in Epic 106.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
@@ -234,6 +277,8 @@ python scripts/smoke_dataset_loader.py --jsonl data/processed/v0.1.0/train_revie
           <dl>
             <dt>Intent</dt>
             <dd>Package processed releases under <code>data/processed/vMAJOR.MINOR.PATCH/</code> with machine-readable validation reports and generated <code>DATASET_CARD.md</code>.</dd>
+            <dt>Mental model</dt>
+            <dd>Release artifact labeling — version folder, validator JSON, and generated card move together as one reproducible unit.</dd>
             <dt>Implementation Walkthrough</dt>
             <dd>
               <ul>
