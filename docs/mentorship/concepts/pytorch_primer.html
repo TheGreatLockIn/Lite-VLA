@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PyTorch Concept Primers — Lite-VLA Mentorship</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to mentorship index</a>
+      <p class="eyebrow">General Concepts</p>
+      <h1>PyTorch Concept Primers</h1>
+      <p class="doc-lead">Generalized reference guides for PyTorch dataset management and batch loaders.</p>
+    </header>
+    <main>
+      <section id="datasets">
+        <h2>PyTorch Datasets (<code>torch.utils.data.Dataset</code>)</h2>
+        <h3>Overview</h3>
+        <p>PyTorch's <code>Dataset</code> is an abstract class representing a structured collection of data. By inheriting from it and implementing the double-underscore methods <code>__len__</code> (to return total size) and <code>__getitem__</code> (to fetch a single item by index), you tell PyTorch how to read your data. This is crucial for separating the details of how files are stored on your disk from the actual machine learning training loops.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import torch
+from torch.utils.data import Dataset
+
+class MockDataset(Dataset):
+    def __init__(self, data_list: list[float]) -> None:
+        self.data = data_list
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        # Return a dictionary containing a single numerical tensor
+        return {"value": torch.tensor(self.data[index], dtype=torch.float32)}</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Loading images, audio samples, or text data from disk and wrapping them into PyTorch dictionary inputs.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Loading robot demonstration logs, matching camera PNG files to action commands, and returning them dynamically on demand.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are training models using PyTorch and have structured datasets that can be accessed by an index lookup.</li>
+          <li><strong>Avoid this when:</strong> You are streaming real-time network logs or reinforcement learning environments where inputs are generated on-the-fly based on immediate policy feedbacks.</li>
+        </ul>
+      </section>
+
+      <section id="dataloaders">
+        <h2>PyTorch DataLoaders (<code>torch.utils.data.DataLoader</code>)</h2>
+        <h3>Overview</h3>
+        <p>While a <code>Dataset</code> retrieves a single item at a time, a <code>DataLoader</code> is the engine that orchestrates the training stream. It automatically handles shuffling (randomizing item order), batching (grouping multiple items together), and multi-processing (using background CPU worker threads to load images in parallel while the GPU handles training).</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from torch.utils.data import DataLoader
+
+dataset = MockDataset([1.0, 2.0, 3.0, 4.0])
+# Create a loader that groups items into batches of 2 and shuffles them
+loader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=2)
+
+for batch in loader:
+    # batch["value"] is a stacked tensor of shape [2]
+    print("Batch values:", batch["value"])</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Speeding up deep learning training by pre-fetching batches in the background on CPU threads so the GPU never remains idle.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Feeding frames and commands into SmolVLM fine-tuning loops. Using <code>num_workers > 0</code> ensures image file reads do not block GPU training updates.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are training PyTorch models and want automated batching, shuffling, and multi-threaded loading.</li>
+          <li><strong>Avoid this when:</strong> You are doing single-sample inference, which requires simple forward passes without batch loaders.</li>
+        </ul>
+      </section>
+
+      <section id="collate">
+        <h2>Dataset Collation and <code>default_collate</code></h2>
+        <h3>Overview</h3>
+        <p>Collation is the process of merging a list of individual samples (retrieved from <code>__getitem__</code>) into a single aligned training batch. PyTorch's <code>default_collate</code> automatically stacks tensors, converts numpy arrays to tensors, lists strings, and copies dictionary structures. However, it fails if it encounters raw <code>PIL.Image.Image</code> objects or mixed types (like <code>NoneType</code>), which require pre-conversion.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import numpy as np
+import torch
+from torch.utils.data._utils.collate import default_collate
+
+# A batch list returned by dataset __getitem__ loops
+sample_batch = [
+    {"image": np.zeros((3, 224, 224), dtype=np.uint8), "action": "STOP"},
+    {"image": np.ones((3, 224, 224), dtype=np.uint8), "action": "MOVE_FORWARD"}
+]
+
+# default_collate converts the numpy arrays into a single stacked torch tensor
+collated_batch = default_collate(sample_batch)
+print("Stacked Image Tensor Shape:", collated_batch["image"].shape) # Returns [2, 3, 224, 224]</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Formatting lists of image tensors and text tags into numerical batches for GPU model ingestion.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Stacking multiple OpenCV camera frames and navigation instructions. If a frame is a raw PIL Image, we must use a transform (like <code>np.array</code>) to prevent collator type errors.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> Your dataset items consist of standard types (tensors, numpy arrays, strings) and can be stacked directly by index.</li>
+          <li><strong>Avoid this when:</strong> Your batch items have varying dimensions, which require a custom <code>collate_fn</code> to pad sequences with special padding tokens.</li>
+        </ul>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA Mentorship Path · <code>pytorch_primer.md</code> is the source of truth.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>

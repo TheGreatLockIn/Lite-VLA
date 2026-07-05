@@ -65,6 +65,7 @@ def test_loader_batch_via_dataloader(tmp_path: Path) -> None:
                     action="TURN_LEFT",
                     timestamp="2026-06-24T12:00:00+00:00",
                     source="synthetic",
+                    episode_id="ep1",
                 ),
                 TrainingRecord(
                     id="b2",
@@ -73,12 +74,15 @@ def test_loader_batch_via_dataloader(tmp_path: Path) -> None:
                     action="STOP",
                     timestamp="2026-06-24T12:00:01+00:00",
                     source="synthetic",
+                    episode_id="ep1",
                 ),
             ]
         ),
     )
 
-    dataset = LiteVLADataset(jsonl, repo_root=tmp_path)
+    import numpy as np
+
+    dataset = LiteVLADataset(jsonl, repo_root=tmp_path, transform=np.array)
     loader = torch.utils.data.DataLoader(dataset, batch_size=2)
     batch = next(iter(loader))
     assert len(batch["action"]) == 2

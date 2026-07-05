@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Schemas and Episode Layouts Tutorial — Lite-VLA Mentorship</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to mentorship index</a>
+      <p class="eyebrow">Module 1 · Schemas & Episodes</p>
+      <h1>Tutorial: Understanding Lite-VLA Data Schemas & File Layouts</h1>
+      <p class="doc-lead">Learn how our data pipeline represents and validates training records step-by-step.</p>
+    </header>
+    <main>
+      <section>
+        <h2>1. Goal & Objective</h2>
+        <p>The goal of the schema and episode modules is to define a strict, validated data format that maps physical robot inputs (camera image frames, user goals) and outputs (speed commands) into structured, read-only formats for our ML pipelines.</p>
+      </section>
+
+      <section>
+        <h2>2. Why We Need It</h2>
+        <p>During fine-tuning, the model consumes thousands of training records. In Python, raw dictionaries are loose, allowing silent typos (like writing <code>"img_path"</code> instead of <code>"image_path"</code>) or invalid speed commands to go unnoticed. Without this schema gate, invalid actions or missing files would cause GPU training processes to crash after running for hours, wasting computational resources and making debugging difficult. We need a hard boundary that fails fast at the ingestion stage.</p>
+      </section>
+
+      <section>
+        <h2>3. How to Start Thinking About It</h2>
+        <p>When designing a robust data pipeline:</p>
+        <ol>
+          <li><strong>Define the shape:</strong> First, define exactly what variables are required (path to image, the prompt text, the navigation action word, and timing metadata).</li>
+          <li><strong>Build a validator:</strong> Read standard JSON schema files to check raw dictionaries before running any parsing logic.</li>
+          <li><strong>Parse into structured objects:</strong> Copy the validated dictionaries into read-only containers (<a href="../concepts/python_primer.html#dataclasses">dataclasses</a>) so that they are guaranteed to remain unchanged throughout downstream loaders.</li>
+          <li><strong>Stream memory-efficiently:</strong> Write file readers using <a href="../concepts/python_primer.html#generators">generators</a> so the system reads large dataset files line-by-line rather than trying to load the entire file into RAM at once.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>4. Imports Explained</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Import Statement</th>
+                <th>What it is</th>
+                <th>Why it is used here</th>
+                <th>Concept Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>from __future__ import annotations</code></td>
+                <td>Postponed type hints</td>
+                <td>Prevents <code>NameError</code> exceptions when classes refer to themselves in type hints.</td>
+                <td><a href="../concepts/python_primer.html#annotations">Annotations</a></td>
+              </tr>
+              <tr>
+                <td><code>import json</code></td>
+                <td>Standard JSON parser</td>
+                <td>Used to read and write raw dictionary text lines in JSONL format.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from dataclasses import dataclass, field</code></td>
+                <td>Boilerplate helper</td>
+                <td>Defines the structured, read-only data structures for records.</td>
+                <td><a href="../concepts/python_primer.html#dataclasses">Dataclasses</a></td>
+              </tr>
+              <tr>
+                <td><code>from pathlib import Path</code></td>
+                <td>Cross-platform file paths</td>
+                <td>Handles directory paths, resolving slashes correctly on Windows and Linux.</td>
+                <td><a href="../concepts/python_primer.html#pathlib">Pathlib</a></td>
+              </tr>
+              <tr>
+                <td><code>from typing import Any, Iterator</code></td>
+                <td>Type annotation tools</td>
+                <td>Declares return types for dictionaries (<code>Any</code>) and generators (<code>Iterator</code>).</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>import jsonschema</code></td>
+                <td>Draft schema validator</td>
+                <td>Checks that incoming dictionaries contain all mandatory variables.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from jsonschema import Draft202012Validator</code></td>
+                <td>Strict validator class</td>
+                <td>Implements the official Draft-2020 JSON Schema validator engine.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from litevla.actions import parse_action</code></td>
+                <td>Action word validator</td>
+                <td>Converts string actions (e.g. <code>"MOVE_FORWARD"</code>) to verified system commands.</td>
+                <td>N/A</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. Code Walkthrough</h2>
+
+        <h3>Global Constants</h3>
+        
+        <h4><code>REPO_ROOT</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Resolves the absolute parent directory of the active Lite-VLA repository.</li>
+          <li><strong>Implementation:</strong>
+            <pre><code class="language-python">REPO_ROOT = Path(__file__).resolve().parents[2]</code></pre>
+          </li>
+          <li><strong>Why it's chosen:</strong> Resolves directories relative to the active file's location on disk, ensuring absolute paths are computed correctly on other developers' machines.</li>
+          <li><strong>Connections:</strong> Shared across all data loading utilities to locate the <code>data/</code> folder.</li>
+        </ul>
+
+        <h4><code>RECORD_SCHEMA_PATH</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Absolute path to the JSON Schema contract for training records.</li>
+          <li><strong>Why it's chosen:</strong> Tells the validator exactly where to find the contract file.</li>
+        </ul>
+
+        <h3>Custom Classes</h3>
+        
+        <h4><code>TrainingRecord</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Represents a single image-prompt-action pair for training.</li>
+          <li><strong>Implementation:</strong>
+            <pre><code class="language-python">@dataclass(frozen=True)
+class TrainingRecord:
+    image_path: str
+    instruction: str
+    action: str
+    timestamp: str
+    source: str
+    id: str | None = None
+    episode_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)</code></pre>
+          </li>
+          <li><strong>Data Contract:</strong> Holds type-checked strings and optional metadata dictionaries. <code>frozen=True</code> enforces read-only access.</li>
+          <li><strong>Why it's chosen:</strong> Protects data integrity during multi-threaded training.</li>
+          <li><strong>Connections:</strong> Constructed by <code>parse_training_record</code>, used by <code>LiteVLADataset</code> in the loader module.</li>
+        </ul>
+
+        <h3>Functions in <code>schema.py</code></h3>
+
+        <h4><code>load_record_schema()</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Reads the validation schema file from disk.</li>
+          <li><strong>Contract:</strong> 
+            <ul>
+              <li>Inputs: None.</li>
+              <li>Outputs: <code>dict[str, Any]</code> (parsed JSON rules).</li>
+            </ul>
+          </li>
+          <li><strong>Connections:</strong> Called by <code>validate_record_dict</code> during parsing.</li>
+        </ul>
+
+        <h4><code>validate_record_dict(raw: dict[str, Any])</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Validates a raw dictionary against the JSON schema.</li>
+          <li><strong>Contract:</strong> 
+            <ul>
+              <li>Inputs: <code>raw</code> dict, optional <code>schema</code> dict.</li>
+              <li>Outputs: <code>None</code> (raises <code>RecordSchemaError</code> if invalid).</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Separates raw schema validation from action validation.</li>
+        </ul>
+
+        <h4><code>parse_training_record(raw: dict[str, Any])</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Converts a raw dict into a validated <code>TrainingRecord</code> object.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: <code>raw</code> dict.</li>
+              <li>Outputs: <code>TrainingRecord</code> instance.</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Gatekeeper function. If validation or action parsing fails, it stops execution immediately.</li>
+          <li><strong>Connections:</strong> Main parsing method called during file reading.</li>
+        </ul>
+
+        <h4><code>read_jsonl(path: str | Path)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Streams validated records from a JSONL file line-by-line.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: <code>path</code> to file.</li>
+              <li>Outputs: <code>Iterator[TrainingRecord]</code> (generator yielding records).</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Uses <code>yield</code> to load files sequentially, saving RAM.</li>
+          <li><strong>Connections:</strong> Called by <code>LiteVLADataset</code> to populate its record catalog.</li>
+        </ul>
+
+        <h3>Functions in <code>episode.py</code></h3>
+
+        <h4><code>init_raw_episode(...)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Sets up a new episode folder on disk with a default metadata file.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: directory paths, goal instruction, capture frequencies.</li>
+              <li>Outputs: <code>Path</code> to the created episode folder.</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Guarantees that every capture script creates a standard, well-formed directory structure.</li>
+          <li><strong>Connections:</strong> Called by simulator recording interfaces during collection runs.</li>
+        </ul>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA Mentorship Path · <code>schema_and_episode.md</code> is the source of truth.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
+</body>
+</html>

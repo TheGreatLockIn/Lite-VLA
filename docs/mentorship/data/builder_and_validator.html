@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataset Building and Validation Tutorial — Lite-VLA Mentorship</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to mentorship index</a>
+      <p class="eyebrow">Module 2 · Building & Validation</p>
+      <h1>Tutorial: Dataset Building and Quality Validation</h1>
+      <p class="doc-lead">Learn how raw camera frames are matched, augmented, split, and verified for training.</p>
+    </header>
+    <main>
+      <section>
+        <h2>1. Goal & Objective</h2>
+        <p>The goal of the dataset builder and validator is to compile raw simulation steps (PNG visual frames and command streams) into aligned training/validation pairs, augment them with visual variations, partition them, and validate the final dataset layout to guarantee correct formats.</p>
+      </section>
+
+      <section>
+        <h2>2. Why We Need It</h2>
+        <p>Training vision-language models requires structured, diverse datasets. Collecting episodes generates irregular timestamps. We need a system that automatically aligns frames with robot actions. Furthermore, training on a few static images causes overfitting. The builder applies data augmentations to introduce variety. Finally, we need a validator to verify there are no missing files or duplicate records before launching training runs.</p>
+      </section>
+
+      <section>
+        <h2>3. How to Start Thinking About It</h2>
+        <p>When designing the dataset compilation and quality checks:</p>
+        <ol>
+          <li><strong>Timestamp Alignment:</strong> Find the closest speed command matching each camera frame's recording time.</li>
+          <li><strong>Apply Image Augmentations:</strong> Introduce light variations, cropping, blurs, and JPEG compressions.</li>
+          <li><strong>Partition Cleanly:</strong> Shuffle deterministically and split into non-overlapping training and validation splits.</li>
+          <li><strong>Automate Checks:</strong> Scan the output folder to verify all PNG paths exist and that action command classes are balanced.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>4. Imports Explained</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Import Statement</th>
+                <th>What it is</th>
+                <th>Why it is used here</th>
+                <th>Concept Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>import hashlib</code></td>
+                <td>Hash digest builder</td>
+                <td>Generates unique hashes to seed local random generators.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>import json</code></td>
+                <td>Standard JSON utility</td>
+                <td>Reads JSON files (like the reference image manifest).</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>import random</code></td>
+                <td>Random number generator</td>
+                <td>Shuffles the records list and creates variations.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>import re</code></td>
+                <td>Regular expressions parser</td>
+                <td>Extracts sim stamp values from frame filenames.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from pathlib import Path</code></td>
+                <td>Path resolution utility</td>
+                <td>Resolves relative image locations across platforms.</td>
+                <td><a href="../concepts/python_primer.html#pathlib">Pathlib</a></td>
+              </tr>
+              <tr>
+                <td><code>from PIL import Image</code></td>
+                <td>Python Imaging Library</td>
+                <td>Opens and saves visual frames.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from PIL import ImageEnhance, ImageFilter</code></td>
+                <td>Image filter enhancers</td>
+                <td>Alters brightness, contrast, sharping, and blurs.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>import numpy as np</code></td>
+                <td>Multi-dimensional arrays</td>
+                <td>Performs visual matrix adjustments and handles noise overlays.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from litevla.data.schema import TrainingRecord</code></td>
+                <td>Dataclass definition</td>
+                <td>Creates type-safe records for the output files.</td>
+                <td><a href="../concepts/python_primer.html#dataclasses">Dataclass</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. Code Walkthrough</h2>
+
+        <h3>Global Constants</h3>
+        
+        <h4><code>DEFAULT_MAX_VARIANTS_PER_IMAGE</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Limits the number of augmented variations generated per reference image.</li>
+          <li><strong>Why it's chosen:</strong> Keeps the dataset size manageable and prevents a single pose from dominating training.</li>
+        </ul>
+
+        <h3>Functions in <code>builder.py</code></h3>
+
+        <h4><code>_action_at_sim_time(commands, sim_ns)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Finds the latest velocity command that happened at or before the camera frame was captured.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: <code>Sequence[dict]</code>, <code>int</code> (simulation nanoseconds).</li>
+              <li>Outputs: <code>dict | None</code> (closest matched command dictionary).</li>
+            </ul>
+          </li>
+          <li><strong>Connections:</strong> Internal helper used in <code>records_from_raw_episode</code>.</li>
+        </ul>
+
+        <h4><code>records_from_raw_episode(episode_dir)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Compiles and labels raw simulation runs.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: <code>Path</code> episode directory.</li>
+              <li>Outputs: <code>tuple[list[TrainingRecord], int]</code> (records list, row count).</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Walks through the captured frames directory, aligns them to ROS commands, and builds record instances.</li>
+          <li><strong>Connections:</strong> Called by <code>build_starter_dataset</code> to collect simulator training data.</li>
+        </ul>
+
+        <h4><code>_apply_augmentation(image, variant, rng)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Generates visual variants of reference photos to prevent overfitting.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: PIL <code>Image</code>, <code>int</code> variant count, local <code>random.Random</code> instance.</li>
+              <li>Outputs: Augmented PIL <code>Image</code>.</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Uses a local seed generator to produce reproducible visual noise and cropping.</li>
+          <li><strong>Connections:</strong> Called by <code>augment_reference_records</code>.</li>
+        </ul>
+
+        <h4><code>split_records(records, val_ratio, seed)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Shuffles and partitions data into train/val sets.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: list of records, float ratio, int random seed.</li>
+              <li>Outputs: <code>tuple[list[TrainingRecord], list[TrainingRecord]]</code> (train, val splits).</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Uses <code>random.Random(seed)</code> locally to prevent global state conflicts.</li>
+          <li><strong>Connections:</strong> Called by <code>build_starter_dataset</code> before writing the output files.</li>
+        </ul>
+
+        <h3>Functions in <code>validator.py</code></h3>
+
+        <h4><code>validate_dataset(...)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Audits a compiled dataset JSONL file for structural issues.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: dataset path, optional check flags.</li>
+              <li>Outputs: <code>DatasetValidationReport</code> object.</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Scans all lines in the output JSONL file, verifies file existence of image paths on disk, checks for duplicate IDs, and raises warning issues on class imbalances.</li>
+          <li><strong>Connections:</strong> Invoked by CI checks and training starter scripts to check dataset health.</li>
+        </ul>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA Mentorship Path · <code>builder_and_validator.md</code> is the source of truth.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
+</body>
+</html>

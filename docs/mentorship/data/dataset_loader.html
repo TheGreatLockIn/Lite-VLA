@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PyTorch Dataset Loader Tutorial — Lite-VLA Mentorship</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to mentorship index</a>
+      <p class="eyebrow">Module 3 · PyTorch Dataset Loader</p>
+      <h1>Tutorial: The PyTorch Dataset Loader</h1>
+      <p class="doc-lead">Learn how PyTorch lazy-loads, transforms, and batches images and commands dynamically.</p>
+    </header>
+    <main>
+      <section>
+        <h2>1. Goal & Objective</h2>
+        <p>The goal of the dataset loader is to provide a memory-efficient PyTorch interface that loads dataset records and JPEG/PNG frames on demand, applies visual transformations, and formats them into aligned training dictionaries.</p>
+      </section>
+
+      <section>
+        <h2>2. Why We Need It</h2>
+        <p>Deep learning training loops feed on batches of image-action pairs. However, loading thousands of images into RAM during initialization will trigger Out-Of-Memory (OOM) crashes. We need a system that utilizes <a href="../concepts/pytorch_primer.html#datasets">lazy loading</a> to read images from disk only when requested, and uses PyTorch's multi-threaded <a href="../concepts/pytorch_primer.html#dataloaders">DataLoader</a> to pre-fetch and batch training items concurrently.</p>
+      </section>
+
+      <section>
+        <h2>3. How to Start Thinking About It</h2>
+        <p>When designing the training dataloader:</p>
+        <ol>
+          <li><strong>Extend the base contract:</strong> Subclass PyTorch's <a href="../concepts/pytorch_primer.html#datasets">Dataset</a> class.</li>
+          <li><strong>Implement len:</strong> Define <code>__len__</code> to return the total size of the JSONL metadata rows.</li>
+          <li><strong>Implement item retrieval:</strong> Define <code>__getitem__</code> to load a single PNG image frame on demand, convert it to RGB mode, and apply transforms.</li>
+          <li><strong>Standardize data:</strong> Return a structured dictionary mapping keys to values (ID, image, instruction, action).</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>4. Imports Explained</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Import Statement</th>
+                <th>What it is</th>
+                <th>Why it is used here</th>
+                <th>Concept Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>from __future__ import annotations</code></td>
+                <td>Postponed type hints</td>
+                <td>Solves self-referencing classes in parameter declarations.</td>
+                <td><a href="../concepts/python_primer.html#annotations">Annotations</a></td>
+              </tr>
+              <tr>
+                <td><code>from pathlib import Path</code></td>
+                <td>Path resolution utility</td>
+                <td>Resolves relative file paths into absolute locations on the host drive.</td>
+                <td><a href="../concepts/python_primer.html#pathlib">Pathlib</a></td>
+              </tr>
+              <tr>
+                <td><code>from typing import Any, Callable</code></td>
+                <td>Type checking utilities</td>
+                <td>Annotates transforms (<code>Callable</code>) and dictionary keys (<code>Any</code>).</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from litevla.data.schema import REPO_ROOT</code></td>
+                <td>Global path constant</td>
+                <td>Serves as the fallback project root directory.</td>
+                <td>N/A</td>
+              </tr>
+              <tr>
+                <td><code>from litevla.data.schema import read_jsonl</code></td>
+                <td>File reader generator</td>
+                <td>Reads training metadata rows line-by-line using <code>yield</code>.</td>
+                <td><a href="../concepts/python_primer.html#generators">Generators</a></td>
+              </tr>
+              <tr>
+                <td><code>from torch.utils.data import Dataset</code></td>
+                <td>Base dataset class</td>
+                <td>Abstract class representing a collection of items.</td>
+                <td><a href="../concepts/pytorch_primer.html#datasets">Datasets</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. Code Walkthrough</h2>
+
+        <h3>Type Aliases</h3>
+        <h4><code>ImageTransform</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Defines the expected type signature for image preprocessing callables.</li>
+          <li><strong>Implementation:</strong>
+            <pre><code class="language-python">ImageTransform = Callable[[Any], Any]</code></pre>
+          </li>
+        </ul>
+
+        <h3>Custom Classes</h3>
+        <h4><code>LiteVLADataset</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Subclasses PyTorch's abstract dataset helper to feed batches to the model.</li>
+          <li><strong>Implementation:</strong>
+            <pre><code class="language-python">class LiteVLADataset(Dataset):
+    def __init__(
+        self,
+        jsonl_path: str | Path,
+        *,
+        repo_root: Path | None = None,
+        transform: ImageTransform | None = None,
+    ) -> None:
+        self.jsonl_path = Path(jsonl_path)
+        self.repo_root = repo_root or REPO_ROOT
+        self.transform = transform
+        self.records: list[TrainingRecord] = list(read_jsonl(self.jsonl_path))</code></pre>
+          </li>
+          <li><strong>Why it's chosen:</strong> Inherits PyTorch's native loader contract so that it can be passed directly to PyTorch DataLoaders.</li>
+          <li><strong>Connections:</strong> Instantiated in training scripts and passed to <code>torch.utils.data.DataLoader</code>.</li>
+        </ul>
+
+        <h3>Functions in <code>LiteVLADataset</code></h3>
+
+        <h4><code>__getitem__(index: int)</code></h4>
+        <ul>
+          <li><strong>Intent:</strong> Retrieves the image and instruction at a specific index.</li>
+          <li><strong>Contract:</strong>
+            <ul>
+              <li>Inputs: <code>int</code> index.</li>
+              <li>Outputs: <code>dict[str, Any]</code> (ID, loaded PIL Image, instruction text, action command).</li>
+            </ul>
+          </li>
+          <li><strong>Why it's chosen:</strong> Implements lazy loading. Reads the PNG file on demand, converts it to RGB, and returns it.</li>
+          <li><strong>Connections:</strong> Called automatically by PyTorch <code>DataLoader</code> worker threads to build training batches.</li>
+        </ul>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA Mentorship Path · <code>dataset_loader.md</code> is the source of truth.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#FAF8F5",
+        primaryColor: "#F0EDE8",
+        primaryBorderColor: "#D4CFC7",
+        primaryTextColor: "#2C2825",
+        lineColor: "#B8602A",
+        textColor: "#2C2825"
+      }
+    });
+  </script>
+</body>
+</html>

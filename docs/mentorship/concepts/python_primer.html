@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Python Concept Primers — Lite-VLA Mentorship</title>
+  <link rel="stylesheet" href="../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to mentorship index</a>
+      <p class="eyebrow">General Concepts</p>
+      <h1>Python Concept Primers</h1>
+      <p class="doc-lead">Generalized reference guides for Python syntax and features used in our codebase.</p>
+    </header>
+    <main>
+      <section id="annotations">
+        <h2>Postponed Evaluation of Annotations (<code>from __future__ import annotations</code>)</h2>
+        <h3>Overview</h3>
+        <p>In standard Python, all class and type names must be fully defined before you can use them as type hints. If Class A references Class B, and Class B references Class A, Python throws a <code>NameError</code>. Importing <code>annotations</code> from <code>__future__</code> postpones the evaluation of type hints, storing them as raw strings in memory until training starts. This prevents circular import errors and allows a class to reference itself in its own type hints.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from __future__ import annotations
+        
+class Node:
+    # Without the __future__ import, referencing "Node" inside
+    # the class definition would crash because Node is not fully built yet.
+    def __init__(self, parent: Node | None = None) -> None:
+        self.parent = parent</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Used in all modern Python projects employing static type hints (like <code>mypy</code>) to make code cleaner and prevent initialization order issues.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Crucial when defining linked datasets, tree nodes, or message packets where custom structures contain self-references.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are writing code with type annotations in Python 3.7+ and want to avoid name errors or circular references.</li>
+          <li><strong>Avoid this when:</strong> You are writing legacy scripts in Python 3.6 or older, or when your runtime code relies on immediately inspecting type hints via <code>typing.get_type_hints()</code>.</li>
+        </ul>
+      </section>
+
+      <section id="dataclasses">
+        <h2>Dataclasses and Fields (<code>dataclass</code> and <code>field</code>)</h2>
+        <h3>Overview</h3>
+        <p>Python's <code>@dataclass</code> decorator automatically generates common boilerplate code for classes, such as the initializer (<code>__init__</code>), object string representations (<code>__repr__</code>), and comparison operators (<code>__eq__</code>). Setting <code>frozen=True</code> makes the class read-only. The <code>field</code> utility allows you to configure specific properties for variables, such as initializing mutable defaults (like lists or dicts) safely.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass(frozen=True)
+class SensorReading:
+    sensor_id: str
+    value: float
+    # We use field(default_factory=dict) because standard Python
+    # mutable defaults like `metadata: dict = {}` are shared across all instances
+    metadata: dict[str, Any] = field(default_factory=dict)</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Storing clean, structured config data, database rows, or state parameters without writing manual constructors.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Representing visual frames, labels, commands, and episodes as read-only packets to guarantee they do not change as they are shared between background threads.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are creating container classes that mainly hold data structures, and you want automatic validation, comparison, and read-only protection.</li>
+          <li><strong>Avoid this when:</strong> You are building complex object-oriented patterns with heavy inheritance, custom setter properties, or dynamic runtime properties.</li>
+        </ul>
+      </section>
+
+      <section id="pathlib">
+        <h2>File Path Resolution (<code>pathlib.Path</code>)</h2>
+        <h3>Overview</h3>
+        <p>Managing file paths as raw strings (e.g. <code>"data/imgs/a.png"</code>) causes scripts to crash when moved to different operating systems (Windows uses backslashes <code>\</code>, Linux uses forward slashes <code>/</code>). Python's <code>pathlib</code> module represents paths as clean objects, automatically handling directory mapping, cross-platform slashes, and path existence verification.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from pathlib import Path
+
+# Find the directory containing the active script, resolve it to an absolute path,
+# and navigate up two levels (equivalent to ../..)
+repo_root = Path(__file__).resolve().parents[2]
+data_dir = repo_root / "data" / "processed" # Enforces correct slashes automatically</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Defining stable file layouts, reading JSON/text files, and navigating parent directories in any script.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Loading datasets, visual models, and simulation files robustly, regardless of whether the developer runs the code on a Windows workstation or a Linux robot computer.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are writing, reading, listing, or checking files on disk. Always prefer <code>pathlib.Path</code> over the legacy <code>os.path</code> strings.</li>
+          <li><strong>Avoid this when:</strong> You are dealing with virtual file systems or streaming remote URI links (like HTTP paths).</li>
+        </ul>
+      </section>
+
+      <section id="generators">
+        <h2>Python Generators and the <code>yield</code> Keyword</h2>
+        <h3>Overview</h3>
+        <p>A generator is a special type of function that returns a lazy-evaluated iterator. Instead of computing a massive list of items in memory and returning them all at once via <code>return</code>, a generator uses <code>yield</code> to yield one item at a time to the caller and pause. It resumes execution only when the caller asks for the next item.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from typing import Iterator
+
+def read_numbers(n: int) -> Iterator[int]:
+    for i in range(n):
+        print(f"Reading index {i}...")
+        yield i
+
+# The loop only runs when we request the next item
+for number in read_numbers(3):
+    print(f"Got {number}")</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Processing massive log files, database rows, or streams of sensor data that are too large to fit in RAM.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Reading JSONL dataset files containing thousands of image paths. Using <code>yield</code> ensures the computer only holds a single text line in memory at any millisecond.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are reading sequentially from large files, generating infinite data streams, or iterating over collections where memory efficiency is important.</li>
+          <li><strong>Avoid this when:</strong> You need to randomly access items by index, or when you need to write/modify the data collection dynamically.</li>
+        </ul>
+      </section>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA Mentorship Path · <code>python_primer.md</code> is the source of truth.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="../../scripts/doc-code.js"></script>
+</body>
+</html>
