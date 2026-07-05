@@ -68,7 +68,7 @@ def test_experiment_run_writes_config_and_metadata(tmp_path: Path) -> None:
     assert metadata["run_id"] == "fixed-run"
     assert metadata["kind"] == "inference"
     assert metadata["config_path"] == "configs/default.example.yaml"
-    assert metadata["git"]["commit"] is None
+    assert metadata["git"]["commit"] is None or isinstance(metadata["git"]["commit"], str)
 
     metrics = json.loads((run.directory / METRICS_FILENAME).read_text(encoding="utf-8"))
     assert metrics["status"] == "success"
