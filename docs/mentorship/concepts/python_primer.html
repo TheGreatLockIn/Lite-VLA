@@ -5,45 +5,170 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Python Concept Primers — Lite-VLA Mentorship</title>
   <link rel="stylesheet" href="../../styles/doc.css">
+  <style>
+    /* Custom sidebar layout for concepts */
+    .layout-container {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background-color: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      padding: 2rem 1.5rem;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h2 {
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-muted);
+      margin-bottom: 1.5rem;
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 0.5rem;
+    }
+    .sidebar ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .sidebar li {
+      margin-bottom: 0.75rem;
+    }
+    .sidebar a {
+      color: var(--color-text);
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+    .sidebar a:hover {
+      color: var(--color-accent);
+    }
+    .sidebar-section {
+      margin-bottom: 2rem;
+    }
+    .content-area {
+      flex: 1;
+      padding: 3rem 4rem;
+      max-width: 900px;
+    }
+    @media (max-width: 768px) {
+      .layout-container {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .content-area {
+        padding: 2rem 1.5rem;
+      }
+    }
+  </style>
 </head>
 <body>
-  <div class="doc-shell">
-    <header class="doc-header">
-      <a class="back-link" href="../index.html">Back to mentorship index</a>
-      <p class="eyebrow">General Concepts</p>
-      <h1>Python Concept Primers</h1>
-      <p class="doc-lead">Generalized reference guides for Python syntax and features used in our codebase.</p>
-    </header>
-    <main>
+  <div class="layout-container">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h2>Guides</h2>
+        <ul>
+          <li><a href="../index.html">← Mentorship Index</a></li>
+          <li><a href="python_primer.html" style="font-weight: bold; color: var(--color-accent);">Python Primer</a></li>
+          <li><a href="pytorch_primer.html">PyTorch Primer</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <h2>Python Topics</h2>
+        <ul>
+          <li><a href="#annotations">Postponed Annotations</a></li>
+          <li><a href="#json">JSON Serialization</a></li>
+          <li><a href="#dataclasses">Dataclasses & Fields</a></li>
+          <li><a href="#pathlib">Pathlib Resolution</a></li>
+          <li><a href="#typing">Typing Module</a></li>
+          <li><a href="#schema">JSON Schema</a></li>
+          <li><a href="#exceptions">Custom Exceptions</a></li>
+          <li><a href="#hashlib">Hashing & SHA-256</a></li>
+          <li><a href="#randomness">Deterministic Random</a></li>
+          <li><a href="#sorting">Sorting & Lambdas</a></li>
+          <li><a href="#regex">Regular Expressions</a></li>
+          <li><a href="#generators">Generators & Yield</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <header class="doc-header">
+        <p class="eyebrow">General Concepts</p>
+        <h1>Python Concept Primers</h1>
+        <p class="doc-lead">Generalized reference guides for Python syntax and libraries used in modern robotics and deep learning.</p>
+      </header>
+
       <section id="annotations">
         <h2>Postponed Evaluation of Annotations (<code>from __future__ import annotations</code>)</h2>
         <h3>Overview</h3>
-        <p>In standard Python, all class and type names must be fully defined before you can use them as type hints. If Class A references Class B, and Class B references Class A, Python throws a <code>NameError</code>. Importing <code>annotations</code> from <code>__future__</code> postpones the evaluation of type hints, storing them as raw strings in memory until training starts. This prevents circular import errors and allows a class to reference itself in its own type hints.</p>
+        <p>In standard Python, all class and type names must be fully defined before you can use them as type hints. If Class A references Class B, and Class B references Class A, Python throws a <code>NameError</code>. Importing <code>annotations</code> from <code>__future__</code> postpones the evaluation of type hints, storing them as raw strings in memory. This prevents circular import errors and allows a class to reference itself in its own type hints.</p>
 
         <h3>Code Example</h3>
         <pre><code class="language-python">from __future__ import annotations
-        
+
 class Node:
-    # Without the __future__ import, referencing "Node" inside
-    # the class definition would crash because Node is not fully built yet.
     def __init__(self, parent: Node | None = None) -> None:
         self.parent = parent</code></pre>
 
         <h3>Use-Case Scenarios</h3>
         <ul>
-          <li><strong>General Use-Case:</strong> Used in all modern Python projects employing static type hints (like <code>mypy</code>) to make code cleaner and prevent initialization order issues.</li>
+          <li><strong>General Use-Case:</strong> Used in all modern Python projects employing static type hints (like <code>mypy</code>) to check parameters and prevent initialization errors.</li>
           <li><strong>Robotics & VLA Use-Case:</strong> Crucial when defining linked datasets, tree nodes, or message packets where custom structures contain self-references.</li>
         </ul>
 
         <h3>When to Use vs. When NOT to Use</h3>
         <ul>
           <li><strong>Choose this when:</strong> You are writing code with type annotations in Python 3.7+ and want to avoid name errors or circular references.</li>
-          <li><strong>Avoid this when:</strong> You are writing legacy scripts in Python 3.6 or older, or when your runtime code relies on immediately inspecting type hints via <code>typing.get_type_hints()</code>.</li>
+          <li><strong>Avoid this when:</strong> You are writing legacy scripts in Python 3.6 or older.</li>
+        </ul>
+      </section>
+
+      <section id="json">
+        <h2>JSON Serialization</h2>
+        <h3>Overview</h3>
+        <p>JSON is a standard text format for sharing structured data. Python's <code>json</code> module provides:</p>
+        <ul>
+          <li><code>json.loads()</code>: Parse raw text into a Python dictionary.</li>
+          <li><code>json.dumps()</code>: Convert a Python dictionary into a clean string.</li>
+          <li><code>json.load()</code>: Read JSON directly from an open file.</li>
+          <li><code>json.dump()</code>: Write JSON directly into an open file.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import json
+
+raw_text = '{"name": "robot", "speed": 1.5}'
+data = json.loads(raw_text)
+print(data["name"]) # Output: robot
+
+clean_string = json.dumps(data)</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Saving program configurations, reading web API data, and exporting debug states to disk.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Reading JSONL metadata rows line-by-line during dataset ingestion, and saving camera/action alignment logs to disk.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You need a human-readable, cross-language format to save metadata.</li>
+          <li><strong>Avoid this when:</strong> You are storing raw binary data (like images or high-dimensional weight arrays).</li>
         </ul>
       </section>
 
       <section id="dataclasses">
-        <h2>Dataclasses and Fields (<code>dataclass</code> and <code>field</code>)</h2>
+        <h2>Dataclasses and Fields</h2>
         <h3>Overview</h3>
         <p>Python's <code>@dataclass</code> decorator automatically generates common boilerplate code for classes, such as the initializer (<code>__init__</code>), object string representations (<code>__repr__</code>), and comparison operators (<code>__eq__</code>). Setting <code>frozen=True</code> makes the class read-only. The <code>field</code> utility allows you to configure specific properties for variables, such as initializing mutable defaults (like lists or dicts) safely.</p>
 
@@ -55,8 +180,6 @@ from typing import Any
 class SensorReading:
     sensor_id: str
     value: float
-    # We use field(default_factory=dict) because standard Python
-    # mutable defaults like `metadata: dict = {}` are shared across all instances
     metadata: dict[str, Any] = field(default_factory=dict)</code></pre>
 
         <h3>Use-Case Scenarios</h3>
@@ -68,22 +191,27 @@ class SensorReading:
         <h3>When to Use vs. When NOT to Use</h3>
         <ul>
           <li><strong>Choose this when:</strong> You are creating container classes that mainly hold data structures, and you want automatic validation, comparison, and read-only protection.</li>
-          <li><strong>Avoid this when:</strong> You are building complex object-oriented patterns with heavy inheritance, custom setter properties, or dynamic runtime properties.</li>
+          <li><strong>Avoid this when:</strong> You are building complex object-oriented patterns with heavy inheritance or dynamic runtime properties.</li>
         </ul>
       </section>
 
       <section id="pathlib">
-        <h2>File Path Resolution (<code>pathlib.Path</code>)</h2>
+        <h2>Pathlib File Resolution</h2>
         <h3>Overview</h3>
-        <p>Managing file paths as raw strings (e.g. <code>"data/imgs/a.png"</code>) causes scripts to crash when moved to different operating systems (Windows uses backslashes <code>\</code>, Linux uses forward slashes <code>/</code>). Python's <code>pathlib</code> module represents paths as clean objects, automatically handling directory mapping, cross-platform slashes, and path existence verification.</p>
+        <p>Managing file paths as raw strings causes scripts to crash when moved to different operating systems. Python's <code>pathlib</code> module represents paths as clean objects, automatically handling directory mapping, cross-platform slashes, and path existence verification.</p>
+        <ul>
+          <li><code>resolve()</code>: Expands relative paths to full absolute paths.</li>
+          <li><code>parents[i]</code>: Navigates up directories.</li>
+          <li><code>/</code> operator: Joins folders together regardless of OS slash rules.</li>
+          <li><code>is_file()</code>: Checks if the path points to an existing file.</li>
+        </ul>
 
         <h3>Code Example</h3>
         <pre><code class="language-python">from pathlib import Path
 
-# Find the directory containing the active script, resolve it to an absolute path,
-# and navigate up two levels (equivalent to ../..)
+# Find repository root directory (../..)
 repo_root = Path(__file__).resolve().parents[2]
-data_dir = repo_root / "data" / "processed" # Enforces correct slashes automatically</code></pre>
+data_dir = repo_root / "data" / "processed"</code></pre>
 
         <h3>Use-Case Scenarios</h3>
         <ul>
@@ -98,8 +226,218 @@ data_dir = repo_root / "data" / "processed" # Enforces correct slashes automatic
         </ul>
       </section>
 
+      <section id="typing">
+        <h2>Typing and Type Checking</h2>
+        <h3>Overview</h3>
+        <p>Python is dynamically typed. Static type checking (using <code>typing</code> module classes like <code>Any</code>, <code>Iterator</code>, <code>Sequence</code>, <code>Callable</code>) allows tools like <code>mypy</code> to verify your code before running it.</p>
+        <ul>
+          <li><code>Any</code>: Allows any type (disables typing checks for that variable).</li>
+          <li><code>Iterator[T]</code>: Represents a generator stream yielding items of type <code>T</code>.</li>
+          <li><code>Sequence[T]</code>: Represents a read-only list/tuple of items of type <code>T</code>.</li>
+          <li><code>Callable[[A, B], R]</code>: Represents a function that receives inputs of type <code>A</code> and <code>B</code> and returns type <code>R</code>.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from typing import Callable, Sequence
+
+def process_numbers(numbers: Sequence[int], transform: Callable[[int], int]) -> list[int]:
+    return [transform(x) for x in numbers]</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Writing large-scale codebases where clear function inputs and outputs prevent bugs.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Specifying model input shapes, image transformation functions, and action parser parameters so developers know exactly what variables must be passed.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are developing libraries or collaborating with other developers.</li>
+          <li><strong>Avoid this when:</strong> Writing quick, throw-away scripts where runtime validation and development speed are the only priorities.</li>
+        </ul>
+      </section>
+
+      <section id="schema">
+        <h2>JSON Schema Validation</h2>
+        <h3>Overview</h3>
+        <p>JSON Schema is an open standard to describe and validate JSON data structures. Python's <code>jsonschema</code> library allows you to define a schema dictionary (containing required keys and expected types) and check raw files or inputs against it.</p>
+        <ul>
+          <li><code>jsonschema.validate()</code>: Verifies that the dictionary matches the schema structure.</li>
+          <li><code>Draft202012Validator</code>: The official validator class for the modern Draft 2020-12 schema specification.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import jsonschema
+from jsonschema import Draft202012Validator
+
+schema = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "val": {"type": "number"}
+    },
+    "required": ["id", "val"]
+}
+
+jsonschema.validate({"id": "read1", "val": 42}, schema)</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Checking API request payloads, validating configuration files, and parsing database schemas.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Auditing raw simulation capture logs to guarantee that no keys are missing before compile time.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are loading raw, external files (like JSON or JSONL data records) into your application and need to guarantee structural correctness.</li>
+          <li><strong>Avoid this when:</strong> Checking standard Python internal objects, which should be validated using type checking or direct assertion blocks instead.</li>
+        </ul>
+      </section>
+
+      <section id="exceptions">
+        <h2>Custom Exceptions</h2>
+        <h3>Overview</h3>
+        <p>In Python, you can define your own error classes by inheriting from standard built-in exceptions like <code>Exception</code> or <code>ValueError</code>. Creating custom exceptions helps you distinguish between system failures and domain-specific validation errors.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">class ActionParseError(ValueError):
+    """Raised when a steering command cannot be mapped to a robot action."""
+    pass
+
+def parse_command(cmd: str) -> str:
+    if cmd not in ["MOVE", "STOP"]:
+        raise ActionParseError(f"Unknown command: {cmd}")
+    return cmd</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Building libraries where users need to catch specific business-logic failures cleanly.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Catching schema mismatch issues or parsing problems specifically, allowing the validation script to continue scanning other rows and summary logs instead of crashing immediately.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You want callers of your function to catch and handle your specific error scenario while letting other errors bubble up.</li>
+          <li><strong>Avoid this when:</strong> A standard built-in exception already describes the error scenario perfectly.</li>
+        </ul>
+      </section>
+
+      <section id="hashlib">
+        <h2>Hashing with Hashlib</h2>
+        <h3>Overview</h3>
+        <p>A cryptographic hash function converts arbitrary data inputs into a fixed-length string of characters (a hash digest). Python's <code>hashlib</code> provides hash algorithms like SHA-256. Cryptographic hashes are one-way and deterministic.</p>
+        <ul>
+          <li><code>hexdigest()</code>: Returns the hash value as a clean string of hexadecimal digits.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import hashlib
+
+data = "robot_episode_12".encode("utf-8")
+sha = hashlib.sha256(data)
+print("Hash String:", sha.hexdigest())</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Verifying file integrity, storing passwords safely, or generating unique signatures.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Generating unique, reproducible IDs for visual frames or seeding random generators deterministically based on image properties.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You need to check if data has changed, generate a unique ID based on file content, or seed random generators repeatably.</li>
+          <li><strong>Avoid this when:</strong> You need to encrypt data that must be decrypted later.</li>
+        </ul>
+      </section>
+
+      <section id="randomness">
+        <h2>Deterministic Randomness</h2>
+        <h3>Overview</h3>
+        <p>Computers generate pseudo-random numbers by applying algorithms to a starting seed number. Python's <code>random.Random(seed)</code> creates an isolated, local random generator instance. By using a fixed seed, you guarantee that the sequence of random numbers is identical on every machine.</p>
+        <ul>
+          <li><code>shuffle()</code>: Shuffles a list in place.</li>
+          <li><code>uniform()</code>: Returns a random floating-point number between <code>a</code> and <code>b</code>.</li>
+          <li><code>random()</code>: Returns a random float between <code>0.0</code> and <code>1.0</code>.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import random
+
+rng = random.Random(42)
+items = [1, 2, 3]
+rng.shuffle(items)
+print("Shuffled:", items)</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Writing tests for randomized logic, generating game levels, or dividing dataset splits consistently.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Generating training/validation dataset splits and applying data augmentations identically across multiple train runs.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You want random variability but require the results to be 100% reproducible for debugging.</li>
+          <li><strong>Avoid this when:</strong> You need cryptographically secure randomness.</li>
+        </ul>
+      </section>
+
+      <section id="sorting">
+        <h2>Sorting and Lambdas</h2>
+        <h3>Overview</h3>
+        <p>Python's built-in <code>sorted(iterable, key=...)</code> function returns a new sorted list from the items in any iterable. The <code>key</code> parameter accepts a function that extracts a comparison key from each element. Python's <code>lambda</code> keyword allows you to write quick, one-line functions on the fly without using <code>def</code>.</p>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">coords = [{"x": 3, "y": 1}, {"x": 1, "y": 5}, {"x": 2, "y": 2}]
+sorted_coords = sorted(coords, key=lambda item: item["x"])
+print("Sorted by X:", sorted_coords)</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Ordering database results, sorting file paths alphabetically, or ranking scores.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Ordering camera frames by their numerical timestamps to ensure episodes are parsed in chronological order.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You need to order elements based on custom attributes or dictionary keys.</li>
+          <li><strong>Avoid this when:</strong> You have high-performance, multi-dimensional array operations (use NumPy's <code>np.sort</code> instead).</li>
+        </ul>
+      </section>
+
+      <section id="regex">
+        <h2>Regular Expressions</h2>
+        <h3>Overview</h3>
+        <p>Regular Expressions (regex) are strings of characters that define search patterns. Python's <code>re</code> module allows you to find, validate, and extract sub-strings from text.</p>
+        <ul>
+          <li><code>re.compile()</code>: Compiles a search pattern string into a reusable regex object.</li>
+          <li><code>re.match()</code>: Checks if the text matches the pattern from the start.</li>
+          <li>Parentheses <code>( )</code> define a capture group, allowing you to extract specific parts of the matching text.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import re
+
+pattern = re.compile(r"(\d+)_(\d+)\.png")
+match = pattern.match("12_340000000.png")
+
+if match:
+    sec = int(match.group(1)) # Extracts 12
+    nanosec = int(match.group(2)) # Extracts 340000000</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Validating email addresses, parsing logs, and scraping specific patterns from raw text.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Extracting simulation time counters from file paths when compiling raw simulator logs into training records.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You need to extract structured variables from semi-structured strings (like file names or timestamps).</li>
+          <li><strong>Avoid this when:</strong> You are parsing standard structured data formats like JSON or XML.</li>
+        </ul>
+      </section>
+
       <section id="generators">
-        <h2>Python Generators and the <code>yield</code> Keyword</h2>
+        <h2>Generators and Yield</h2>
         <h3>Overview</h3>
         <p>A generator is a special type of function that returns a lazy-evaluated iterator. Instead of computing a massive list of items in memory and returning them all at once via <code>return</code>, a generator uses <code>yield</code> to yield one item at a time to the caller and pause. It resumes execution only when the caller asks for the next item.</p>
 
@@ -108,12 +446,10 @@ data_dir = repo_root / "data" / "processed" # Enforces correct slashes automatic
 
 def read_numbers(n: int) -> Iterator[int]:
     for i in range(n):
-        print(f"Reading index {i}...")
         yield i
 
-# The loop only runs when we request the next item
 for number in read_numbers(3):
-    print(f"Got {number}")</code></pre>
+    print(number)</code></pre>
 
         <h3>Use-Case Scenarios</h3>
         <ul>
@@ -128,9 +464,6 @@ for number in read_numbers(3):
         </ul>
       </section>
     </main>
-    <footer class="doc-footer">
-      <p>Lite-VLA Mentorship Path · <code>python_primer.md</code> is the source of truth.</p>
-    </footer>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>

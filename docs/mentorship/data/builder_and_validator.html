@@ -5,39 +5,127 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dataset Building and Validation Tutorial — Lite-VLA Mentorship</title>
   <link rel="stylesheet" href="../../styles/doc.css">
+  <style>
+    .layout-container {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background-color: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      padding: 2rem 1.5rem;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h2 {
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-muted);
+      margin-bottom: 1.5rem;
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 0.5rem;
+    }
+    .sidebar ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .sidebar li {
+      margin-bottom: 0.75rem;
+    }
+    .sidebar a {
+      color: var(--color-text);
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+    .sidebar a:hover {
+      color: var(--color-accent);
+    }
+    .sidebar-section {
+      margin-bottom: 2rem;
+    }
+    .content-area {
+      flex: 1;
+      padding: 3rem 4rem;
+      max-width: 900px;
+    }
+    @media (max-width: 768px) {
+      .layout-container {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .content-area {
+        padding: 2rem 1.5rem;
+      }
+    }
+  </style>
 </head>
 <body>
-  <div class="doc-shell">
-    <header class="doc-header">
-      <a class="back-link" href="../index.html">Back to mentorship index</a>
-      <p class="eyebrow">Module 2 · Building & Validation</p>
-      <h1>Tutorial: Dataset Building and Quality Validation</h1>
-      <p class="doc-lead">Learn how raw camera frames are matched, augmented, split, and verified for training.</p>
-    </header>
-    <main>
-      <section>
+  <div class="layout-container">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h2>Navigation</h2>
+        <ul>
+          <li><a href="../index.html">← Mentorship Index</a></li>
+          <li><a href="schema_and_episode.html">Module 1: Schemas</a></li>
+          <li><a href="builder_and_validator.html" style="font-weight: bold; color: var(--color-accent);">Module 2: Builder</a></li>
+          <li><a href="dataset_loader.html">Module 3: Loader</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <h2>Sections</h2>
+        <ul>
+          <li><a href="#goal">1. Goal & Objective</a></li>
+          <li><a href="#why">2. Why We Need It</a></li>
+          <li><a href="#thought">3. How to Think About It</a></li>
+          <li><a href="#imports">4. Imports & Constants</a></li>
+          <li><a href="#diagrams">5. Data-Flow Diagrams</a></li>
+          <li><a href="#walkthrough">6. Code Walkthrough</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <header class="doc-header">
+        <p class="eyebrow">Module 2 · Building & Validation</p>
+        <h1>Tutorial: Dataset Building and Quality Validation</h1>
+        <p class="doc-lead">Learn how raw camera frames are matched, augmented, split, and verified for training.</p>
+      </header>
+
+      <section id="goal">
         <h2>1. Goal & Objective</h2>
         <p>The goal of the dataset builder and validator is to compile raw simulation steps (PNG visual frames and command streams) into aligned training/validation pairs, augment them with visual variations, partition them, and validate the final dataset layout to guarantee correct formats.</p>
       </section>
 
-      <section>
+      <section id="why">
         <h2>2. Why We Need It</h2>
         <p>Training vision-language models requires structured, diverse datasets. Collecting episodes generates irregular timestamps. We need a system that automatically aligns frames with robot actions. Furthermore, training on a few static images causes overfitting. The builder applies data augmentations to introduce variety. Finally, we need a validator to verify there are no missing files or duplicate records before launching training runs.</p>
       </section>
 
-      <section>
-        <h2>3. How to Start Thinking About It</h2>
-        <p>When designing the dataset compilation and quality checks:</p>
+      <section id="thought">
+        <h2>3. How to Start Thinking About It (AI Developer Thought Process)</h2>
+        <p>When designing this code, I thought about the developer's sequential decision-making process:</p>
         <ol>
-          <li><strong>Timestamp Alignment:</strong> Find the closest speed command matching each camera frame's recording time.</li>
-          <li><strong>Apply Image Augmentations:</strong> Introduce light variations, cropping, blurs, and JPEG compressions.</li>
-          <li><strong>Partition Cleanly:</strong> Shuffle deterministically and split into non-overlapping training and validation splits.</li>
-          <li><strong>Automate Checks:</strong> Scan the output folder to verify all PNG paths exist and that action command classes are balanced.</li>
+          <li><strong>Simulator frames and actions are unaligned:</strong> "First, I realized that the Webots simulator outputs raw image frames and action command streams independently at different times. I need a way to align each frame to what the robot was actually doing at that exact moment. So, I decided to compare timestamps and pair each frame with the latest command that occurred at or before the frame was taken."</li>
+          <li><strong>We need more image variety:</strong> "Next, I realized that static target images (e.g. 5 standard reference poses) are too easy to memorize. The model will overfit. So, I decided to use PIL's enhancements (<code>ImageEnhance.Brightness</code>, <code>ImageEnhance.Contrast</code>, etc.) and numpy random noise to generate 25 synthetic variants of each base image to simulate diverse real-world environment lighting."</li>
+          <li><strong>Partitioning needs reproducibility:</strong> "Then, I wanted to split the compiled records into train and validation sets (90/10 split). If we use a standard random shuffle, the splits will be different every time we run the script, making it impossible to compare training runs. So, I decided to use a local <code>random.Random(seed)</code> with a fixed seed to guarantee deterministic shuffling."</li>
+          <li><strong>Validating before training saves time:</strong> "Finally, I realized that launching training is a multi-hour commitment. If a single PNG is missing or a key is wrong, PyTorch will crash hours later. So, I decided to write an automated validator that scans every line in the final JSONL, checks file existence on disk, counts commands to warn about imbalances, and creates an audit report."</li>
         </ol>
       </section>
 
-      <section>
-        <h2>4. Imports Explained</h2>
+      <section id="imports">
+        <h2>4. Imports & Global Constants Explained</h2>
         <div class="table-wrap">
           <table>
             <thead>
@@ -53,25 +141,31 @@
                 <td><code>import hashlib</code></td>
                 <td>Hash digest builder</td>
                 <td>Generates unique hashes to seed local random generators.</td>
-                <td>N/A</td>
+                <td><a href="../concepts/python_primer.html#hashlib">Hashing</a></td>
               </tr>
               <tr>
                 <td><code>import json</code></td>
                 <td>Standard JSON utility</td>
                 <td>Reads JSON files (like the reference image manifest).</td>
-                <td>N/A</td>
+                <td><a href="../concepts/python_primer.html#json">JSON</a></td>
               </tr>
               <tr>
                 <td><code>import random</code></td>
                 <td>Random number generator</td>
                 <td>Shuffles the records list and creates variations.</td>
-                <td>N/A</td>
+                <td><a href="../concepts/python_primer.html#randomness">Randomness</a></td>
               </tr>
               <tr>
                 <td><code>import re</code></td>
                 <td>Regular expressions parser</td>
                 <td>Extracts sim stamp values from frame filenames.</td>
-                <td>N/A</td>
+                <td><a href="../concepts/python_primer.html#regex">Regex</a></td>
+              </tr>
+              <tr>
+                <td><code>from collections import Counter</code></td>
+                <td>Counting helper</td>
+                <td>Computes action category totals for imbalance checks.</td>
+                <td><a href="../concepts/python_primer.html#sorting">Sorting</a></td>
               </tr>
               <tr>
                 <td><code>from pathlib import Path</code></td>
@@ -82,7 +176,7 @@
               <tr>
                 <td><code>from PIL import Image</code></td>
                 <td>Python Imaging Library</td>
-                <td>Opens and saves visual frames.</td>
+                <td>Opens, enhancements, and saves visual frames.</td>
                 <td>N/A</td>
               </tr>
               <tr>
@@ -94,103 +188,75 @@
               <tr>
                 <td><code>import numpy as np</code></td>
                 <td>Multi-dimensional arrays</td>
-                <td>Performs visual matrix adjustments and handles noise overlays.</td>
+                <td>Performs visual matrix adjustments and noise overlays.</td>
                 <td>N/A</td>
               </tr>
               <tr>
                 <td><code>from litevla.data.schema import TrainingRecord</code></td>
                 <td>Dataclass definition</td>
                 <td>Creates type-safe records for the output files.</td>
-                <td><a href="../concepts/python_primer.html#dataclasses">Dataclass</a></td>
+                <td><a href="../concepts/python_primer.html#dataclasses">Dataclasses</a></td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <section>
-        <h2>5. Code Walkthrough</h2>
-
-        <h3>Global Constants</h3>
+      <section id="diagrams">
+        <h2>5. Class Data-Flow Diagrams</h2>
         
-        <h4><code>DEFAULT_MAX_VARIANTS_PER_IMAGE</code></h4>
+        <h3>DatasetValidationReport Generation & Accumulation Flow</h3>
+        <pre class="mermaid">
+flowchart TD
+    File[JSONL File on Disk] -->|validate_dataset| Line[Parse Line-by-Line]
+    Line -->|parse_training_record| SchemaCheck{Matches Schema?}
+    SchemaCheck -->|No| Err1[Add Schema Error Issue]
+    SchemaCheck -->|Yes| ImageCheck{PNG File Exists?}
+    ImageCheck -->|No| Err2[Add Missing Image Error]
+    ImageCheck -->|Yes| IDCheck{ID Unique?}
+    IDCheck -->|No| Err3[Add Duplicate ID Error]
+    IDCheck -->|Yes| Counter[Increment Counters]
+    
+    Err1 & Err2 & Err3 & Counter -->|Accumulate| Rep[DatasetValidationReport]
+    Rep -->|to_dict| Serialized[JSON Dictionary]
+    Serialized -->|write_validation_report| Output[validation_report.json on Disk]
+
+    style Rep fill:#FAF8F5,stroke:#B8602A,stroke-width:2px
+        </pre>
+      </section>
+
+      <section id="walkthrough">
+        <h2>6. Detailed Code Walkthrough</h2>
+
+        <h3>Custom Classes</h3>
+        
+        <h4><code>DatasetValidationReport</code></h4>
         <ul>
-          <li><strong>Intent:</strong> Limits the number of augmented variations generated per reference image.</li>
-          <li><strong>Why it's chosen:</strong> Keeps the dataset size manageable and prevents a single pose from dominating training.</li>
+          <li><strong>Intent:</strong> Holds the overall results of a validation audit.</li>
+          <li><strong>Why it's chosen:</strong> Implements a property named <code>valid</code> that returns <code>True</code> only if <code>error_count == 0</code>, making validation verification straightforward.</li>
         </ul>
 
-        <h3>Functions in <code>builder.py</code></h3>
+        <h3>Functions Walkthrough</h3>
 
-        <h4><code>_action_at_sim_time(commands, sim_ns)</code></h4>
+        <h4><code>_augmentation_rng(seed, stem, variant)</code></h4>
         <ul>
-          <li><strong>Intent:</strong> Finds the latest velocity command that happened at or before the camera frame was captured.</li>
-          <li><strong>Contract:</strong>
-            <ul>
-              <li>Inputs: <code>Sequence[dict]</code>, <code>int</code> (simulation nanoseconds).</li>
-              <li>Outputs: <code>dict | None</code> (closest matched command dictionary).</li>
-            </ul>
-          </li>
-          <li><strong>Connections:</strong> Internal helper used in <code>records_from_raw_episode</code>.</li>
-        </ul>
-
-        <h4><code>records_from_raw_episode(episode_dir)</code></h4>
-        <ul>
-          <li><strong>Intent:</strong> Compiles and labels raw simulation runs.</li>
-          <li><strong>Contract:</strong>
-            <ul>
-              <li>Inputs: <code>Path</code> episode directory.</li>
-              <li>Outputs: <code>tuple[list[TrainingRecord], int]</code> (records list, row count).</li>
-            </ul>
-          </li>
-          <li><strong>Why it's chosen:</strong> Walks through the captured frames directory, aligns them to ROS commands, and builds record instances.</li>
-          <li><strong>Connections:</strong> Called by <code>build_starter_dataset</code> to collect simulator training data.</li>
+          <li><strong>Intent:</strong> Creates a local random generator that is unique to each image and variant.</li>
+          <li><strong>Why it's chosen:</strong> Uses SHA-256 to hash the image properties together, ensuring that each variant uses a unique seed.</li>
         </ul>
 
         <h4><code>_apply_augmentation(image, variant, rng)</code></h4>
         <ul>
-          <li><strong>Intent:</strong> Generates visual variants of reference photos to prevent overfitting.</li>
-          <li><strong>Contract:</strong>
-            <ul>
-              <li>Inputs: PIL <code>Image</code>, <code>int</code> variant count, local <code>random.Random</code> instance.</li>
-              <li>Outputs: Augmented PIL <code>Image</code>.</li>
-            </ul>
-          </li>
-          <li><strong>Why it's chosen:</strong> Uses a local seed generator to produce reproducible visual noise and cropping.</li>
-          <li><strong>Connections:</strong> Called by <code>augment_reference_records</code>.</li>
+          <li><strong>Intent:</strong> Applies visual changes to an image to simulate diverse real-world lighting.</li>
+          <li><strong>Why it's chosen:</strong> Brightness, contrast, and scaling parameters are randomly selected using <code>rng.uniform</code>. Adds Gaussian noise to arrays using NumPy.</li>
         </ul>
 
-        <h4><code>split_records(records, val_ratio, seed)</code></h4>
+        <h4><code>split_records(records, *, val_ratio, seed)</code></h4>
         <ul>
           <li><strong>Intent:</strong> Shuffles and partitions data into train/val sets.</li>
-          <li><strong>Contract:</strong>
-            <ul>
-              <li>Inputs: list of records, float ratio, int random seed.</li>
-              <li>Outputs: <code>tuple[list[TrainingRecord], list[TrainingRecord]]</code> (train, val splits).</li>
-            </ul>
-          </li>
-          <li><strong>Why it's chosen:</strong> Uses <code>random.Random(seed)</code> locally to prevent global state conflicts.</li>
-          <li><strong>Connections:</strong> Called by <code>build_starter_dataset</code> before writing the output files.</li>
-        </ul>
-
-        <h3>Functions in <code>validator.py</code></h3>
-
-        <h4><code>validate_dataset(...)</code></h4>
-        <ul>
-          <li><strong>Intent:</strong> Audits a compiled dataset JSONL file for structural issues.</li>
-          <li><strong>Contract:</strong>
-            <ul>
-              <li>Inputs: dataset path, optional check flags.</li>
-              <li>Outputs: <code>DatasetValidationReport</code> object.</li>
-            </ul>
-          </li>
-          <li><strong>Why it's chosen:</strong> Scans all lines in the output JSONL file, verifies file existence of image paths on disk, checks for duplicate IDs, and raises warning issues on class imbalances.</li>
-          <li><strong>Connections:</strong> Invoked by CI checks and training starter scripts to check dataset health.</li>
+          <li><strong>Why it's chosen:</strong> Shuffles using a local random instance to ensure reproducibility.</li>
         </ul>
       </section>
     </main>
-    <footer class="doc-footer">
-      <p>Lite-VLA Mentorship Path · <code>builder_and_validator.md</code> is the source of truth.</p>
-    </footer>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>

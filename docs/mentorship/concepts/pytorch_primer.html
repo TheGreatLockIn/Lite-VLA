@@ -5,20 +5,111 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PyTorch Concept Primers — Lite-VLA Mentorship</title>
   <link rel="stylesheet" href="../../styles/doc.css">
+  <style>
+    /* Custom sidebar layout for concepts */
+    .layout-container {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background-color: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      padding: 2rem 1.5rem;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h2 {
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-muted);
+      margin-bottom: 1.5rem;
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 0.5rem;
+    }
+    .sidebar ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .sidebar li {
+      margin-bottom: 0.75rem;
+    }
+    .sidebar a {
+      color: var(--color-text);
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+    .sidebar a:hover {
+      color: var(--color-accent);
+    }
+    .sidebar-section {
+      margin-bottom: 2rem;
+    }
+    .content-area {
+      flex: 1;
+      padding: 3rem 4rem;
+      max-width: 900px;
+    }
+    @media (max-width: 768px) {
+      .layout-container {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .content-area {
+        padding: 2rem 1.5rem;
+      }
+    }
+  </style>
 </head>
 <body>
-  <div class="doc-shell">
-    <header class="doc-header">
-      <a class="back-link" href="../index.html">Back to mentorship index</a>
-      <p class="eyebrow">General Concepts</p>
-      <h1>PyTorch Concept Primers</h1>
-      <p class="doc-lead">Generalized reference guides for PyTorch dataset management and batch loaders.</p>
-    </header>
-    <main>
+  <div class="layout-container">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h2>Guides</h2>
+        <ul>
+          <li><a href="../index.html">← Mentorship Index</a></li>
+          <li><a href="python_primer.html">Python Primer</a></li>
+          <li><a href="pytorch_primer.html" style="font-weight: bold; color: var(--color-accent);">PyTorch Primer</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <h2>PyTorch Topics</h2>
+        <ul>
+          <li><a href="#datasets">PyTorch Datasets</a></li>
+          <li><a href="#dataloaders">PyTorch DataLoaders</a></li>
+          <li><a href="#collate">Dataset Collation</a></li>
+          <li><a href="#tensors">PyTorch Tensors</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <header class="doc-header">
+        <p class="eyebrow">General Concepts</p>
+        <h1>PyTorch Concept Primers</h1>
+        <p class="doc-lead">Generalized reference guides for PyTorch dataset loaders, tensors, and batch processing.</p>
+      </header>
+
       <section id="datasets">
         <h2>PyTorch Datasets (<code>torch.utils.data.Dataset</code>)</h2>
         <h3>Overview</h3>
-        <p>PyTorch's <code>Dataset</code> is an abstract class representing a structured collection of data. By inheriting from it and implementing the double-underscore methods <code>__len__</code> (to return total size) and <code>__getitem__</code> (to fetch a single item by index), you tell PyTorch how to read your data. This is crucial for separating the details of how files are stored on your disk from the actual machine learning training loops.</p>
+        <p>PyTorch's <code>Dataset</code> is an abstract class representing a structured collection of data. By inheriting from it and implementing the double-underscore methods <code>__len__</code> (to return total size) and <code>__getitem__</code> (to fetch a single item by index), you tell PyTorch how to read your data. This separates how your files are stored on your hard drive from the actual machine learning training loops.</p>
+        <ul>
+          <li><code>__init__()</code>: Stores catalog paths, roots, and transformations.</li>
+          <li><code>__len__()</code>: Returns total number of rows.</li>
+          <li><code>__getitem__()</code>: Performs the file resolution and reads raw files (e.g. images) on-demand (lazy loading).</li>
+        </ul>
 
         <h3>Code Example</h3>
         <pre><code class="language-python">import torch
@@ -32,7 +123,6 @@ class MockDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        # Return a dictionary containing a single numerical tensor
         return {"value": torch.tensor(self.data[index], dtype=torch.float32)}</code></pre>
 
         <h3>Use-Case Scenarios</h3>
@@ -51,18 +141,30 @@ class MockDataset(Dataset):
       <section id="dataloaders">
         <h2>PyTorch DataLoaders (<code>torch.utils.data.DataLoader</code>)</h2>
         <h3>Overview</h3>
-        <p>While a <code>Dataset</code> retrieves a single item at a time, a <code>DataLoader</code> is the engine that orchestrates the training stream. It automatically handles shuffling (randomizing item order), batching (grouping multiple items together), and multi-processing (using background CPU worker threads to load images in parallel while the GPU handles training).</p>
+        <p>While a <code>Dataset</code> retrieves a single item at a time, a <code>DataLoader</code> is the engine that orchestrates the training stream. It automatically handles shuffling (randomizing item order), batching (grouping multiple items together), and multi-processing (using background CPU worker threads to load images in parallel).</p>
+        <ul>
+          <li><code>batch_size</code>: The number of items to group together in a single step.</li>
+          <li><code>shuffle</code>: Set to <code>True</code> during training to randomize data order, preventing the model from memorizing the sequence of episodes.</li>
+          <li><code>num_workers</code>: The number of CPU processes spawned to load data.</li>
+          <li><code>pin_memory</code>: Set to <code>True</code> to copy tensors to CUDA pinned memory, speeding up transfers to the GPU.</li>
+          <li><code>drop_last</code>: Set to <code>True</code> to drop the last incomplete batch if the dataset size is not divisible by the batch size.</li>
+        </ul>
 
         <h3>Code Example</h3>
         <pre><code class="language-python">from torch.utils.data import DataLoader
 
 dataset = MockDataset([1.0, 2.0, 3.0, 4.0])
-# Create a loader that groups items into batches of 2 and shuffles them
-loader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=2)
+loader = DataLoader(
+    dataset,
+    batch_size=2,
+    shuffle=True,
+    num_workers=2,
+    pin_memory=True,
+    drop_last=True
+)
 
 for batch in loader:
-    # batch["value"] is a stacked tensor of shape [2]
-    print("Batch values:", batch["value"])</code></pre>
+    print("Batch values tensor:", batch["value"])</code></pre>
 
         <h3>Use-Case Scenarios</h3>
         <ul>
@@ -78,29 +180,31 @@ for batch in loader:
       </section>
 
       <section id="collate">
-        <h2>Dataset Collation and <code>default_collate</code></h2>
+        <h2>Dataset Collation</h2>
         <h3>Overview</h3>
         <p>Collation is the process of merging a list of individual samples (retrieved from <code>__getitem__</code>) into a single aligned training batch. PyTorch's <code>default_collate</code> automatically stacks tensors, converts numpy arrays to tensors, lists strings, and copies dictionary structures. However, it fails if it encounters raw <code>PIL.Image.Image</code> objects or mixed types (like <code>NoneType</code>), which require pre-conversion.</p>
+        <ul>
+          <li><code>default_collate(batch_list)</code>: The default function that stacks lists of dictionaries into dictionary batches.</li>
+          <li>If your dataset contains raw PIL Images, <code>default_collate</code> throws a <code>TypeError</code>. To resolve this, we pass a <code>transform</code> function (like <code>np.array</code> or <code>transforms.ToTensor()</code>) to convert the PIL Image to a numerical matrix before collation occurs.</li>
+        </ul>
 
         <h3>Code Example</h3>
         <pre><code class="language-python">import numpy as np
 import torch
 from torch.utils.data._utils.collate import default_collate
 
-# A batch list returned by dataset __getitem__ loops
 sample_batch = [
     {"image": np.zeros((3, 224, 224), dtype=np.uint8), "action": "STOP"},
     {"image": np.ones((3, 224, 224), dtype=np.uint8), "action": "MOVE_FORWARD"}
 ]
 
-# default_collate converts the numpy arrays into a single stacked torch tensor
 collated_batch = default_collate(sample_batch)
 print("Stacked Image Tensor Shape:", collated_batch["image"].shape) # Returns [2, 3, 224, 224]</code></pre>
 
         <h3>Use-Case Scenarios</h3>
         <ul>
           <li><strong>General Use-Case:</strong> Formatting lists of image tensors and text tags into numerical batches for GPU model ingestion.</li>
-          <li><strong>Robotics & VLA Use-Case:</strong> Stacking multiple OpenCV camera frames and navigation instructions. If a frame is a raw PIL Image, we must use a transform (like <code>np.array</code>) to prevent collator type errors.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Stacking multiple OpenCV camera frames and navigation instructions. If a frame is a raw PIL Image, we must use a transform to prevent collator type errors.</li>
         </ul>
 
         <h3>When to Use vs. When NOT to Use</h3>
@@ -109,10 +213,39 @@ print("Stacked Image Tensor Shape:", collated_batch["image"].shape) # Returns [2
           <li><strong>Avoid this when:</strong> Your batch items have varying dimensions, which require a custom <code>collate_fn</code> to pad sequences with special padding tokens.</li>
         </ul>
       </section>
+
+      <section id="tensors">
+        <h2>PyTorch Tensors</h2>
+        <h3>Overview</h3>
+        <p>A PyTorch <code>Tensor</code> is a multi-dimensional matrix containing elements of a single data type. It is very similar to a NumPy <code>ndarray</code>, but can run on a GPU to accelerate computing.</p>
+        <ul>
+          <li><code>torch.tensor()</code>: Constructs a tensor from a list, tuple, or numpy array.</li>
+          <li><code>dtype</code>: Specifies the data type (e.g. <code>torch.float32</code> for model weights, <code>torch.long</code> (int64) for category indices and token labels).</li>
+          <li><strong>Shape stacking:</strong> PyTorch groups multiple individual tensors of shape <code>[C, H, W]</code> into a single batch tensor of shape <code>[B, C, H, W]</code>.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import torch
+
+# Create a float tensor representing model weights
+weights = torch.tensor([0.25, 0.5, 0.75], dtype=torch.float32)
+
+# Create a long (int64) tensor representing action token IDs
+token_ids = torch.tensor([102, 5003, 103], dtype=torch.long)</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Performing high-speed matrix multiplications, representing layers of neural networks, and computing backpropagation gradients.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Stacking visual frame matrices and steering action lists into numerical matrices to feed into model input layers.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You are loading inputs into a deep learning model, training neural network layers, or running GPU-accelerated mathematical operations.</li>
+          <li><strong>Avoid this when:</strong> Dealing with standard file saving, network sockets, or string parsing.</li>
+        </ul>
+      </section>
     </main>
-    <footer class="doc-footer">
-      <p>Lite-VLA Mentorship Path · <code>pytorch_primer.md</code> is the source of truth.</p>
-    </footer>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>

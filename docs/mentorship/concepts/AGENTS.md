@@ -8,7 +8,8 @@ This directory (`docs/mentorship/concepts/`) contains generalized reference docu
 
 1. **Generalized Topics:** Keep the explanations general and reusable. A reader should be able to copy these concept primers to another project and use them as a general learning resource.
 2. **Pedagogical Clarity:** Start with the simplest terms, avoid nested jargon, and provide clear code examples.
-3. **Link Integration:** Pair with human HTML files so they can be hyperlinked from other code walkthrough pages.
+3. **No Code Unexplained:** Every library, special keyword, special function, and concept used in the target modules must be listed here.
+4. **HTML Navigation Sidebar:** All concept HTML files must implement a responsive, modern sidebar that allows navigation between different files (e.g., Python Primer, PyTorch Primer) and down into specific sections and sub-categories of the active page.
 
 ---
 
@@ -23,7 +24,7 @@ A header defining the concept.
 A 2–3 sentence plain English explanation of what this is and what problem it solves.
 
 #### Code Example
-A simple, minimal, copy-pasteable Python snippet demonstrating the concept in isolation. Keep it clean and explain what the output is.
+A simple, minimal, copy-pasteable Python/PyTorch snippet demonstrating the concept in isolation. Keep it clean and explain what the output is.
 
 #### Use-Case Scenarios
 Explain **how** and **where** this topic is applied:

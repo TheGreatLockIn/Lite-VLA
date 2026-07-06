@@ -5,39 +5,127 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PyTorch Dataset Loader Tutorial — Lite-VLA Mentorship</title>
   <link rel="stylesheet" href="../../styles/doc.css">
+  <style>
+    .layout-container {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background-color: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      padding: 2rem 1.5rem;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h2 {
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-muted);
+      margin-bottom: 1.5rem;
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 0.5rem;
+    }
+    .sidebar ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .sidebar li {
+      margin-bottom: 0.75rem;
+    }
+    .sidebar a {
+      color: var(--color-text);
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+    .sidebar a:hover {
+      color: var(--color-accent);
+    }
+    .sidebar-section {
+      margin-bottom: 2rem;
+    }
+    .content-area {
+      flex: 1;
+      padding: 3rem 4rem;
+      max-width: 900px;
+    }
+    @media (max-width: 768px) {
+      .layout-container {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .content-area {
+        padding: 2rem 1.5rem;
+      }
+    }
+  </style>
 </head>
 <body>
-  <div class="doc-shell">
-    <header class="doc-header">
-      <a class="back-link" href="../index.html">Back to mentorship index</a>
-      <p class="eyebrow">Module 3 · PyTorch Dataset Loader</p>
-      <h1>Tutorial: The PyTorch Dataset Loader</h1>
-      <p class="doc-lead">Learn how PyTorch lazy-loads, transforms, and batches images and commands dynamically.</p>
-    </header>
-    <main>
-      <section>
+  <div class="layout-container">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h2>Navigation</h2>
+        <ul>
+          <li><a href="../index.html">← Mentorship Index</a></li>
+          <li><a href="schema_and_episode.html">Module 1: Schemas</a></li>
+          <li><a href="builder_and_validator.html">Module 2: Builder</a></li>
+          <li><a href="dataset_loader.html" style="font-weight: bold; color: var(--color-accent);">Module 3: Loader</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <h2>Sections</h2>
+        <ul>
+          <li><a href="#goal">1. Goal & Objective</a></li>
+          <li><a href="#why">2. Why We Need It</a></li>
+          <li><a href="#thought">3. How to Think About It</a></li>
+          <li><a href="#imports">4. Imports & Constants</a></li>
+          <li><a href="#diagrams">5. Data-Flow Diagrams</a></li>
+          <li><a href="#walkthrough">6. Code Walkthrough</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <header class="doc-header">
+        <p class="eyebrow">Module 3 · PyTorch Dataset Loader</p>
+        <h1>Tutorial: The PyTorch Dataset Loader</h1>
+        <p class="doc-lead">Learn how PyTorch lazy-loads, transforms, and batches images and commands dynamically.</p>
+      </header>
+
+      <section id="goal">
         <h2>1. Goal & Objective</h2>
         <p>The goal of the dataset loader is to provide a memory-efficient PyTorch interface that loads dataset records and JPEG/PNG frames on demand, applies visual transformations, and formats them into aligned training dictionaries.</p>
       </section>
 
-      <section>
+      <section id="why">
         <h2>2. Why We Need It</h2>
         <p>Deep learning training loops feed on batches of image-action pairs. However, loading thousands of images into RAM during initialization will trigger Out-Of-Memory (OOM) crashes. We need a system that utilizes <a href="../concepts/pytorch_primer.html#datasets">lazy loading</a> to read images from disk only when requested, and uses PyTorch's multi-threaded <a href="../concepts/pytorch_primer.html#dataloaders">DataLoader</a> to pre-fetch and batch training items concurrently.</p>
       </section>
 
-      <section>
-        <h2>3. How to Start Thinking About It</h2>
-        <p>When designing the training dataloader:</p>
+      <section id="thought">
+        <h2>3. How to Start Thinking About It (AI Developer Thought Process)</h2>
+        <p>When designing this code, I thought about the developer's sequential decision-making process:</p>
         <ol>
-          <li><strong>Extend the base contract:</strong> Subclass PyTorch's <a href="../concepts/pytorch_primer.html#datasets">Dataset</a> class.</li>
-          <li><strong>Implement len:</strong> Define <code>__len__</code> to return the total size of the JSONL metadata rows.</li>
-          <li><strong>Implement item retrieval:</strong> Define <code>__getitem__</code> to load a single PNG image frame on demand, convert it to RGB mode, and apply transforms.</li>
-          <li><strong>Standardize data:</strong> Return a structured dictionary mapping keys to values (ID, image, instruction, action).</li>
+          <li><strong>PyTorch needs an indexable interface:</strong> "First, I thought about how PyTorch expects to retrieve training data. A standard Python generator is not indexable and cannot support random shuffling or multi-threaded prefetching. So, I decided to inherit from PyTorch's native <code>Dataset</code> class."</li>
+          <li><strong>Lazy loading to prevent crash:</strong> "Then, I realized that if I open all dataset images in the constructor (<code>__init__</code>), the computer will run out of memory. So, I chose to load files lazily: the constructor only reads the JSONL metadata, and the actual image loading is deferred to <code>__getitem__</code> which loads a single file when PyTorch requests that index."</li>
+          <li><strong>Cross-platform path mapping:</strong> "Next, I needed to make sure that the image file paths resolve correctly on different environments. So, I wrote a path resolution helper that translates repo-relative paths using the provided <code>repo_root</code> directory."</li>
+          <li><strong>The PIL Image collation trap:</strong> "Finally, I realized that PyTorch's default collator crashes if it receives raw PIL Image objects. So, I decided to allow an image <code>transform</code> callable in the constructor. This allows training scripts to pass standard image transformation pipelines before they are batched."</li>
         </ol>
       </section>
 
-      <section>
-        <h2>4. Imports Explained</h2>
+      <section id="imports">
+        <h2>4. Imports & Global Constants Explained</h2>
         <div class="table-wrap">
           <table>
             <thead>
@@ -52,7 +140,7 @@
               <tr>
                 <td><code>from __future__ import annotations</code></td>
                 <td>Postponed type hints</td>
-                <td>Solves self-referencing classes in parameter declarations.</td>
+                <td>Solves self-referencing classes in type declarations.</td>
                 <td><a href="../concepts/python_primer.html#annotations">Annotations</a></td>
               </tr>
               <tr>
@@ -65,7 +153,7 @@
                 <td><code>from typing import Any, Callable</code></td>
                 <td>Type checking utilities</td>
                 <td>Annotates transforms (<code>Callable</code>) and dictionary keys (<code>Any</code>).</td>
-                <td>N/A</td>
+                <td><a href="../concepts/python_primer.html#typing">Typing</a></td>
               </tr>
               <tr>
                 <td><code>from litevla.data.schema import REPO_ROOT</code></td>
@@ -90,22 +178,39 @@
         </div>
       </section>
 
-      <section>
-        <h2>5. Code Walkthrough</h2>
+      <section id="diagrams">
+        <h2>5. Class Data-Flow Diagrams</h2>
+        
+        <h3>LiteVLADataset Data Ingestion & Batch Loading Flow</h3>
+        <pre class="mermaid">
+flowchart TD
+    Init[Constructor __init__] -->|read_jsonl| LoadMetadata[Load Metadata Records List]
+    
+    Sampler[PyTorch Sampler/DataLoader] -->|__getitem__ index| Lookup[Lookup Record in self.records]
+    Lookup -->|resolve_image_path| AbsPath[Absolute Image Path]
+    AbsPath -->|Image.open| PIL[Read PNG from Disk & Convert to RGB]
+    
+    TransformCheck{transform is set?}
+    PIL --> TransformCheck
+    TransformCheck -->|Yes| ApplyTrans[Apply transform Callable]
+    TransformCheck -->|No| Dict[Construct Output Dictionary]
+    ApplyTrans --> Dict
+    
+    Dict -->|default_collate| Batch[Stacked Batch Tensors]
 
-        <h3>Type Aliases</h3>
-        <h4><code>ImageTransform</code></h4>
-        <ul>
-          <li><strong>Intent:</strong> Defines the expected type signature for image preprocessing callables.</li>
-          <li><strong>Implementation:</strong>
-            <pre><code class="language-python">ImageTransform = Callable[[Any], Any]</code></pre>
-          </li>
-        </ul>
+    style Init fill:#FAF8F5,stroke:#B8602A,stroke-width:1px
+    style Dict fill:#FAF8F5,stroke:#B8602A,stroke-width:2px
+        </pre>
+      </section>
+
+      <section id="walkthrough">
+        <h2>6. Detailed Code Walkthrough</h2>
 
         <h3>Custom Classes</h3>
+        
         <h4><code>LiteVLADataset</code></h4>
         <ul>
-          <li><strong>Intent:</strong> Subclasses PyTorch's abstract dataset helper to feed batches to the model.</li>
+          <li><strong>Intent:</strong> Implements the PyTorch <code>Dataset</code> contract to feed training samples.</li>
           <li><strong>Implementation:</strong>
             <pre><code class="language-python">class LiteVLADataset(Dataset):
     def __init__(
@@ -120,29 +225,17 @@
         self.transform = transform
         self.records: list[TrainingRecord] = list(read_jsonl(self.jsonl_path))</code></pre>
           </li>
-          <li><strong>Why it's chosen:</strong> Inherits PyTorch's native loader contract so that it can be passed directly to PyTorch DataLoaders.</li>
-          <li><strong>Connections:</strong> Instantiated in training scripts and passed to <code>torch.utils.data.DataLoader</code>.</li>
         </ul>
 
-        <h3>Functions in <code>LiteVLADataset</code></h3>
+        <h3>Functions Walkthrough</h3>
 
         <h4><code>__getitem__(index: int)</code></h4>
         <ul>
           <li><strong>Intent:</strong> Retrieves the image and instruction at a specific index.</li>
-          <li><strong>Contract:</strong>
-            <ul>
-              <li>Inputs: <code>int</code> index.</li>
-              <li>Outputs: <code>dict[str, Any]</code> (ID, loaded PIL Image, instruction text, action command).</li>
-            </ul>
-          </li>
-          <li><strong>Why it's chosen:</strong> Implements lazy loading. Reads the PNG file on demand, converts it to RGB, and returns it.</li>
-          <li><strong>Connections:</strong> Called automatically by PyTorch <code>DataLoader</code> worker threads to build training batches.</li>
+          <li><strong>Why it's chosen:</strong> Implements lazy loading. It opens the file from disk using PIL and converts it to <code>"RGB"</code> to strip out grayscale or alpha channels. If a <code>transform</code> was provided, it applies it here before returning.</li>
         </ul>
       </section>
     </main>
-    <footer class="doc-footer">
-      <p>Lite-VLA Mentorship Path · <code>dataset_loader.md</code> is the source of truth.</p>
-    </footer>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
