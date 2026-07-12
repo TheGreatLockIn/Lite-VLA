@@ -3,326 +3,241 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dataset schema and file layout — Lite-VLA</title>
+  <title>Tutorial: Understanding Lite-VLA Data Schema &amp; File Layout — Lite-VLA</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <h1>Dataset schema and file layout</h1>
+      <h1>Tutorial: Understanding Lite-VLA Data Schema &amp; File Layout</h1>
     </header>
     <main>
-      <p><strong>Epic:</strong> Dataset Generation, Labeling, and Validation (105) · <strong>Jira epic:</strong> VLA-6 · <strong>Story:</strong> VLA-41 / 1029 · <strong>Subtasks:</strong> VLA-169 (format), VLA-170 (fields), VLA-171 (fixtures)</p>
-<p><strong>Human-readable version (browser):</strong> <a href="dataset-schema.html"><code>dataset-schema.html</code></a></p>
-<h2 id="executive-summary">Executive summary</h2>
-<p>VLA-41 owns the <strong>processed training record contract</strong> for supervised fine-tuning: one UTF-8 JSONL row per image-instruction-action example under <code>data/processed/&lt;version&gt;/</code>. Raw simulation logs (VLA-42) use a different on-disk shape; only rows validated against <code>record.schema.json</code> and Epic 103 <code>parse_action()</code> enter training. This story is the schema gate every downstream builder, reviewer, validator, and loader depends on.</p>
-<h2 id="mental-model">Mental model</h2>
-<p>Think of this module as a <strong>passport office for training rows</strong>.</p>
-<p>It exists because ML pipelines fail silently when bad examples slip in — a typo in <code>action</code>, a Windows path, or a synonym like <code>FORWARD</code> poisons gradients long before anyone notices.</p>
-<p>The key engineering tension is <strong>strictness vs flexibility</strong>: the top-level record is rigid (<code>additionalProperties: false</code>), but <code>metadata</code> stays open so capture and review can attach context without schema churn.</p>
-<p>A beginner mistake is treating raw <code>commands.jsonl</code> as training data, or editing JSONL by hand instead of going through validated write paths.</p>
-<p>A senior engineer watches for <strong>vocabulary drift</strong> — any new action token must land in Epic 103, <code>record.schema.json</code>, and dataset tests in the same change.</p>
-<h2 id="backstory-why-this-exists">Backstory: why this exists</h2>
-<p>Before VLA-41, the repo had teleop logs and reference images but no single contract for “one SFT example.” The naive solution would be a folder of PNGs plus a spreadsheet of labels.</p>
-<p>That breaks because spreadsheets hide nested provenance, stream poorly into PyTorch, and cannot share validation logic with ROS capture. Training would also diverge from the five-token action vocabulary the parser and safety gate already enforce.</p>
-<p>So this design chooses <strong>JSONL + JSON Schema + a frozen <code>TrainingRecord</code> dataclass</strong>, with <code>parse_training_record()</code> as the only front door. The pattern appears in real robotics ML stacks as “processed manifest” layers sitting between messy logs and the trainer.</p>
-<h2 id="prerequisites">Prerequisites</h2>
-<ul>
-<li>Epic 103 discrete actions: <a href="../action-interface-parser-and-safety-layer/action-schema.md"><code>action-schema.md</code></a></li>
-<li>JSONL basics: one JSON object per line, UTF-8, append-friendly</li>
-</ul>
-<h2 id="vocabulary">Vocabulary</h2>
+      <p><strong>Files Covered:</strong> <a href="file:///C:/Projects/Lite-VLA/litevla/data/schema.py"><code>litevla/data/schema.py</code></a><br />
+<strong>Epic Milestone:</strong> [Epic 105 / VLA-06: Dataset Generation, Labeling, and Validation]<br />
+<strong>Human-readable version (browser):</strong> <a href="dataset-schema.html"><code>dataset-schema.html</code></a></p>
+<hr />
+<h2 id="1-goal-objective">1. Goal &amp; Objective</h2>
+<p>The goal of the schema module is to define a strict, validated data format that maps physical robot inputs (camera image frames, user goals) and outputs (speed commands) into structured, read-only formats for our ML pipelines.</p>
+<hr />
+<h2 id="2-why-we-need-it">2. Why We Need It</h2>
+<p>During fine-tuning, the model consumes thousands of training records. In Python, raw dictionaries are loose, allowing silent typos (like writing <code>"img_path"</code> instead of <code>"image_path"</code>) or invalid speed commands to go unnoticed. Without this schema gate, invalid actions or missing files would cause GPU training processes to crash after running for hours, wasting computational resources and making debugging difficult. We need a hard boundary that fails fast at the ingestion stage.</p>
+<hr />
+<h2 id="3-how-to-start-thinking-about-it-ai-developer-thought-process">3. How to Start Thinking About It (AI Developer Thought Process)</h2>
+<p>When designing this code, I thought about the developer's sequential decision-making process:</p>
+<ol>
+<li><strong>A loose dictionary is too risky:</strong> "First, I thought about how we need to represent a single dataset item. A simple Python dictionary is too loose because we can write typos in the keys, and the program will continue running anyway. I need to define a strict data schema."</li>
+<li><strong>Dataclass for safety:</strong> "Then, I wanted to lock down mutations so that training records cannot be accidentally changed by loaders during training. So, I decided to use a Python <code>@dataclass</code> with <code>frozen=True</code>."</li>
+<li><strong>JSON Schema for checking text structures:</strong> "After that, I needed to check raw JSON data before loading it into memory. So, I decided to write JSON schema blueprint files and validate raw dictionaries using <code>jsonschema</code>'s Draft 2020-12 validator before converting them to dataclass objects."</li>
+<li><strong>Action parsing validation:</strong> "Next, I realized that checking schemas only validates strings, not the specific action values. So, I decided to import <code>parse_action</code> to make sure each action string maps to a valid system steering word (like <code>MOVE_FORWARD</code>)."</li>
+<li><strong>Memory-efficient loading:</strong> "Finally, when writing the file reader, I realized that datasets could have 10,000+ lines. Reading the entire file into a list would hog memory. Therefore, I chose to use Python's <code>yield</code> generator syntax so that we only load one record into memory at a time."</li>
+</ol>
+<hr />
+<h2 id="4-imports-global-constants-explained">4. Imports &amp; Global Constants Explained</h2>
+<h3 id="imports-table">Imports Table</h3>
 <div class="table-wrap"><table>
 <thead>
 <tr>
-<th>Term</th>
-<th>Meaning in this project</th>
+<th>Import Statement</th>
+<th>What it is</th>
+<th>Why it is used here</th>
+<th>Concept Link</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Training record</strong></td>
-<td>One row: image + instruction + discrete action + provenance</td>
+<td><code>from __future__ import annotations</code></td>
+<td>Postponed type hints</td>
+<td>Solves self-referencing classes in type hints.</td>
+<td><a href="../../concepts/python_primer.md#postponed-annotations">Annotations</a></td>
 </tr>
 <tr>
-<td><strong>JSONL</strong></td>
-<td>Newline-delimited JSON; streaming read/write for large corpora</td>
+<td><code>import json</code></td>
+<td>Standard JSON parser</td>
+<td>Used to read and write raw JSON/JSONL rows.</td>
+<td><a href="../../concepts/python_primer.md#json-serialization">JSON Serialization</a></td>
 </tr>
 <tr>
-<td><strong>JSON Schema</strong></td>
-<td>Machine-checkable field contract in <code>data/schema/record.schema.json</code></td>
+<td><code>from dataclasses import dataclass, field</code></td>
+<td>Boilerplate helper</td>
+<td>Defines the structured, read-only data structures for records.</td>
+<td><a href="../../concepts/python_primer.md#dataclasses-and-fields">Dataclasses</a></td>
 </tr>
 <tr>
-<td><strong>Processed layer</strong></td>
-<td><code>data/processed/&lt;version&gt;/</code> — training-ready rows only</td>
+<td><code>from pathlib import Path</code></td>
+<td>Cross-platform file paths</td>
+<td>Handles directory paths, resolving slashes correctly on Windows and Linux.</td>
+<td><a href="../../concepts/python_primer.md#pathlib-file-resolution">Pathlib</a></td>
 </tr>
 <tr>
-<td><strong>Raw layer</strong></td>
-<td><code>data/raw/episodes/</code> — high-frequency capture logs (VLA-42)</td>
+<td><code>from typing import Any, Iterator</code></td>
+<td>Type annotation tools</td>
+<td>Declares return types for dictionaries (<code>Any</code>) and generators (<code>Iterator</code>).</td>
+<td><a href="../../concepts/python_primer.md#typing-and-type-checking">Typing</a></td>
 </tr>
 <tr>
-<td><strong><code>source</code></strong></td>
-<td>How the row was produced: <code>teleop</code>, <code>reference</code>, <code>synthetic</code>, <code>manual_review</code></td>
+<td><code>import jsonschema</code></td>
+<td>Draft schema validator</td>
+<td>Checks that incoming dictionaries contain all mandatory variables.</td>
+<td><a href="../../concepts/python_primer.md#json-schema-validation">JSON Schema</a></td>
 </tr>
 <tr>
-<td><strong><code>parse_action()</code></strong></td>
-<td>Epic 103 strict token validator used after JSON Schema passes</td>
+<td><code>from jsonschema import Draft202012Validator</code></td>
+<td>Strict validator class</td>
+<td>Implements the official Draft-2020 JSON Schema validator engine.</td>
+<td><a href="../../concepts/python_primer.md#json-schema-validation">JSON Schema</a></td>
+</tr>
+<tr>
+<td><code>from litevla.actions import parse_action</code></td>
+<td>Action word validator</td>
+<td>Converts string actions (e.g. <code>"MOVE_FORWARD"</code>) to verified system commands.</td>
+<td>N/A</td>
 </tr>
 </tbody>
 </table></div>
-<h2 id="guided-code-reading">Guided code reading</h2>
-<p>Read these in order:</p>
-<ol>
-<li><code>data/schema/record.schema.json</code></li>
-<li>Inspect <code>required</code>, <code>action.enum</code>, and <code>additionalProperties: false</code>.</li>
-<li>
-<p>Ignore optional fields on first pass.</p>
-</li>
-<li>
-<p><code>litevla/data/schema.py</code></p>
-</li>
-<li>Start at <code>TrainingRecord</code> and <code>parse_training_record()</code>.</li>
-<li>
-<p>Then <code>read_jsonl()</code> / <code>write_jsonl()</code> for I/O boundaries.</p>
-</li>
-<li>
-<p><code>data/fixtures/sample_train.jsonl</code></p>
-</li>
-<li>
-<p>Six committed rows covering all five actions and three sources.</p>
-</li>
-<li>
-<p><code>configs/default.example.yaml</code> (<code>data:</code> section)</p>
-</li>
-<li>See how training scripts discover schema and processed paths.</li>
-</ol>
-<p>While reading, ask: Where does validation happen? Who raises on bad rows? What is allowed in <code>metadata</code>?</p>
-<h2 id="api-contract-and-data-flow">API contract and data flow</h2>
+<h3 id="global-constants">Global Constants</h3>
+<h4 id="repo_root"><code>REPO_ROOT</code></h4>
+<ul>
+<li><strong>What it is:</strong> Resolves the absolute parent directory of the active Lite-VLA repository.</li>
+<li><strong>Why it is defined here:</strong> Resolves directories relative to the active file's location on disk, ensuring absolute paths are computed correctly on other developers' machines.</li>
+<li><a href="../../concepts/python_primer.md#pathlib-file-resolution">Pathlib Concept Reference</a></li>
+</ul>
+<h4 id="record_schema_path"><code>RECORD_SCHEMA_PATH</code></h4>
+<ul>
+<li><strong>What it is:</strong> Absolute path to the JSON Schema contract for training records.</li>
+<li><strong>Why it is defined here:</strong> Tells the validator exactly where to find the contract file.</li>
+</ul>
+<h4 id="fixtures_path"><code>FIXTURES_PATH</code></h4>
+<ul>
+<li><strong>What it is:</strong> Path to sample mock dataset files for testing.</li>
+</ul>
+<hr />
+<h2 id="5-class-data-flow-diagrams">5. Class Data-Flow Diagrams</h2>
+<h3 id="trainingrecord-ingestion-export-flow"><code>TrainingRecord</code> Ingestion &amp; Export Flow</h3>
+<pre class="mermaid">flowchart TD
+    Raw[Raw JSONL Text Line] --&gt;|read_jsonl| Parse[json.loads]
+    Parse --&gt;|validate_record_dict| SchemaCheck[Draft202012Validator]
+    SchemaCheck --&gt;|parse_action| ValidAct[parse_action]
+    ValidAct --&gt;|Construct| TR[TrainingRecord Dataclass]
+    TR --&gt;|training_record_to_dict| Serialized[Serialized Python Dict]
+    Serialized --&gt;|write_jsonl| OutFile[Output JSONL File on Disk]
+
+    style TR fill:#FAF8F5,stroke:#B8602A,stroke-width:2px</pre>
+
+<hr />
+<h2 id="6-detailed-code-walkthrough">6. Detailed Code Walkthrough</h2>
+<h3 id="custom-classes">Custom Classes</h3>
+<h4 id="trainingrecord"><code>TrainingRecord</code></h4>
+<ul>
+<li><strong>Intent:</strong> Represents a single image-prompt-action pair for training.</li>
+<li><strong>Code Snippet:</strong>
+  <code>python
+  @dataclass(frozen=True)
+  class TrainingRecord:
+      image_path: str
+      instruction: str
+      action: str
+      timestamp: str
+      source: str
+      id: str | None = None
+      episode_id: str | None = None
+      metadata: dict[str, Any] = field(default_factory=dict)</code></li>
+<li><strong>Data Contract:</strong> </li>
+<li>Inputs: mandatory strings (<code>image_path</code>, <code>instruction</code>, <code>action</code>, <code>timestamp</code>, <code>source</code>), optional IDs (<code>id</code>, <code>episode_id</code>), and an optional <code>metadata</code> dictionary.</li>
+<li>Outputs: An immutable record instance.</li>
+<li><strong>Why it's written this way:</strong> <code>frozen=True</code> guarantees that once a record is parsed, its values cannot be modified during training. <code>field(default_factory=dict)</code> is used because standard mutable default parameters like <code>metadata: dict = {}</code> are shared across all class instances in Python, which leads to memory leaks.</li>
+<li><strong>System Connections:</strong> Created by <code>parse_training_record</code>, read by the <code>LiteVLADataset</code> loader.</li>
+<li><a href="../../concepts/python_primer.md#dataclasses-and-fields">Dataclasses Concept Reference</a></li>
+</ul>
+<h4 id="recordschemaerror"><code>RecordSchemaError</code></h4>
+<ul>
+<li><strong>Intent:</strong> Custom exception raised when validation fails.</li>
+<li><strong>Why it's written this way:</strong> Inherits from <code>ValueError</code>. This allows training scripts to catch and handle schema validation errors specifically.</li>
+<li><a href="../../concepts/python_primer.md#custom-exceptions">Custom Exceptions Concept Reference</a></li>
+</ul>
+<hr />
+<h3 id="functions-in-schemapy">Functions in <code>schema.py</code></h3>
+<h4 id="record_schema_path_1"><code>record_schema_path()</code></h4>
+<ul>
+<li><strong>Intent:</strong> Computes the path to the record schema file.</li>
+<li><strong>Data Contract:</strong> Inputs: None. Outputs: <code>Path</code>.</li>
+</ul>
+<h4 id="load_record_schema"><code>load_record_schema()</code></h4>
+<ul>
+<li><strong>Intent:</strong> Reads and parses the validation schema file from disk.</li>
+<li><strong>Data Contract:</strong> Inputs: None. Outputs: <code>dict[str, Any]</code>.</li>
+<li><strong>Why it's written this way:</strong> Checks if the file exists using <code>is_file()</code> and raises a descriptive <code>FileNotFoundError</code> if missing.</li>
+</ul>
+<h4 id="_format_validation_errorerror"><code>_format_validation_error(error)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Converts a validation error into a readable path string (e.g. <code>metadata -&gt; world: ...</code>).</li>
+<li><strong>Data Contract:</strong> Inputs: <code>jsonschema.ValidationError</code>. Outputs: <code>str</code>.</li>
+</ul>
+<h4 id="validate_record_dictraw-schema"><code>validate_record_dict(raw, *, schema)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Validates a raw dictionary against the JSON schema rules.</li>
+<li><strong>Data Contract:</strong> Inputs: <code>raw</code> dict, optional <code>schema</code> dict. Outputs: None (raises <code>RecordSchemaError</code> if invalid).</li>
+<li><strong>Why it's chosen:</strong> Uses <code>Draft202012Validator.iter_errors</code> to collect all violations, formats them using <code>_format_validation_error</code>, and joins them into a single error string.</li>
+<li><a href="../../concepts/python_primer.md#json-schema-validation">JSON Schema Concept Reference</a></li>
+</ul>
+<h4 id="parse_training_recordraw-schema"><code>parse_training_record(raw, *, schema)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Converts a raw dict into a validated <code>TrainingRecord</code> object.</li>
+<li><strong>Data Contract:</strong> Inputs: <code>raw</code> dict, optional <code>schema</code>. Outputs: <code>TrainingRecord</code>.</li>
+<li><strong>Why it's chosen:</strong> Gatekeeper function. Converts raw actions into verified steering commands using <code>parse_action</code>.</li>
+</ul>
+<h4 id="training_record_to_dictrecord"><code>training_record_to_dict(record)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Converts a <code>TrainingRecord</code> back into a dictionary for JSON output.</li>
+<li><strong>Data Contract:</strong> Inputs: <code>TrainingRecord</code>. Outputs: <code>dict[str, Any]</code>.</li>
+</ul>
+<h4 id="read_jsonlpath-schema"><code>read_jsonl(path, *, schema)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Streams validated records from a JSONL file line-by-line.</li>
+<li><strong>Data Contract:</strong> Inputs: <code>path</code> to file, optional <code>schema</code>. Outputs: <code>Iterator[TrainingRecord]</code> generator.</li>
+<li><strong>Why it's chosen:</strong> Uses <code>yield</code> to load files sequentially, keeping memory usage constant.</li>
+<li><a href="../../concepts/python_primer.md#generators-and-yield">Generators Concept Reference</a></li>
+</ul>
+<h4 id="write_jsonlpath-records"><code>write_jsonl(path, records)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Saves records into a compact JSONL file.</li>
+<li><strong>Data Contract:</strong> Inputs: target file path, iterator of records. Outputs: <code>int</code> (total row count written).</li>
+</ul>
+<hr />
+<h2 id="7-practical-engineering-context">7. Practical Engineering Context</h2>
+<h3 id="executive-summary">Executive Summary</h3>
+<p>VLA-41 owns the <strong>processed training record contract</strong> for supervised fine-tuning: one UTF-8 JSONL row per image-instruction-action example under <code>data/processed/&lt;version&gt;/</code>. Raw simulation logs (VLA-42) use a different on-disk shape; only rows validated against <code>record.schema.json</code> and Epic 103 <code>parse_action()</code> enter training. This story is the schema gate every downstream builder, reviewer, validator, and loader depends on.</p>
+<h3 id="api-contract-data-flow">API Contract &amp; Data Flow</h3>
 <pre><code class="language-text">Raw capture (VLA-42)                    Processed SFT (VLA-41)
 ─────────────────────                   ────────────────────────
 raw/episodes/&lt;id&gt;/commands.jsonl   ──&gt;  processed/v0.1.0/train.jsonl
 raw/episodes/&lt;id&gt;/frames/*.png     ──&gt;       (image_path + instruction + action)
 reference_images/manifest.json     ──&gt;  (via VLA-43 builder)
 </code></pre>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Contract surface</th>
-<th>Rule</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Format</strong></td>
-<td>JSONL — one JSON object per line, UTF-8</td>
-</tr>
-<tr>
-<td><strong><code>action</code></strong></td>
-<td>Exactly one of <code>MOVE_FORWARD</code>, <code>TURN_LEFT</code>, <code>TURN_RIGHT</code>, <code>SLOW_DOWN</code>, <code>STOP</code></td>
-</tr>
-<tr>
-<td><strong><code>source</code></strong></td>
-<td><code>teleop</code>, <code>reference</code>, <code>synthetic</code>, or <code>manual_review</code></td>
-</tr>
-<tr>
-<td><strong><code>image_path</code></strong></td>
-<td>Repo-relative POSIX path; no backslashes</td>
-</tr>
-<tr>
-<td><strong>Validation</strong></td>
-<td>JSON Schema + <code>parse_action()</code> before any row is written to processed files</td>
-</tr>
-<tr>
-<td><strong>Error behavior</strong></td>
-<td><code>RecordSchemaError</code> with file:line context on read; builder/import fail fast</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="naive-approach-vs-chosen-approach">Naive approach vs chosen approach</h3>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Approach</th>
-<th>Why it seems attractive</th>
-<th>Why we did or did not choose it</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>CSV for training storage</td>
-<td>Easy for humans to edit</td>
-<td>Poor nested metadata; not the canonical training format</td>
-</tr>
-<tr>
-<td>Single giant JSON array</td>
-<td>Simple to parse</td>
-<td>Not stream-friendly; reloads entire file</td>
-</tr>
-<tr>
-<td>Parquet</td>
-<td>Efficient columnar storage</td>
-<td>Heavier dependency for MVP edge targets</td>
-</tr>
-<tr>
-<td>JSONL + Schema + dataclass</td>
-<td>Slightly more setup</td>
-<td>Streaming, shared validation, matches ROS log patterns</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="implementation-breakdown">Implementation breakdown</h2>
-<h3 id="json-schema-machine-readable-contract">JSON Schema — machine-readable contract</h3>
-<p><strong>Snippet</strong> (<code>data/schema/record.schema.json</code>):</p>
-<pre><code class="language-json">&quot;action&quot;: {
-  &quot;type&quot;: &quot;string&quot;,
-  &quot;enum&quot;: [&quot;MOVE_FORWARD&quot;, &quot;TURN_LEFT&quot;, &quot;TURN_RIGHT&quot;, &quot;SLOW_DOWN&quot;, &quot;STOP&quot;]
-},
-&quot;additionalProperties&quot;: false
-</code></pre>
-<p><strong>What to notice:</strong> Action enum duplicates Epic 103 on purpose — schema failures catch bad labels before Python imports.</p>
-<p><strong>Why it is written this way:</strong> <code>additionalProperties: false</code> at the top level turns typos into CI failures instead of silent extra fields in training.</p>
-<p><strong>Risks and gotchas:</strong> Raw episode <code>source</code> values (<code>dummy</code>, <code>scripted</code>) differ from training <code>source</code>; VLA-43 maps them during build.</p>
-<hr />
-<h3 id="python-api-parse-validate-stream">Python API — parse, validate, stream</h3>
-<p><strong>Snippet</strong> (<code>litevla/data/schema.py</code>):</p>
-<pre><code class="language-python">@dataclass(frozen=True)
-class TrainingRecord:
-    image_path: str
-    instruction: str
-    action: str
-    timestamp: str
-    source: str
-    id: str | None = None
-    episode_id: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-def parse_training_record(raw: dict[str, Any], *, schema: dict[str, Any] | None = None) -&gt; TrainingRecord:
-    validate_record_dict(raw, schema=schema)
-    action = parse_action(str(raw[&quot;action&quot;]))
-    ...
-</code></pre>
-<p><strong>What to notice:</strong> Schema validation runs before action parsing; both must pass.</p>
-<p><strong>Why it is written this way:</strong> Single parse path for builder, label import, validator, and loader — one source of truth.</p>
-<p><strong>Risks and gotchas:</strong> <code>read_jsonl()</code> fails on the <strong>first</strong> bad row (fail-fast). Use VLA-45 <code>validate_dataset()</code> when you need a full error report.</p>
-<hr />
-<h3 id="fixtures-and-config-wiring">Fixtures and config wiring</h3>
-<p><strong>Fixtures:</strong> <code>data/fixtures/sample_train.jsonl</code> — six rows for CI without requiring PNG files on disk.</p>
-<p><strong>Config</strong> (<code>configs/default.example.yaml</code>):</p>
-<pre><code class="language-yaml">data:
-  schema_path: data/schema/record.schema.json
-  processed_version: v0.1.0
-  train_path: data/processed/v0.1.0/train.jsonl
-</code></pre>
-<h2 id="engineering-decisions">Engineering decisions</h2>
-<pre><code class="language-text">ADR: JSONL for training (VLA-169)
-Status: Accepted
-Context: Need nested metadata and streaming for large datasets.
-Decision: JSONL only for processed training; CSV only for label review spreadsheets (VLA-44).
-Alternatives Rejected: Parquet (heavier dependency), single JSON array (not stream-friendly).
-Consequences: All writers must use write_jsonl() or re-validate on import.
-</code></pre>
-<pre><code class="language-text">ADR: Epic 103 action enum in schema (VLA-170)
-Status: Accepted
-Context: Model output, dummy controller, and dataset must share one vocabulary.
-Decision: Hard-code the five DiscreteAction tokens in JSON Schema enum.
-Consequences: Teleop-only labels like MOVE_BACKWARD stay in raw logs, not training rows.
-</code></pre>
-<h2 id="verification-patterns-and-failure-modes">Verification patterns and failure modes</h2>
-<p><strong>Commands:</strong></p>
-<pre><code class="language-bash">pytest tests/test_dataset_schema.py -q
-python -c &quot;
-from litevla.data.schema import read_jsonl, FIXTURES_PATH
-print(sum(1 for _ in read_jsonl(FIXTURES_PATH)))
-&quot;
-</code></pre>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Contract defended</th>
-<th>Test / command</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Required fields present</td>
-<td><code>test_dataset_schema.py</code></td>
-</tr>
-<tr>
-<td>Invalid action rejected</td>
-<td><code>parse_training_record</code> + <code>parse_action</code></td>
-</tr>
-<tr>
-<td>Extra top-level keys rejected</td>
-<td><code>additionalProperties: false</code></td>
-</tr>
-<tr>
-<td>JSONL round-trip</td>
-<td><code>write_jsonl</code> / <code>read_jsonl</code></td>
-</tr>
-</tbody>
-</table></div>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Symptom</th>
-<th>Likely cause</th>
-<th>How to investigate</th>
-<th>Fix</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>RecordSchemaError</code> on line N</td>
-<td>Bad action, missing field, or typo key</td>
-<td>Read message path (<code>action</code>, <code>source</code>, …)</td>
-<td>Fix row or re-export from label CSV</td>
-</tr>
-<tr>
-<td><code>FORWARD</code> rejected</td>
-<td>Alias not in Epic 103</td>
-<td>Check <code>action</code> column</td>
-<td>Use exact token from action schema doc</td>
-</tr>
-<tr>
-<td>Training can't find images</td>
-<td><code>image_path</code> wrong or PNG missing</td>
-<td>Compare path to repo root</td>
-<td>Run VLA-45 with image check</td>
-</tr>
-<tr>
-<td>Raw log won't load as training</td>
-<td>Wrong layer</td>
-<td>Check file is under <code>processed/</code></td>
-<td>Run VLA-43 builder</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="engineering-principle-taught-by-this-task">Engineering principle taught by this task</h2>
-<p><strong>Validate at the boundary, not inside the trainer.</strong> Schema and action checks belong where data enters the processed layer; the training loop should assume rows are already trustworthy.</p>
-<h2 id="active-learning-checks">Active learning checks</h2>
-<p>Before changing this module, answer:</p>
-<ol>
-<li>Why is raw <code>commands.jsonl</code> a different contract than <code>train.jsonl</code>?</li>
-<li>What happens if you add a field without updating <code>record.schema.json</code>?</li>
-<li>Why does <code>parse_training_record</code> call both JSON Schema and <code>parse_action()</code>?</li>
-<li>When should you use <code>read_jsonl()</code> vs <code>validate_dataset()</code>?</li>
-</ol>
-<p><strong>Small modification exercise:</strong> Add an optional <code>metadata.review</code> object via the label import path (VLA-44), run <code>pytest tests/test_dataset_schema.py</code>, and confirm top-level shape is unchanged.</p>
-<h2 id="open-questions">Open questions</h2>
+<h3 id="naive-approach-vs-chosen-approach">Naive Approach vs Chosen Approach</h3>
 <ul>
-<li><strong>Lazy JSONL for large corpora:</strong> <code>read_jsonl</code> streams, but <code>LiteVLADataset</code> eagerly lists all rows — streaming index may be needed beyond ~10k examples (VLA-46 follow-up).</li>
+<li><strong>Naive approach</strong>: Store data in simple CSV tables. Breaks because nested metadata is poorly structured and streaming into PyTorch is slow.</li>
+<li><strong>Chosen approach</strong>: Newline-delimited JSON (JSONL) combined with a strict JSON Schema and frozen Python dataclass. Fast, appendable, and validates at boundaries.</li>
 </ul>
-<h2 id="related">Related</h2>
+<h3 id="adr-log-summary">ADR Log Summary</h3>
 <ul>
-<li><a href="../action-interface-parser-and-safety-layer/action-schema.md">action-schema.md</a> (Epic 103 labels)</li>
-<li><a href="simulation-data-capture.md">simulation-data-capture.md</a> (VLA-42 raw layer)</li>
-<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a> (VLA-43 builder output)</li>
-<li><a href="labeling-workflow.md">labeling-workflow.md</a> (VLA-44 human review)</li>
-<li><a href="dataset-validation.md">dataset-validation.md</a> (VLA-45 schema gate)</li>
-<li><a href="dataset-loader.md">dataset-loader.md</a> (VLA-46 training consumer)</li>
-<li><a href="dataset-versioning.md">dataset-versioning.md</a> (VLA-47 release packaging)</li>
-<li><a href="../../../../data/README.md"><code>data/README.md</code></a> (folder layout)</li>
+<li><strong>ADR (VLA-169)</strong>: Newline-delimited JSON (JSONL) chosen for dataset records; human review uses CSV spreadsheets.</li>
+<li><strong>ADR (VLA-170)</strong>: Discrete action vocabulary is hardcoded in the schema, ensuring strict synchronization with Epic 103 commands.</li>
+</ul>
+<h3 id="verification-patterns-failure-modes">Verification Patterns &amp; Failure Modes</h3>
+<ul>
+<li>Command to run: <code>pytest tests/test_dataset_schema.py -q</code></li>
+<li>Common error: <code>RecordSchemaError</code> due to a typo or incorrect action value. Verify path separator forms and correct values using the validation report tool.</li>
+</ul>
+<h3 id="related">Related</h3>
+<ul>
+<li><a href="../action-interface-parser-and-safety-layer/action-schema.md">action-schema.md</a></li>
+<li><a href="simulation-data-capture.md">simulation-data-capture.md</a></li>
+<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a></li>
+<li><a href="labeling-workflow.md">labeling-workflow.md</a></li>
+<li><a href="dataset-validation.md">dataset-validation.md</a></li>
+<li><a href="dataset-loader.md">dataset-loader.md</a></li>
+<li><a href="dataset-versioning.md">dataset-versioning.md</a></li>
 </ul>
     </main>
     <footer class="doc-footer">
@@ -337,6 +252,20 @@ print(sum(1 for _ in read_jsonl(FIXTURES_PATH)))
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
 <script src="../../scripts/doc-code.js"></script>
-  
+  <script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      background: "#FAF8F5",
+      primaryColor: "#F0EDE8",
+      primaryBorderColor: "#D4CFC7",
+      primaryTextColor: "#2C2825",
+      lineColor: "#B8602A",
+      textColor: "#2C2825"
+    }
+  });
+</script>
 </body>
 </html>

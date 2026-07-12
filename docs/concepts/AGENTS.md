@@ -1,6 +1,6 @@
 # Concept Primers Guidelines (AGENTS.md)
 
-This directory (`docs/mentorship/concepts/`) contains generalized reference documents for programming languages, frameworks, and technologies used in the Lite-VLA project.
+This directory (`docs/concepts/`) contains generalized reference documents for programming languages, frameworks, and technologies used in the Lite-VLA project.
 
 ---
 

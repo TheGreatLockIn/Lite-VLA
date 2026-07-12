@@ -3,296 +3,190 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Labeling workflow — Lite-VLA</title>
+  <title>Tutorial: Understanding the Labeling &amp; Review CSV Workflow — Lite-VLA</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <h1>Labeling workflow</h1>
+      <h1>Tutorial: Understanding the Labeling &amp; Review CSV Workflow</h1>
     </header>
     <main>
-      <p><strong>Epic:</strong> Dataset Generation, Labeling, and Validation (105) · <strong>Jira epic:</strong> VLA-6 · <strong>Story:</strong> VLA-44 / 1032 · <strong>Subtasks:</strong> 10096 (guidelines), 10097 (template), 10098 (checklist)</p>
-<p><strong>Human-readable version (browser):</strong> <a href="labeling-workflow.html"><code>labeling-workflow.html</code></a></p>
-<h2 id="executive-summary">Executive summary</h2>
-<p>VLA-44 owns the <strong>human review path</strong> between VLA-43 processed JSONL and training-ready data. Reviewers work in a spreadsheet-friendly CSV (<code>data/templates/label_review.csv</code>), not in JSONL directly. Export → edit → import preserves traceability via <code>id</code>, <code>review_status</code>, and <code>metadata.review</code> on merged rows. Approved and corrected rows become <code>source: manual_review</code>; rejected rows are dropped from the import output.</p>
-<h2 id="mental-model">Mental model</h2>
-<p>Think of labeling as a <strong>code review for robot demonstrations</strong>.</p>
-<p>It exists because automated builders and teleop logs produce <em>proposed</em> actions that can be wrong — humans must confirm “what should the robot do next?” before fine-tuning memorizes mistakes.</p>
-<p>The key engineering tension is <strong>reviewer ergonomics vs machine contracts</strong>: spreadsheets are easy for people; JSONL + schema are easy for pipelines.</p>
-<p>A beginner mistake is editing <code>train.jsonl</code> by hand, using synonym actions (<code>FORWARD</code>), or leaving rows <code>pending</code> then importing for training.</p>
-<p>A senior engineer watches for <strong>id stability</strong> — export/import matches on <code>id</code> only; renamed rows silently become orphans.</p>
-<h2 id="backstory-why-this-exists">Backstory: why this exists</h2>
-<p>Spreadsheet-first labeling is tempting for a small team. The naive path is “everyone edits the training file.”</p>
-<p>That breaks because one stray comma corrupts JSONL, nested review metadata does not fit columns cleanly, and invalid actions slip in without <code>parse_action()</code>.</p>
-<p>So this design chooses <strong>CSV round-trip through validated import</strong>, with guidelines locking labels to Epic 103 tokens only.</p>
-<h2 id="prerequisites">Prerequisites</h2>
-<ul>
-<li>Epic 103 action meanings: <a href="../action-interface-parser-and-safety-layer/action-schema.md">action-schema.md</a></li>
-<li>VLA-41 record shape: <a href="dataset-schema.md">dataset-schema.md</a></li>
-</ul>
-<h2 id="vocabulary">Vocabulary</h2>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Term</th>
-<th>Meaning in this project</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong><code>action_proposed</code></strong></td>
-<td>Builder or teleop label — do not edit unless wrong</td>
-</tr>
-<tr>
-<td><strong><code>action_reviewed</code></strong></td>
-<td>Human correction; required when <code>review_status=corrected</code></td>
-</tr>
-<tr>
-<td><strong><code>review_status</code></strong></td>
-<td><code>pending</code>, <code>approved</code>, <code>corrected</code>, or <code>rejected</code></td>
-</tr>
-<tr>
-<td><strong><code>manual_review</code></strong></td>
-<td>Training <code>source</code> after successful human merge</td>
-</tr>
-<tr>
-<td><strong><code>metadata.review</code></strong></td>
-<td>Nested audit trail on imported JSONL rows</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="guided-code-reading">Guided code reading</h2>
+      <p><strong>Files Covered:</strong> <a href="file:///C:/Projects/Lite-VLA/litevla/data/label_review.py"><code>litevla/data/label_review.py</code></a><br />
+<strong>Epic Milestone:</strong> [Epic 105 / VLA-06: Dataset Generation, Labeling, and Validation]<br />
+<strong>Human-readable version (browser):</strong> <a href="labeling-workflow.html"><code>labeling-workflow.html</code></a></p>
+<hr />
+<h2 id="1-goal-objective">1. Goal &amp; Objective</h2>
+<p>The goal of the label review module is to establish a robust spreadsheet-friendly review gate. It exports processed JSONL records into a CSV format so that human annotators can approve, correct, or reject action labels, and then safely imports those reviews back into validated JSONL training datasets.</p>
+<hr />
+<h2 id="2-why-we-need-it">2. Why We Need It</h2>
+<p>Robotic capture loops and automated compilers propose navigation labels, but machine guesses are sometimes wrong (e.g. steering left when facing an obstacle due to temporal delays). Hand-editing raw JSONL text files is error-prone. We need a way to present training frames and instructions to human evaluators in standard spreadsheets (like Excel or Google Sheets), track review statuses, audit adjustments, and reject incorrect records entirely so they never poison model gradients.</p>
+<hr />
+<h2 id="3-how-to-start-thinking-about-it-ai-developer-thought-process">3. How to Start Thinking About It (AI Developer Thought Process)</h2>
+<p>When designing this code, I thought about the developer's sequential decision-making process:</p>
 <ol>
-<li><code>data/templates/label_review.csv</code> — column headers (<code>REVIEW_COLUMNS</code>).</li>
-<li><code>data/templates/label_review_checklist.md</code> — printable QA steps.</li>
-<li><code>litevla/data/label_review.py</code> — <code>export_jsonl_to_review_csv</code>, <code>import_review_csv_to_jsonl</code>.</li>
-<li><code>scripts/label_review.py</code> — CLI (<code>export</code>, <code>import</code>, <code>bulk-approve</code>).</li>
-<li><code>tests/test_label_review.py</code> — merge semantics.</li>
+<li><strong>Human review needs spreadsheets:</strong> "JSONL is great for machines, but human annotators cannot easily read or edit it. I need to convert records to a flat, comma-separated values (CSV) table."</li>
+<li><strong>Stable matching key:</strong> "When reviews are imported, we must match rows back to the original records without mistake. So, I decided that each training record must generate a unique UUID string, which is preserved as an <code>id</code> column in the spreadsheet."</li>
+<li><strong>Strict state verification:</strong> "We cannot allow rows to stay in an undecided state. So, I defined a strict set of review statuses (<code>approved</code>, <code>corrected</code>, <code>rejected</code>, <code>pending</code>), and raise clear errors if any row is still <code>pending</code> during the validation import."</li>
+<li><strong>Audit blocks for logging changes:</strong> "If a reviewer corrects a label, we must keep a history of what the original action was. Therefore, I chose to insert an audit dictionary under <code>metadata.review</code> inside the record."</li>
 </ol>
-<h2 id="api-contract-and-data-flow">API contract and data flow</h2>
-<pre><code class="language-text">processed/v0.1.0/train.jsonl
-        │
-        ▼
-  label_review.py export  ──&gt;  label_review.csv  (spreadsheet)
-        │
-        ▼  human sets review_status, action_reviewed, reviewer, notes
-        │
-  label_review.py import  ──&gt;  train_reviewed.jsonl  (validated JSONL)
-</code></pre>
+<hr />
+<h2 id="4-imports-global-constants-explained">4. Imports &amp; Global Constants Explained</h2>
+<h3 id="imports-table">Imports Table</h3>
 <div class="table-wrap"><table>
 <thead>
 <tr>
-<th>Contract</th>
-<th>Rule</th>
+<th>Import Statement</th>
+<th>What it is</th>
+<th>Why it is used here</th>
+<th>Concept Link</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Review format</td>
-<td>CSV with fixed columns in <code>REVIEW_COLUMNS</code></td>
+<td><code>from __future__ import annotations</code></td>
+<td>Postponed type hints</td>
+<td>Solves self-referencing classes in type declarations.</td>
+<td><a href="../../concepts/python_primer.md#postponed-annotations">Annotations</a></td>
 </tr>
 <tr>
-<td>Training format</td>
-<td>JSONL only — CSV never enters training directly</td>
+<td><code>import csv</code></td>
+<td>Python CSV module</td>
+<td>Handles reading and writing delimited spreadsheet files.</td>
+<td><a href="../../concepts/python_primer.md#json-serialization">JSON/CSV Serialization</a></td>
 </tr>
 <tr>
-<td><code>review_status</code></td>
-<td><code>pending</code> | <code>approved</code> | <code>corrected</code> | <code>rejected</code></td>
+<td><code>from dataclasses import dataclass</code></td>
+<td>Boilerplate helper</td>
+<td>Defines clean structured representations for reviews.</td>
+<td><a href="../../concepts/python_primer.md#dataclasses-and-fields">Dataclasses</a></td>
 </tr>
 <tr>
-<td>Final action</td>
-<td><code>corrected</code> → <code>action_reviewed</code>; else <code>action_reviewed</code> or <code>action_proposed</code></td>
+<td><code>from datetime import datetime, timezone</code></td>
+<td>Time formatting tools</td>
+<td>Formats UTC timestamps for review entries.</td>
+<td><a href="../../concepts/python_primer.md#timezones--utc-datetime">Timezones</a></td>
 </tr>
 <tr>
-<td>Rejected rows</td>
-<td>Omitted from import output</td>
+<td><code>from pathlib import Path</code></td>
+<td>Path resolution utility</td>
+<td>Resolves relative file locations on the drive.</td>
+<td><a href="../../concepts/python_primer.md#pathlib-file-resolution">Pathlib</a></td>
+</tr>
+<tr>
+<td><code>from typing import Any, Iterator</code></td>
+<td>Type annotation tools</td>
+<td>Declares variable annotations.</td>
+<td><a href="../../concepts/python_primer.md#typing-and-type-checking">Typing</a></td>
+</tr>
+<tr>
+<td><code>from litevla.actions import parse_action</code></td>
+<td>Action word validator</td>
+<td>Converts string actions to verified steering commands.</td>
+<td>N/A</td>
 </tr>
 </tbody>
 </table></div>
-<h3 id="labeling-guidelines-10096">Labeling guidelines (10096)</h3>
-<p>Answer: <strong>“What should the robot do next?”</strong> given the image and instruction — not the full plan to the goal.</p>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Action</th>
-<th>When to use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>MOVE_FORWARD</code></td>
-<td>Clear path toward the instruction target; target visible ahead</td>
-</tr>
-<tr>
-<td><code>TURN_LEFT</code> / <code>TURN_RIGHT</code></td>
-<td>Target off-center or not visible; reorient before driving</td>
-</tr>
-<tr>
-<td><code>SLOW_DOWN</code></td>
-<td>Target nearby or approach phase; still moving but cautiously</td>
-</tr>
-<tr>
-<td><code>STOP</code></td>
-<td>Goal reached, obstacle blocks path, or safe halt required</td>
-</tr>
-</tbody>
-</table></div>
-<p><strong>Do not use in training labels:</strong> teleop-only tokens, synonyms (<code>FORWARD</code>, <code>LEFT</code>, <code>GO</code>).</p>
-<h3 id="naive-approach-vs-chosen-approach">Naive approach vs chosen approach</h3>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Approach</th>
-<th>Why it seems attractive</th>
-<th>Why we did or did not choose it</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Edit JSONL in VS Code</td>
-<td>Direct</td>
-<td>Easy to break schema; no spreadsheet UX</td>
-</tr>
-<tr>
-<td>Custom labeling GUI</td>
-<td>Nice UX</td>
-<td>Out of MVP scope</td>
-</tr>
-<tr>
-<td>CSV export/import round-trip</td>
-<td>Extra scripts</td>
-<td>Familiar tools + schema validation on import</td>
-</tr>
-<tr>
-<td>Keep rejected rows in training</td>
-<td>Preserve counts</td>
-<td>Poison examples; reject drops row</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="implementation-breakdown">Implementation breakdown</h2>
-<h3 id="csv-template-and-columns">CSV template and columns</h3>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>id</code></td>
-<td>Matches JSONL <code>id</code> (export generates <code>anon_NNNNN</code> if missing)</td>
-</tr>
-<tr>
-<td><code>action_proposed</code></td>
-<td>Auto label — do not edit unless wrong</td>
-</tr>
-<tr>
-<td><code>action_reviewed</code></td>
-<td>Required when <code>review_status=corrected</code></td>
-</tr>
-<tr>
-<td><code>review_status</code></td>
-<td>Workflow gate</td>
-</tr>
-<tr>
-<td><code>reviewer</code></td>
-<td>Who approved/corrected/rejected</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="python-api">Python API</h3>
-<p><strong>Snippet</strong> (<code>litevla/data/label_review.py</code>):</p>
-<pre><code class="language-python">export_jsonl_to_review_csv(jsonl_path, csv_path) -&gt; int
-import_review_csv_to_jsonl(jsonl_path=..., csv_path=..., output_path=...) -&gt; ImportReviewStats
-</code></pre>
-<p><strong>Risks and gotchas:</strong> <code>read_review_csv</code> validates headers and actions at parse time. Import matches on <code>id</code> only.</p>
-<h3 id="cli">CLI</h3>
-<pre><code class="language-bash">python scripts/label_review.py export \
-  --jsonl data/processed/v0.1.0/train.jsonl \
-  --output data/processed/v0.1.0/label_review.csv
+<h3 id="global-constants">Global Constants</h3>
+<h4 id="review_columns"><code>REVIEW_COLUMNS</code></h4>
+<ul>
+<li><strong>What it is:</strong> Defines the fixed list of spreadsheet column names.</li>
+<li><strong>Why it is defined here:</strong> Enforces key consistency between CSV writers and readers.</li>
+</ul>
+<h4 id="review_statuses"><code>REVIEW_STATUSES</code></h4>
+<ul>
+<li><strong>What it is:</strong> The set of allowed review status values (<code>pending</code>, <code>approved</code>, <code>corrected</code>, <code>rejected</code>).</li>
+</ul>
+<hr />
+<h2 id="5-class-data-flow-diagrams">5. Class Data-Flow Diagrams</h2>
+<h3 id="reviewrow-csv-data-lifecycle"><code>ReviewRow</code> CSV Data Lifecycle</h3>
+<pre class="mermaid">flowchart TD
+    JSONL[Training JSONL File] --&gt;|read_jsonl| Rec[TrainingRecord]
+    Rec --&gt;|export_jsonl_to_review_csv| Writer[csv.DictWriter]
+    Writer --&gt;|Write Rows| CSV[Review CSV File on Disk]
 
-python scripts/label_review.py import \
-  --jsonl data/processed/v0.1.0/train.jsonl \
-  --csv data/processed/v0.1.0/label_review.csv \
-  --output data/processed/v0.1.0/train_reviewed.jsonl
-</code></pre>
-<h2 id="engineering-decisions">Engineering decisions</h2>
-<pre><code class="language-text">ADR: CSV for review, JSONL for training (10097)
-Status: Accepted
-Decision: Round-trip CSV via export/import; merged rows use source: manual_review.
-Alternatives Rejected: Hand-edited JSONL; custom GUI for MVP.
-</code></pre>
-<pre><code class="language-text">ADR: Reject drops row on import (10098)
-Status: Accepted
-Decision: review_status=rejected excludes row from output JSONL.
-Consequences: Keep rejection reasons in review_notes for audit.
-</code></pre>
-<h2 id="verification-patterns-and-failure-modes">Verification patterns and failure modes</h2>
-<pre><code class="language-bash">pytest tests/test_label_review.py -q
-python scripts/label_review.py export --jsonl data/fixtures/sample_train.jsonl --output /tmp/review.csv
-python scripts/label_review.py import --jsonl data/fixtures/sample_train.jsonl --csv /tmp/review.csv --output /tmp/out.jsonl
-</code></pre>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Symptom</th>
-<th>Likely cause</th>
-<th>Investigation</th>
-<th>Fix</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Import fails on action</td>
-<td>Synonym in <code>action_reviewed</code></td>
-<td>Read <code>LabelReviewError</code></td>
-<td>Use Epic 103 token</td>
-</tr>
-<tr>
-<td>Rows missing after import</td>
-<td><code>rejected</code> or <code>pending</code></td>
-<td>Check <code>review_status</code> column</td>
-<td>Approve or correct rows</td>
-</tr>
-<tr>
-<td>Duplicate merge confusion</td>
-<td>Changed <code>id</code> in CSV</td>
-<td>Diff ids export vs import</td>
-<td>Never rename ids between steps</td>
-</tr>
-<tr>
-<td>Release blocked on pending</td>
-<td>VLA-45 <code>--review-csv</code> gate</td>
-<td>Run validator with review CSV</td>
-<td>Clear pending or exclude rows</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="engineering-principle-taught-by-this-task">Engineering principle taught by this task</h2>
-<p><strong>Human interfaces and machine contracts should differ deliberately.</strong> Optimize the review surface for people (CSV), then re-validate aggressively when re-entering the typed pipeline (JSONL).</p>
-<h2 id="active-learning-checks">Active learning checks</h2>
-<ol>
-<li>Why is CSV never the canonical training format?</li>
-<li>What happens to a <code>rejected</code> row during import?</li>
-<li>When must <code>action_reviewed</code> be filled?</li>
-<li>How does <code>metadata.review</code> help post-hoc auditing?</li>
-</ol>
-<h2 id="open-questions">Open questions</h2>
+    CSV --&gt;|read_review_csv| Reader[csv.DictReader]
+    Reader --&gt;|validate_review_csv_no_pending| Pending[Filter Pending IDs]
+    Reader --&gt;|apply_reviews_to_records| Merge[_merge_review]
+
+    Merge --&gt;|Approved / Corrected| OutJSONL[Write Updated JSONL]
+    Merge --&gt;|Rejected| Skipped[Omitted from Output]
+
+    style CSV fill:#FAF8F5,stroke:#B8602A,stroke-width:2px</pre>
+
+<hr />
+<h2 id="6-detailed-code-walkthrough">6. Detailed Code Walkthrough</h2>
+<h3 id="custom-classes">Custom Classes</h3>
+<h4 id="reviewrow"><code>ReviewRow</code></h4>
 <ul>
-<li><strong>Val split review:</strong> Export/import <code>val.jsonl</code> separately or review train only for MVP (current default: train).</li>
-<li><strong>Pending-row gate:</strong> Use <code>validate_dataset(..., review_csv_path=...)</code> or CLI <code>--review-csv</code> before release.</li>
+<li><strong>Intent:</strong> Represents a single review row parsed from a CSV file.</li>
+<li><strong>Why it's written this way:</strong> Validates that the action string exists in the system steering vocabulary if the status is marked as <code>corrected</code>.</li>
 </ul>
-<h2 id="related">Related</h2>
+<h4 id="importreviewstats"><code>ImportReviewStats</code></h4>
 <ul>
-<li><a href="dataset-schema.md">dataset-schema.md</a> (VLA-41 output contract)</li>
-<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a> (VLA-43 builder input)</li>
-<li><a href="dataset-validation.md">dataset-validation.md</a> (VLA-45 — run after import)</li>
-<li><a href="dataset-versioning.md">dataset-versioning.md</a> (VLA-47 — release reviewed JSONL)</li>
-<li><a href="../../../../data/templates/README.md"><code>data/templates/README.md</code></a></li>
+<li><strong>Intent:</strong> Accumulates counts during the import process (<code>approved</code>, <code>corrected</code>, <code>rejected</code>, <code>pending_skipped</code>, <code>output_rows</code>).</li>
+</ul>
+<hr />
+<h3 id="functions-in-label_reviewpy">Functions in <code>label_review.py</code></h3>
+<h4 id="export_jsonl_to_review_csvjsonl_path-csv_path"><code>export_jsonl_to_review_csv(jsonl_path, csv_path)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Reads a processed JSONL file and exports its records to a review spreadsheet.</li>
+<li><strong>Why it's chosen:</strong> Uses <code>csv.DictWriter</code> to guarantee correct column alignment and automatically escape commas.</li>
+<li><a href="../../concepts/python_primer.md#csv-parsing">CSV Parsing Concept Reference</a></li>
+</ul>
+<h4 id="read_review_csvcsv_path"><code>read_review_csv(csv_path)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Reads and parses the review CSV file into <code>ReviewRow</code> records.</li>
+<li><strong>Why it's chosen:</strong> Performs structural checking, throwing a descriptive <code>LabelReviewError</code> if header columns are missing.</li>
+<li><a href="../../concepts/python_primer.md#csv-parsing">CSV Parsing Concept Reference</a></li>
+</ul>
+<h4 id="_merge_reviewrecord-row"><code>_merge_review(record, row)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Merges a human decision back into a training record.</li>
+<li><strong>Why it's chosen:</strong> If corrected, updates the action label and logs the modification history (original label, reviewer name, timestamp) under <code>metadata.review</code>.</li>
+</ul>
+<h4 id="apply_reviews_to_recordsrecords-reviews"><code>apply_reviews_to_records(records, reviews)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Aggregates a list of records and applies their corresponding reviews, matching on <code>id</code>. Rejected records are omitted from the output.</li>
+</ul>
+<h4 id="validate_review_csv_no_pendingcsv_path-jsonl_path"><code>validate_review_csv_no_pending(csv_path, *, jsonl_path)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Scans the review file and flags an error if any record is still marked as <code>pending</code>.</li>
+</ul>
+<h4 id="bulk_approve_review_csvcsv_path-reviewer-notes"><code>bulk_approve_review_csv(csv_path, *, reviewer, notes)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Automation helper that updates all <code>pending</code> rows in a CSV to <code>approved</code>, speeding up release packaging.</li>
+</ul>
+<h4 id="import_review_csv_to_jsonl-jsonl_path-csv_path-output_path"><code>import_review_csv_to_jsonl(*, jsonl_path, csv_path, output_path)</code></h4>
+<ul>
+<li><strong>Intent:</strong> High-level compiler interface. Merges reviews back onto processed datasets and outputs the finalized training file.</li>
+</ul>
+<hr />
+<h2 id="7-practical-engineering-context">7. Practical Engineering Context</h2>
+<h3 id="executive-summary">Executive Summary</h3>
+<p>VLA-44 owns the <strong>human review path</strong> between VLA-43 processed JSONL and training-ready data. Reviewers work in a spreadsheet-friendly CSV (<code>data/templates/label_review.csv</code>), not in JSONL directly. Export → edit → import preserves traceability via <code>id</code>, <code>review_status</code>, and <code>metadata.review</code> on merged rows. Approved and corrected rows become <code>source: manual_review</code>; rejected rows are dropped from the import output.</p>
+<h3 id="naive-approach-vs-chosen-approach">Naive Approach vs Chosen Approach</h3>
+<ul>
+<li><strong>Naive approach</strong>: Hand-edit JSONL strings directly. Too slow and results in schema typos.</li>
+<li><strong>Chosen approach</strong>: Export to a flat CSV structure with stable UUID matching keys. Validates steering actions during import.</li>
+</ul>
+<h3 id="adr-log-summary">ADR Log Summary</h3>
+<ul>
+<li><strong>ADR (VLA-44)</strong>: CSV format is strictly for human review; JSONL remains the canonical machine format for the PyTorch loader.</li>
+</ul>
+<h3 id="verification-patterns-failure-modes">Verification Patterns &amp; Failure Modes</h3>
+<ul>
+<li>Export command: <code>python scripts/label_review.py export --jsonl data/processed/v0.1.0/train.jsonl --output data/processed/v0.1.0/label_review.csv</code></li>
+<li>Import command: <code>python scripts/label_review.py import --jsonl data/processed/v0.1.0/train.jsonl --csv data/processed/v0.1.0/label_review.csv --output data/processed/v0.1.0/train_reviewed.jsonl</code></li>
+<li>Verification check: <code>pytest tests/test_label_review.py -q</code></li>
+</ul>
+<h3 id="related">Related</h3>
+<ul>
+<li><a href="dataset-schema.md">dataset-schema.md</a></li>
+<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a></li>
+<li><a href="dataset-validation.md">dataset-validation.md</a></li>
+<li><a href="dataset-versioning.md">dataset-versioning.md</a></li>
 </ul>
     </main>
     <footer class="doc-footer">
@@ -307,6 +201,20 @@ python scripts/label_review.py import --jsonl data/fixtures/sample_train.jsonl -
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
 <script src="../../scripts/doc-code.js"></script>
-  
+  <script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      background: "#FAF8F5",
+      primaryColor: "#F0EDE8",
+      primaryBorderColor: "#D4CFC7",
+      primaryTextColor: "#2C2825",
+      lineColor: "#B8602A",
+      textColor: "#2C2825"
+    }
+  });
+</script>
 </body>
 </html>

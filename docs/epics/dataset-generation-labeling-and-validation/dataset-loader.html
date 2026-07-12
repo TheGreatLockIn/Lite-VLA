@@ -3,246 +3,203 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dataset loader for training — Lite-VLA</title>
+  <title>Tutorial: The PyTorch Dataset Loader — Lite-VLA</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <h1>Dataset loader for training</h1>
+      <h1>Tutorial: The PyTorch Dataset Loader</h1>
     </header>
     <main>
-      <p><strong>Epic:</strong> Dataset Generation, Labeling, and Validation (105) · <strong>Jira epic:</strong> VLA-6 · <strong>Story:</strong> VLA-46 / 1034 · <strong>Subtasks:</strong> 10102 (Dataset class), 10103 (transforms), 10104 (smoke test)</p>
-<p><strong>Human-readable version (browser):</strong> <a href="dataset-loader.html"><code>dataset-loader.html</code></a></p>
-<h2 id="executive-summary">Executive summary</h2>
-<p>VLA-46 bridges processed JSONL (VLA-41) into Epic 106 fine-tuning: <strong><code>LiteVLADataset</code></strong> is a <code>torch.utils.data.Dataset</code> that loads repo-relative RGB images with Pillow, returns instruction + Epic 103 action labels, and accepts an optional <code>transform</code> for torchvision/VLM preprocessing. The loader intentionally does not embed model-specific normalization — training scripts own the collator/transform pipeline.</p>
-<h2 id="mental-model">Mental model</h2>
-<p>Think of the loader as a <strong>typed iterator over validated rows</strong>, not a training loop.</p>
-<p>It exists because PyTorch expects <code>__getitem__</code> dicts with tensors/images, while the dataset epic standardized on JSONL + schema validation upstream.</p>
-<p>The key engineering tension is <strong>eager validation vs lazy I/O</strong>: parsing all JSONL at init catches corrupt files before epoch 0, but loads metadata into RAM.</p>
-<p>A beginner mistake is batching PIL images without a <code>transform</code>, or assuming the loader tokenizes actions for the VLM.</p>
-<p>A senior engineer watches for <strong>path resolution parity</strong> — loader and validator must resolve <code>image_path</code> identically.</p>
-<h2 id="backstory-why-this-exists">Backstory: why this exists</h2>
-<p>Training scripts could open JSONL and PIL images ad hoc. The naive approach duplicates schema checks and path logic in every experiment script.</p>
-<p>That breaks when one script uses cwd-relative paths and another uses repo-root joins — flaky <code>FileNotFoundError</code> mid-epoch.</p>
-<p>So this design chooses a small <code>Dataset</code> wrapper: <code>read_jsonl()</code> at init, shared <code>resolve_image_path()</code>, optional <code>transform</code> hook for Epic 106.</p>
-<h2 id="prerequisites">Prerequisites</h2>
-<ul>
-<li>VLA-41 JSONL contract: <a href="dataset-schema.md">dataset-schema.md</a></li>
-<li>PyTorch <code>Dataset</code> / <code>DataLoader</code> basics</li>
-<li>Run VLA-45 before training: <a href="dataset-validation.md">dataset-validation.md</a></li>
-</ul>
-<h2 id="vocabulary">Vocabulary</h2>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Term</th>
-<th>Meaning in this project</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong><code>LiteVLADataset</code></strong></td>
-<td><code>torch.utils.data.Dataset</code> over one JSONL file</td>
-</tr>
-<tr>
-<td><strong><code>transform</code></strong></td>
-<td>Callable <code>(PIL.Image) -&gt; tensor \| PIL.Image</code></td>
-</tr>
-<tr>
-<td><strong><code>repo_root</code></strong></td>
-<td>Repository root for repo-relative <code>image_path</code></td>
-</tr>
-<tr>
-<td><strong><code>__getitem__</code> output</strong></td>
-<td>Dict with <code>image</code>, <code>instruction</code>, <code>action</code>, metadata fields</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="guided-code-reading">Guided code reading</h2>
-<ol>
-<li><code>litevla/data/loader.py</code> — full file is short; read top to bottom.</li>
-<li><code>tests/test_dataset_loader.py</code> — image load + DataLoader batch test.</li>
-<li><code>scripts/smoke_dataset_loader.py</code> — manual smoke on processed JSONL.</li>
-<li>Epic 106 training script (when wired) — who supplies <code>transform</code> and collator.</li>
-</ol>
-<h2 id="api-contract-and-data-flow">API contract and data flow</h2>
-<pre><code class="language-text">train.jsonl ──&gt; read_jsonl()  (fail-fast schema validation at init)
-        │
-        ▼
-LiteVLADataset.__getitem__(i)
-        │
-        ├── resolve_image_path(record) ──&gt; repo_root / image_path
-        ├── PIL.Image.open().convert(&quot;RGB&quot;)
-        ├── optional transform(image)
-        └── dict { id, image, instruction, action, source, episode_id, metadata }
-        │
-        ▼
-torch.utils.data.DataLoader  ──&gt;  batch  ──&gt;  Epic 106 training loop
-</code></pre>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Output key</th>
-<th>Type</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>image</code></td>
-<td><code>PIL.Image</code> or tensor</td>
-<td>RGB before/after <code>transform</code></td>
-</tr>
-<tr>
-<td><code>instruction</code></td>
-<td><code>str</code></td>
-<td>Prompt text for VLA</td>
-</tr>
-<tr>
-<td><code>action</code></td>
-<td><code>str</code></td>
-<td>One of five Epic 103 tokens</td>
-</tr>
-<tr>
-<td><code>metadata</code></td>
-<td><code>dict</code></td>
-<td>Review flags, sim stamps, etc.</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="naive-approach-vs-chosen-approach">Naive approach vs chosen approach</h3>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Approach</th>
-<th>Why it seems attractive</th>
-<th>Why we did or did not choose it</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Lazy per-row parse in <code>__getitem__</code></td>
-<td>Lower init RAM</td>
-<td>Corrupt JSONL fails mid-epoch</td>
-</tr>
-<tr>
-<td>Built-in ImageNet normalize</td>
-<td>Convenient</td>
-<td>Wrong for arbitrary VLM backbones</td>
-</tr>
-<tr>
-<td>Eager <code>read_jsonl()</code> at init</td>
-<td>Fail before training</td>
-<td>Predictable errors; fine for MVP scale</td>
-</tr>
-<tr>
-<td>Optional <code>transform</code> hook</td>
-<td>Caller must configure</td>
-<td>Keeps loader model-agnostic</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="implementation-breakdown">Implementation breakdown</h2>
-<h3 id="dataset-class-10102">Dataset class (10102)</h3>
-<p><strong>Snippet</strong> (<code>litevla/data/loader.py</code>):</p>
-<pre><code class="language-python">class LiteVLADataset(Dataset):
-    def __init__(self, jsonl_path, *, repo_root=None, transform=None):
-        self.records = list(read_jsonl(self.jsonl_path))
-
-    def __getitem__(self, index: int) -&gt; dict[str, Any]:
-        record = self.records[index]
-        image = Image.open(self.resolve_image_path(record)).convert(&quot;RGB&quot;)
-        if self.transform is not None:
-            image = self.transform(image)
-        return {&quot;image&quot;: image, &quot;instruction&quot;: record.instruction, &quot;action&quot;: record.action, ...}
-</code></pre>
-<p><strong>Risks and gotchas:</strong> <code>__getitem__</code> raises <code>FileNotFoundError</code> if PNG missing — run VLA-45 first.</p>
+      <p><strong>Files Covered:</strong> <a href="file:///C:/Projects/Lite-VLA/litevla/data/loader.py"><code>litevla/data/loader.py</code></a><br />
+<strong>Epic Milestone:</strong> [Epic 105 / VLA-06: Dataset Generation, Labeling, and Validation]<br />
+<strong>Human-readable version (browser):</strong> <a href="dataset-loader.html"><code>dataset-loader.html</code></a></p>
 <hr />
-<h3 id="transform-pipeline-10103">Transform pipeline (10103)</h3>
-<pre><code class="language-python">from torchvision import transforms
-
-preprocess = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-dataset = LiteVLADataset(&quot;data/processed/v0.1.0/train.jsonl&quot;, transform=preprocess)
-</code></pre>
-<p><strong>Risks and gotchas:</strong> Default <code>DataLoader</code> collate stacks tensors but not PIL images — set <code>transform</code> before batching.</p>
+<h2 id="1-goal-objective">1. Goal &amp; Objective</h2>
+<p>The goal of the dataset loader is to provide a memory-efficient PyTorch interface that loads dataset records and JPEG/PNG frames on demand, applies visual transformations, and formats them into aligned training dictionaries.</p>
 <hr />
-<h3 id="optional-torch-import">Optional torch import</h3>
-<p>When torch is absent, <code>Dataset = object</code> fallback lets schema/validator tests run without ML dependencies.</p>
-<h2 id="engineering-decisions">Engineering decisions</h2>
-<pre><code class="language-text">ADR: Fail-fast at init via read_jsonl (10102)
-Status: Accepted
-Decision: Constructor calls read_jsonl() which validates every row immediately.
-Alternatives Rejected: Lazy per-row parse in __getitem__.
-</code></pre>
-<pre><code class="language-text">ADR: Transform hook not built-in presets (10103)
-Status: Accepted
-Decision: Optional transform callable only; Epic 106 owns VLM-specific normalization.
-</code></pre>
-<h2 id="verification-patterns-and-failure-modes">Verification patterns and failure modes</h2>
-<pre><code class="language-bash">pytest tests/test_dataset_loader.py -q
-python scripts/smoke_dataset_loader.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl
-</code></pre>
+<h2 id="2-why-we-need-it">2. Why We Need It</h2>
+<p>Deep learning training loops feed on batches of image-action pairs. However, loading thousands of images into RAM during initialization will trigger Out-Of-Memory (OOM) crashes. We need a system that utilizes <a href="../../concepts/pytorch_primer.md#pytorch-datasets">lazy loading</a> to read images from disk only when requested, and uses PyTorch's multi-threaded <a href="../../concepts/pytorch_primer.md#pytorch-dataloaders">DataLoader</a> to pre-fetch and batch training items concurrently.</p>
+<hr />
+<h2 id="3-how-to-start-thinking-about-it-ai-developer-thought-process">3. How to Start Thinking About It (AI Developer Thought Process)</h2>
+<p>When designing this code, I thought about the developer's sequential decision-making process:</p>
+<ol>
+<li><strong>PyTorch needs an indexable interface:</strong> "First, I thought about how PyTorch expects to retrieve training data. A standard Python generator is not indexable and cannot support random shuffling or multi-threaded prefetching. So, I decided to inherit from PyTorch's native <code>Dataset</code> class."</li>
+<li><strong>Lazy loading to prevent crash:</strong> "Then, I realized that if I open all dataset images in the constructor (<code>__init__</code>), the computer will run out of memory. So, I chose to load files lazily: the constructor only reads the JSONL metadata, and the actual image loading is deferred to <code>__getitem__</code> which loads a single file when PyTorch requests that index."</li>
+<li><strong>Cross-platform path mapping:</strong> "Next, I needed to make sure that the image file paths resolve correctly on different environments. So, I wrote a path resolution helper that translates repo-relative paths using the provided <code>repo_root</code> directory."</li>
+<li><strong>The PIL Image collation trap:</strong> "Finally, I realized that PyTorch's default collator crashes if it receives raw PIL Image objects. So, I decided to allow an image <code>transform</code> callable in the constructor. This allows training scripts to pass standard image transformation pipelines (like converting PIL to PyTorch tensors or NumPy arrays) before they are batched."</li>
+</ol>
+<hr />
+<h2 id="4-imports-global-constants-explained">4. Imports &amp; Global Constants Explained</h2>
+<h3 id="imports-table">Imports Table</h3>
 <div class="table-wrap"><table>
 <thead>
 <tr>
-<th>Symptom</th>
-<th>Likely cause</th>
-<th>Investigation</th>
-<th>Fix</th>
+<th>Import Statement</th>
+<th>What it is</th>
+<th>Why it is used here</th>
+<th>Concept Link</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>FileNotFoundError</code> on image</td>
-<td>Missing PNG or wrong <code>repo_root</code></td>
-<td>Compare path to validator output</td>
-<td>Fix paths or add images</td>
+<td><code>from __future__ import annotations</code></td>
+<td>Postponed type hints</td>
+<td>Solves self-referencing classes in type declarations.</td>
+<td><a href="../../concepts/python_primer.md#postponed-annotations">Annotations</a></td>
 </tr>
 <tr>
-<td><code>RecordSchemaError</code> at init</td>
-<td>Bad JSONL</td>
-<td>Run <code>validate_dataset</code></td>
-<td>Fix upstream data</td>
+<td><code>from pathlib import Path</code></td>
+<td>Path resolution utility</td>
+<td>Resolves relative file paths into absolute locations on the host drive.</td>
+<td><a href="../../concepts/python_primer.md#pathlib-file-resolution">Pathlib</a></td>
 </tr>
 <tr>
-<td>DataLoader stack error</td>
-<td>PIL images without transform</td>
-<td>Inspect batch type</td>
-<td>Add <code>ToTensor</code> transform</td>
+<td><code>from typing import Any, Callable</code></td>
+<td>Type checking utilities</td>
+<td>Annotates transforms (<code>Callable</code>) and dictionary keys (<code>Any</code>).</td>
+<td><a href="../../concepts/python_primer.md#typing-and-type-checking">Typing</a></td>
 </tr>
 <tr>
-<td>Test skipped</td>
-<td>torch not installed</td>
-<td>Check CI env</td>
-<td>Install <code>requirements/base.txt</code></td>
+<td><code>from litevla.data.schema import REPO_ROOT</code></td>
+<td>Global path constant</td>
+<td>Serves as the fallback project root directory.</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><code>from litevla.data.schema import read_jsonl</code></td>
+<td>File reader generator</td>
+<td>Reads training metadata rows line-by-line using <code>yield</code>.</td>
+<td><a href="../../concepts/python_primer.md#generators-and-yield">Generators</a></td>
+</tr>
+<tr>
+<td><code>from torch.utils.data import Dataset</code></td>
+<td>Base dataset class</td>
+<td>Abstract class representing a collection of items.</td>
+<td><a href="../../concepts/pytorch_primer.md#pytorch-datasets">Datasets</a></td>
 </tr>
 </tbody>
 </table></div>
-<h2 id="engineering-principle-taught-by-this-task">Engineering principle taught by this task</h2>
-<p><strong>Push model-specific preprocessing to the training boundary.</strong> The dataset layer delivers consistent RGB + labels; the fine-tuning script owns tensor dtype, resize, and tokenization policy.</p>
-<h2 id="active-learning-checks">Active learning checks</h2>
-<ol>
-<li>Why validate all JSONL rows in <code>__init__</code> instead of lazily?</li>
-<li>Who owns action → token id mapping for the VLM?</li>
-<li>Why does <code>resolve_image_path</code> mirror the validator?</li>
-<li>What breaks if you pass <code>batch_size&gt;1</code> without <code>transform</code>?</li>
-</ol>
-<h2 id="open-questions">Open questions</h2>
+<hr />
+<h2 id="5-class-data-flow-diagrams">5. Class Data-Flow Diagrams</h2>
+<h3 id="litevladataset-data-ingestion-batch-loading-flow"><code>LiteVLADataset</code> Data Ingestion &amp; Batch Loading Flow</h3>
+<pre class="mermaid">flowchart TD
+    Init[Constructor __init__] --&gt;|read_jsonl| LoadMetadata[Load Metadata Records List]
+
+    Sampler[PyTorch Sampler/DataLoader] --&gt;|__getitem__ index| Lookup[Lookup Record in self.records]
+    Lookup --&gt;|resolve_image_path| AbsPath[Absolute Image Path]
+    AbsPath --&gt;|Image.open| PIL[Read PNG from Disk &amp; Convert to RGB]
+
+    TransformCheck{transform is set?}
+    PIL --&gt; TransformCheck
+    TransformCheck --&gt;|Yes| ApplyTrans[Apply transform Callable]
+    TransformCheck --&gt;|No| Dict[Construct Output Dictionary]
+    ApplyTrans --&gt; Dict
+
+    Dict --&gt;|default_collate| Batch[Stacked Batch Tensors]
+
+    style Init fill:#FAF8F5,stroke:#B8602A,stroke-width:1px
+    style Dict fill:#FAF8F5,stroke:#B8602A,stroke-width:2px</pre>
+
+<hr />
+<h2 id="6-detailed-code-walkthrough">6. Detailed Code Walkthrough</h2>
+<h3 id="type-aliases">Type Aliases</h3>
+<h4 id="imagetransform"><code>ImageTransform</code></h4>
 <ul>
-<li><strong>Lazy loading:</strong> For &gt;10k rows, consider on-demand parse without full eager list.</li>
-<li><strong>Action tokenization:</strong> Loader returns string actions; Epic 106 owns integer mapping / prompt formatting.</li>
+<li><strong>Intent:</strong> Defines the expected type signature for image preprocessing callables.</li>
+<li><strong>Implementation:</strong>
+  <code>python
+  ImageTransform = Callable[[Any], Any]</code></li>
+<li><strong>Why it's chosen:</strong> Standardizes the type hint for parameters. It specifies a function that receives one parameter and returns one result.</li>
+<li><a href="../../concepts/python_primer.md#typing-and-type-checking">Typing Concept Reference</a></li>
 </ul>
-<h2 id="related">Related</h2>
+<hr />
+<h3 id="custom-classes">Custom Classes</h3>
+<h4 id="litevladataset"><code>LiteVLADataset</code></h4>
 <ul>
-<li><a href="dataset-validation.md">dataset-validation.md</a> (VLA-45 — run before training)</li>
-<li><a href="dataset-schema.md">dataset-schema.md</a> (VLA-41 record shape)</li>
-<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a> (VLA-43 produces input paths)</li>
+<li><strong>Intent:</strong> Implements the PyTorch <code>Dataset</code> contract to feed training samples.</li>
+<li><strong>Code Snippet:</strong>
+  <code>python
+  class LiteVLADataset(Dataset):
+      def __init__(
+          self,
+          jsonl_path: str | Path,
+          *,
+          repo_root: Path | None = None,
+          transform: ImageTransform | None = None,
+      ) -&gt; None:
+          self.jsonl_path = Path(jsonl_path)
+          self.repo_root = repo_root or REPO_ROOT
+          self.transform = transform
+          self.records: list[TrainingRecord] = list(read_jsonl(self.jsonl_path))</code></li>
+<li><strong>Data Contract:</strong> </li>
+<li>Inputs: mandatory path to JSONL, optional <code>repo_root</code> <code>Path</code>, optional <code>transform</code> function.</li>
+<li>Outputs: A stateful dataset object containing parsed training records.</li>
+<li><strong>Why it's written this way:</strong> Inherits from PyTorch's base <code>Dataset</code> class. The try/except block during imports ensures that if a developer runs a quick script on a machine without PyTorch installed, the file can still be imported as a plain object without crashing.</li>
+<li><strong>System Connections:</strong> Instantiated in training starter scripts and passed directly to PyTorch's <code>DataLoader</code> class.</li>
+<li><a href="../../concepts/pytorch_primer.md#pytorch-datasets">Datasets Concept Reference</a></li>
+</ul>
+<hr />
+<h3 id="functions-in-litevladataset">Functions in <code>LiteVLADataset</code></h3>
+<h4 id="__len__"><code>__len__()</code></h4>
+<ul>
+<li><strong>Intent:</strong> Returns the total size of the dataset.</li>
+<li><strong>Data Contract:</strong> </li>
+<li>Inputs: None.</li>
+<li>Outputs: <code>int</code> total record count.</li>
+<li><strong>Why it's chosen:</strong> Simply returns <code>len(self.records)</code>. This is called internally by PyTorch's sampler to distribute indexes.</li>
+</ul>
+<h4 id="resolve_image_pathrecord"><code>resolve_image_path(record)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Resolves relative image paths.</li>
+<li><strong>Data Contract:</strong></li>
+<li>Inputs: <code>TrainingRecord</code> instance.</li>
+<li>Outputs: absolute <code>Path</code> to the file on disk.</li>
+<li><strong>Why it's chosen:</strong> Checks <code>is_absolute()</code> first to allow absolute paths in testing, and falls back to joining with <code>repo_root</code> if relative.</li>
+</ul>
+<h4 id="__getitem__index"><code>__getitem__(index)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Retrieves the image and instruction at a specific index.</li>
+<li><strong>Data Contract:</strong></li>
+<li>Inputs: <code>int</code> index.</li>
+<li>Outputs: <code>dict[str, Any]</code> containing:<ul>
+<li><code>id</code>: unique record ID string.</li>
+<li><code>image</code>: loaded and transformed image data.</li>
+<li><code>instruction</code>: target prompt string.</li>
+<li><code>action</code>: target movement command.</li>
+<li><code>source</code>: record source identifier.</li>
+<li><code>episode_id</code>: string episode ID.</li>
+<li><code>metadata</code>: dict of extra info.</li>
+</ul>
+</li>
+<li><strong>Why it's chosen:</strong> Implements lazy loading. It opens the file from disk using PIL and converts it to <code>"RGB"</code> to strip out grayscale or alpha channels. If a <code>transform</code> was provided (like NumPy array conversion), it applies it here before returning.</li>
+<li><strong>System Connections:</strong> Called automatically by PyTorch <code>DataLoader</code> worker threads to construct training batches.</li>
+</ul>
+<hr />
+<h2 id="7-practical-engineering-context">7. Practical Engineering Context</h2>
+<h3 id="executive-summary">Executive Summary</h3>
+<p>VLA-46 bridges VLA-41 processed JSONL into Epic 106 fine-tuning: <strong><code>LiteVLADataset</code></strong> is a <code>torch.utils.data.Dataset</code> that loads repo-relative RGB images with Pillow, returns instruction + Epic 103 action labels, and accepts an optional <code>transform</code> for torchvision/VLM preprocessing. The loader intentionally does not embed model-specific normalization — training scripts own the collator/transform pipeline.</p>
+<h3 id="naive-approach-vs-chosen-approach">Naive Approach vs Chosen Approach</h3>
+<ul>
+<li><strong>Naive approach</strong>: Load all visual observations eagerly into memory during constructor initialization. Causes OOM crashes.</li>
+<li><strong>Chosen approach</strong>: Lazy loading via index lookup in <code>__getitem__</code> combined with multi-threaded prefetching. Saves RAM and handles large files easily.</li>
+</ul>
+<h3 id="adr-log-summary">ADR Log Summary</h3>
+<ul>
+<li><strong>ADR (VLA-46)</strong>: Transform callable is optional; training scripts configure tokenization and normalization algorithms themselves.</li>
+</ul>
+<h3 id="verification-patterns-failure-modes">Verification Patterns &amp; Failure Modes</h3>
+<ul>
+<li>Script check: <code>python scripts/smoke_dataset_loader.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl</code></li>
+<li>Verification tests: <code>pytest tests/test_dataset_loader.py -q</code></li>
+</ul>
+<h3 id="related">Related</h3>
+<ul>
+<li><a href="dataset-validation.md">dataset-validation.md</a></li>
+<li><a href="dataset-schema.md">dataset-schema.md</a></li>
+<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a></li>
 </ul>
     </main>
     <footer class="doc-footer">
@@ -257,6 +214,20 @@ python scripts/smoke_dataset_loader.py --jsonl data/processed/v0.1.0/train_revie
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
 <script src="../../scripts/doc-code.js"></script>
-  
+  <script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      background: "#FAF8F5",
+      primaryColor: "#F0EDE8",
+      primaryBorderColor: "#D4CFC7",
+      primaryTextColor: "#2C2825",
+      lineColor: "#B8602A",
+      textColor: "#2C2825"
+    }
+  });
+</script>
 </body>
 </html>

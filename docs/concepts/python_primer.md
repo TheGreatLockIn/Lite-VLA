@@ -356,3 +356,92 @@ for number in read_numbers(3):
 #### When to Use vs. When NOT to Use
 * **Choose this when:** You are reading sequentially from large files, generating infinite data streams, or iterating over collections where memory efficiency is important.
 * **Avoid this when:** You need to randomly access items by index, or when you need to write/modify the data collection dynamically.
+
+---
+
+### CSV Parsing
+
+#### Overview
+CSV (Comma-Separated Values) is a plain-text format for tabular data. Python's built-in `csv` module provides:
+* `csv.DictReader(file)`: Reads CSV rows into Python dictionaries using the header row for keys.
+* `csv.DictWriter(file, fieldnames)`: Writes dictionaries to CSV rows using standard header column names.
+
+#### Code Example
+```python
+import csv
+from pathlib import Path
+
+# Writing to a CSV file
+fields = ["id", "action"]
+with open("actions.csv", "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=fields)
+    writer.writeheader()
+    writer.writerow({"id": "a1", "action": "STOP"})
+
+# Reading from a CSV file
+with open("actions.csv", "r", newline="", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        print(row["id"], row["action"]) # Output: a1 STOP
+```
+
+#### Use-Case Scenarios
+* **General Use-Case:** Importing and exporting spreadsheet data between databases and programs.
+* **Robotics & VLA Use-Case:** Creating review sheets so developers can audit machine labels in Excel.
+
+#### When to Use vs. When NOT to Use
+* **Choose this when:** You need to export structured logs or metadata for humans to inspect in tabular sheets.
+* **Avoid this when:** Storing highly nested tree structures or model weights (use JSON or HDF5/PyTorch formats instead).
+
+---
+
+### Collections and Counters
+
+#### Overview
+Python's `collections` module provides specialized container datatypes. One of the most useful is `Counter`, which counts occurrences of hashable items in a list or sequence automatically.
+* `Counter(list)`: Computes counts of all unique items.
+* `most_common(n)`: Returns the top `n` most frequent items.
+
+#### Code Example
+```python
+from collections import Counter
+
+actions = ["STOP", "MOVE", "STOP", "STOP", "TURN"]
+counts = Counter(actions)
+print(counts["STOP"]) # Output: 3
+print(counts.most_common(1)) # Output: [('STOP', 3)]
+```
+
+#### Use-Case Scenarios
+* **General Use-Case:** Frequency analyses, voting counts, or category counts.
+* **Robotics & VLA Use-Case:** Checking label distributions in datasets to warning developers about class imbalance.
+
+#### When to Use vs. When NOT to Use
+* **Choose this when:** You need to quickly tally objects or find the most frequent elements in a sequence.
+* **Avoid this when:** You are doing complex multi-dimensional filtering (use pandas or NumPy instead).
+
+---
+
+### Timezones & UTC Datetime
+
+#### Overview
+In standard Python, `datetime.now()` returns the local time of the computer running the script, which changes depending on time zones. To guarantee consistent timestamps across servers, we use timezone-aware UTC times.
+* `datetime.now(timezone.utc)`: Returns the current date and time pinned to the UTC timezone.
+* `isoformat()`: Converts the datetime object into a standardized ISO-8601 string (e.g. `2026-07-09T18:00:00+00:00`).
+
+#### Code Example
+```python
+from datetime import datetime, timezone
+
+# Get current time in UTC timezone
+now_utc = datetime.now(timezone.utc)
+print("UTC ISO String:", now_utc.isoformat())
+```
+
+#### Use-Case Scenarios
+* **General Use-Case:** Database logging, network packet timing, and transaction timestamps.
+* **Robotics & VLA Use-Case:** Generating unique run IDs and tracking exactly when model logs were reviewed.
+
+#### When to Use vs. When NOT to Use
+* **Choose this when:** You need standardized, cross-region timestamps to audit execution histories.
+* **Avoid this when:** You are asking a user for their local calendar input (which requires timezone offset translation).

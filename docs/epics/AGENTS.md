@@ -219,91 +219,51 @@ Rules:
 
 ## Task doc depth standard
 
-Task docs must be more than a summary or inventory. When a page names a module, class, function, ROS topic, schema, config key, script, launch file, or command, explain it in the capacity that helps a junior engineer read and maintain the code.
+Task docs must be unified mentorship tutorials. There is exactly one consolidated document per story (do not split into a surface task page and a separate code walkthrough page). The main body of this document must be the detailed, learner-oriented walkthrough, with supplemental practical engineering context placed at the end.
 
-Follow the **architectural walkthrough framework** below. Section titles may vary, but the substance should be present.
+Follow the **mentorship walkthrough structure** below:
 
-### Architectural walkthrough framework
+### Mentorship walkthrough structure
 
-#### 1. Executive summary
+#### 1. Goal & Objective
+A 1–2 sentence statement of what this module achieves.
 
-Open with 2–3 sentences on the module's **architectural responsibility**: what problem it solves, what system contract it owns, and how upstream/downstream modules depend on it. This replaces a generic task blurb when code is involved. Include enough context that a reader understands why the task matters before seeing file names or tables.
+#### 2. Why We Need It
+An explanation of the engineering problem, its operational risks (e.g. GPU crashes during fine-tuning), and why a loose approach is unacceptable.
 
-#### 2. Mental model, backstory, prerequisites, and vocabulary
+#### 3. How to Start Thinking About It (Developer Thought Process)
+A step-by-step sequential breakdown of the thought process behind the design (e.g. why we chose a frozen dataclass, how paths are resolved cross-platform, why lazy loading avoids memory issues).
 
-Explain how to think about the module before explaining implementation details:
+#### 4. Imports & Global Constants Explained
+An annotated markdown table listing every import, its purpose in this module, and hyperlinked references to the general `/docs/concepts/` pages (e.g., Python Primer) where the underlying language feature or library is explained. Key global constants should also be documented here with their engineering rationales.
 
-- **Mental model:** what the module is analogous to, why it exists, its core engineering tension, beginner mistake, and senior-engineer watchpoint.
-- **Backstory:** what problem existed, what naive approach would seem tempting, why it fails, and what this design chooses instead.
-- **Prerequisites:** concepts the reader should understand first, with links to existing primers when available.
-- **Vocabulary:** short definitions for project terms, file formats, ROS topics, schemas, model artifacts, commands, and config keys used in the page.
+#### 5. Class & Data-Flow Diagrams
+A Mermaid flowchart illustrating the ingestion, transformation, and export data paths.
 
-Do not bury this material after the code. A novice needs it before the API contract and implementation tables.
+#### 6. Detailed Code Walkthrough
+A granular, logical walkthrough grouping snippets from the source code. Discuss:
+- Custom classes and exceptions.
+- Core functions (intent, parameters, return values, choices made, system connections).
+- Key syntax (such as generator `yield` logic, seed-locked deterministic generators, and regex patterns).
 
-#### 3. Guided code reading and file/artifact index
+---
 
-List the files and artifacts to read first and why. A good entry explains what the file is about, what to inspect first, and what can be ignored on a first pass. For non-code artifacts such as schemas, JSONL logs, generated frames, model weights, configs, or benchmark outputs, explain the structure and why the artifact exists.
+### Practical Engineering Context
 
-#### 4. API contract and data flow
+#### 1. Executive Summary
+The module's architectural responsibility and system dependencies.
 
-Show how data enters the module, is validated or transformed, and exits. Prefer a compact flow map using Mermaid or ASCII arrows (`──>`), for example:
+#### 2. Naive Approach vs Chosen Approach
+An explicit trade-off table comparing simple solutions (e.g. CSVs, wall-clock ROS stamps) to the robust production choices made.
 
-```text
-VLA text ──> parser ──> DiscreteAction ──> action_to_twist ──> (linear_x, angular_z) ──> safety gate ──> /cmd_vel
-```
+#### 3. ADR Log Summary
+Short ADR entries detailing context, decision, alternatives rejected, and consequences.
 
-State the **contract** explicitly in beginner-friendly language: accepted input types, output shape/units, invariants, and error behavior. Explain what "contract" means in the local context: the promise this code makes to callers, downstream modules, logs, tests, or operators. If a table uses rows such as "Episode init" or "Output twist", define those phrases before or inside the table.
+#### 4. Verification Patterns & Failure Modes
+Testing commands and a detailed debugging table mapping symptoms to causes, diagnostic tools, and fixes.
 
-Explain the main **trade-offs** behind structural choices (enum vs string, nominal table vs config clamp, strict tokens vs aliases, where fallback logic is intentionally deferred). Include a "naive approach vs chosen approach" comparison when the design is not obvious.
-
-Keep task docs **task-local**. Do not repeat an epic-level pipeline diagram unless this task adds new detail.
-
-#### 5. Implementation breakdown
-
-Group code by **logical concern** (vocabulary, mapping, validation, integration), not by file order. For each group include:
-
-- **Snippet:** a focused real excerpt from the repo (see Code snippet standard).
-- **What to notice:** the specific lines, shape, naming, dependency direction, or boundary that matters.
-- **Why it is written this way:** the engineering principle or implicit standard being applied (shared contract, single source of truth, fail-fast vs fail-safe boundary, single owner of side effects, reusable helper, etc.).
-- **Risks and gotchas:** edge cases, unhandled exceptions, assumptions, missing fallbacks, or follow-up stories that own deferred behavior.
-
-Do not paste entire files. Teach what matters for maintenance and safe extension.
-
-#### 6. Engineering decisions
-
-Record meaningful ADRs or design notes: alternatives rejected, consequences, and what future work must preserve. Use the ADR standard when a decision is durable. Make the senior thought process explicit: why the simpler-looking solution was not enough, what risk the chosen design reduces, and what new trade-off it introduces.
-
-#### 7. Verification patterns and debugging
-
-Explain how tests, smoke scripts, or pipeline commands act as **executable documentation**. Name the **behavioral contracts** being defended (boundary clamping, strict validation, stable token order, invalid input rejection, config integration, etc.) and give exact commands to run.
-
-Include a **failure modes and debugging path** table for user-facing workflows, ROS nodes, ML/data pipelines, scripts, or generated artifacts. Map symptoms to likely causes, investigation commands, and fixes. A novice learns fastest when the doc connects what they see to what might be broken.
-
-#### 8. Engineering principle and active learning
-
-End substantial task docs with the reusable principle this task teaches and a small set of active learning checks. When useful, add a small modification exercise that changes one low-risk parameter or behavior and lists the expected verification steps.
-
-#### 9. Visual explanation (when needed)
-
-Add a diagram or visual aid when the task has multiple components, runtime steps, or a non-obvious data path.
-
-### Minimum checklist
-
-Each task doc should usually include:
-
-- **Executive summary** - architectural responsibility and system fit.
-- **Mental model** - analogy, purpose, engineering tension, beginner mistake, senior watchpoint.
-- **Backstory** - prior problem, naive approach, failure of the naive approach, chosen design.
-- **Concept primer / vocabulary** - local definitions for terms, artifacts, topics, schemas, configs, and model/data concepts.
-- **Guided code reading / file index** - what each referenced file or artifact is, why it matters, and what to inspect first.
-- **API contract and data flow** - inputs, outputs, invariants, errors, trade-offs, and plain-English definitions for table labels.
-- **Naive approach vs chosen approach** - explicit design comparison when there is meaningful trade-off.
-- **Implementation breakdown** - grouped snippets with what to notice, why it is written this way, and risks/gotchas.
-- **Verification and failure modes** - tests/commands, contracts they defend, symptoms, likely causes, investigation path, and fixes.
-- **Engineering principle and active learning** - reusable pattern, questions to answer, and optionally a small modification exercise.
-- **Open questions** — unresolved decisions or follow-up ownership when relevant.
-
-Prefer concise teaching paragraphs over terse bullets when explaining code. Bullets are fine for scanability, but do not leave named code elements unexplained.
+#### 5. Active Learning Checks & Exercises
+Questions and a low-risk code exercise encouraging hands-on verification.
 
 ## Code snippet standard
 

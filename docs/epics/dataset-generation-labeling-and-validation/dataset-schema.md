@@ -1,72 +1,161 @@
-# Dataset schema and file layout
-
-**Epic:** Dataset Generation, Labeling, and Validation (105) · **Jira epic:** VLA-6 · **Story:** VLA-41 / 1029 · **Subtasks:** VLA-169 (format), VLA-170 (fields), VLA-171 (fixtures)
-
+# Tutorial: Understanding Lite-VLA Data Schema & File Layout
+**Files Covered:** [`litevla/data/schema.py`](file:///C:/Projects/Lite-VLA/litevla/data/schema.py)  
+**Epic Milestone:** [Epic 105 / VLA-06: Dataset Generation, Labeling, and Validation]  
 **Human-readable version (browser):** [`dataset-schema.html`](dataset-schema.html)
 
-## Executive summary
+---
 
+## 1. Goal & Objective
+The goal of the schema module is to define a strict, validated data format that maps physical robot inputs (camera image frames, user goals) and outputs (speed commands) into structured, read-only formats for our ML pipelines.
+
+---
+
+## 2. Why We Need It
+During fine-tuning, the model consumes thousands of training records. In Python, raw dictionaries are loose, allowing silent typos (like writing `"img_path"` instead of `"image_path"`) or invalid speed commands to go unnoticed. Without this schema gate, invalid actions or missing files would cause GPU training processes to crash after running for hours, wasting computational resources and making debugging difficult. We need a hard boundary that fails fast at the ingestion stage.
+
+---
+
+## 3. How to Start Thinking About It (AI Developer Thought Process)
+When designing this code, I thought about the developer's sequential decision-making process:
+
+1. **A loose dictionary is too risky:** "First, I thought about how we need to represent a single dataset item. A simple Python dictionary is too loose because we can write typos in the keys, and the program will continue running anyway. I need to define a strict data schema."
+2. **Dataclass for safety:** "Then, I wanted to lock down mutations so that training records cannot be accidentally changed by loaders during training. So, I decided to use a Python `@dataclass` with `frozen=True`."
+3. **JSON Schema for checking text structures:** "After that, I needed to check raw JSON data before loading it into memory. So, I decided to write JSON schema blueprint files and validate raw dictionaries using `jsonschema`'s Draft 2020-12 validator before converting them to dataclass objects."
+4. **Action parsing validation:** "Next, I realized that checking schemas only validates strings, not the specific action values. So, I decided to import `parse_action` to make sure each action string maps to a valid system steering word (like `MOVE_FORWARD`)."
+5. **Memory-efficient loading:** "Finally, when writing the file reader, I realized that datasets could have 10,000+ lines. Reading the entire file into a list would hog memory. Therefore, I chose to use Python's `yield` generator syntax so that we only load one record into memory at a time."
+
+---
+
+## 4. Imports & Global Constants Explained
+
+### Imports Table
+
+| Import Statement | What it is | Why it is used here | Concept Link |
+|------------------|------------|---------------------|--------------|
+| `from __future__ import annotations` | Postponed type hints | Solves self-referencing classes in type hints. | [Annotations](../../concepts/python_primer.md#postponed-annotations) |
+| `import json` | Standard JSON parser | Used to read and write raw JSON/JSONL rows. | [JSON Serialization](../../concepts/python_primer.md#json-serialization) |
+| `from dataclasses import dataclass, field` | Boilerplate helper | Defines the structured, read-only data structures for records. | [Dataclasses](../../concepts/python_primer.md#dataclasses-and-fields) |
+| `from pathlib import Path` | Cross-platform file paths | Handles directory paths, resolving slashes correctly on Windows and Linux. | [Pathlib](../../concepts/python_primer.md#pathlib-file-resolution) |
+| `from typing import Any, Iterator` | Type annotation tools | Declares return types for dictionaries (`Any`) and generators (`Iterator`). | [Typing](../../concepts/python_primer.md#typing-and-type-checking) |
+| `import jsonschema` | Draft schema validator | Checks that incoming dictionaries contain all mandatory variables. | [JSON Schema](../../concepts/python_primer.md#json-schema-validation) |
+| `from jsonschema import Draft202012Validator` | Strict validator class | Implements the official Draft-2020 JSON Schema validator engine. | [JSON Schema](../../concepts/python_primer.md#json-schema-validation) |
+| `from litevla.actions import parse_action` | Action word validator | Converts string actions (e.g. `"MOVE_FORWARD"`) to verified system commands. | N/A |
+
+### Global Constants
+
+#### `REPO_ROOT`
+* **What it is:** Resolves the absolute parent directory of the active Lite-VLA repository.
+* **Why it is defined here:** Resolves directories relative to the active file's location on disk, ensuring absolute paths are computed correctly on other developers' machines.
+* [Pathlib Concept Reference](../../concepts/python_primer.md#pathlib-file-resolution)
+
+#### `RECORD_SCHEMA_PATH`
+* **What it is:** Absolute path to the JSON Schema contract for training records.
+* **Why it is defined here:** Tells the validator exactly where to find the contract file.
+
+#### `FIXTURES_PATH`
+* **What it is:** Path to sample mock dataset files for testing.
+
+---
+
+## 5. Class Data-Flow Diagrams
+
+### `TrainingRecord` Ingestion & Export Flow
+
+```mermaid
+flowchart TD
+    Raw[Raw JSONL Text Line] -->|read_jsonl| Parse[json.loads]
+    Parse -->|validate_record_dict| SchemaCheck[Draft202012Validator]
+    SchemaCheck -->|parse_action| ValidAct[parse_action]
+    ValidAct -->|Construct| TR[TrainingRecord Dataclass]
+    TR -->|training_record_to_dict| Serialized[Serialized Python Dict]
+    Serialized -->|write_jsonl| OutFile[Output JSONL File on Disk]
+
+    style TR fill:#FAF8F5,stroke:#B8602A,stroke-width:2px
+```
+
+---
+
+## 6. Detailed Code Walkthrough
+
+### Custom Classes
+
+#### `TrainingRecord`
+* **Intent:** Represents a single image-prompt-action pair for training.
+* **Code Snippet:**
+  ```python
+  @dataclass(frozen=True)
+  class TrainingRecord:
+      image_path: str
+      instruction: str
+      action: str
+      timestamp: str
+      source: str
+      id: str | None = None
+      episode_id: str | None = None
+      metadata: dict[str, Any] = field(default_factory=dict)
+  ```
+* **Data Contract:** 
+  * Inputs: mandatory strings (`image_path`, `instruction`, `action`, `timestamp`, `source`), optional IDs (`id`, `episode_id`), and an optional `metadata` dictionary.
+  * Outputs: An immutable record instance.
+* **Why it's written this way:** `frozen=True` guarantees that once a record is parsed, its values cannot be modified during training. `field(default_factory=dict)` is used because standard mutable default parameters like `metadata: dict = {}` are shared across all class instances in Python, which leads to memory leaks.
+* **System Connections:** Created by `parse_training_record`, read by the `LiteVLADataset` loader.
+* [Dataclasses Concept Reference](../../concepts/python_primer.md#dataclasses-and-fields)
+
+#### `RecordSchemaError`
+* **Intent:** Custom exception raised when validation fails.
+* **Why it's written this way:** Inherits from `ValueError`. This allows training scripts to catch and handle schema validation errors specifically.
+* [Custom Exceptions Concept Reference](../../concepts/python_primer.md#custom-exceptions)
+
+---
+
+### Functions in `schema.py`
+
+#### `record_schema_path()`
+* **Intent:** Computes the path to the record schema file.
+* **Data Contract:** Inputs: None. Outputs: `Path`.
+
+#### `load_record_schema()`
+* **Intent:** Reads and parses the validation schema file from disk.
+* **Data Contract:** Inputs: None. Outputs: `dict[str, Any]`.
+* **Why it's written this way:** Checks if the file exists using `is_file()` and raises a descriptive `FileNotFoundError` if missing.
+
+#### `_format_validation_error(error)`
+* **Intent:** Converts a validation error into a readable path string (e.g. `metadata -> world: ...`).
+* **Data Contract:** Inputs: `jsonschema.ValidationError`. Outputs: `str`.
+
+#### `validate_record_dict(raw, *, schema)`
+* **Intent:** Validates a raw dictionary against the JSON schema rules.
+* **Data Contract:** Inputs: `raw` dict, optional `schema` dict. Outputs: None (raises `RecordSchemaError` if invalid).
+* **Why it's chosen:** Uses `Draft202012Validator.iter_errors` to collect all violations, formats them using `_format_validation_error`, and joins them into a single error string.
+* [JSON Schema Concept Reference](../../concepts/python_primer.md#json-schema-validation)
+
+#### `parse_training_record(raw, *, schema)`
+* **Intent:** Converts a raw dict into a validated `TrainingRecord` object.
+* **Data Contract:** Inputs: `raw` dict, optional `schema`. Outputs: `TrainingRecord`.
+* **Why it's chosen:** Gatekeeper function. Converts raw actions into verified steering commands using `parse_action`.
+
+#### `training_record_to_dict(record)`
+* **Intent:** Converts a `TrainingRecord` back into a dictionary for JSON output.
+* **Data Contract:** Inputs: `TrainingRecord`. Outputs: `dict[str, Any]`.
+
+#### `read_jsonl(path, *, schema)`
+* **Intent:** Streams validated records from a JSONL file line-by-line.
+* **Data Contract:** Inputs: `path` to file, optional `schema`. Outputs: `Iterator[TrainingRecord]` generator.
+* **Why it's chosen:** Uses `yield` to load files sequentially, keeping memory usage constant.
+* [Generators Concept Reference](../../concepts/python_primer.md#generators-and-yield)
+
+#### `write_jsonl(path, records)`
+* **Intent:** Saves records into a compact JSONL file.
+* **Data Contract:** Inputs: target file path, iterator of records. Outputs: `int` (total row count written).
+
+---
+
+## 7. Practical Engineering Context
+
+### Executive Summary
 VLA-41 owns the **processed training record contract** for supervised fine-tuning: one UTF-8 JSONL row per image-instruction-action example under `data/processed/<version>/`. Raw simulation logs (VLA-42) use a different on-disk shape; only rows validated against `record.schema.json` and Epic 103 `parse_action()` enter training. This story is the schema gate every downstream builder, reviewer, validator, and loader depends on.
 
-## Mental model
-
-Think of this module as a **passport office for training rows**.
-
-It exists because ML pipelines fail silently when bad examples slip in — a typo in `action`, a Windows path, or a synonym like `FORWARD` poisons gradients long before anyone notices.
-
-The key engineering tension is **strictness vs flexibility**: the top-level record is rigid (`additionalProperties: false`), but `metadata` stays open so capture and review can attach context without schema churn.
-
-A beginner mistake is treating raw `commands.jsonl` as training data, or editing JSONL by hand instead of going through validated write paths.
-
-A senior engineer watches for **vocabulary drift** — any new action token must land in Epic 103, `record.schema.json`, and dataset tests in the same change.
-
-## Backstory: why this exists
-
-Before VLA-41, the repo had teleop logs and reference images but no single contract for “one SFT example.” The naive solution would be a folder of PNGs plus a spreadsheet of labels.
-
-That breaks because spreadsheets hide nested provenance, stream poorly into PyTorch, and cannot share validation logic with ROS capture. Training would also diverge from the five-token action vocabulary the parser and safety gate already enforce.
-
-So this design chooses **JSONL + JSON Schema + a frozen `TrainingRecord` dataclass**, with `parse_training_record()` as the only front door. The pattern appears in real robotics ML stacks as “processed manifest” layers sitting between messy logs and the trainer.
-
-## Prerequisites
-
-- Epic 103 discrete actions: [`action-schema.md`](../action-interface-parser-and-safety-layer/action-schema.md)
-- JSONL basics: one JSON object per line, UTF-8, append-friendly
-
-## Vocabulary
-
-| Term | Meaning in this project |
-|------|-------------------------|
-| **Training record** | One row: image + instruction + discrete action + provenance |
-| **JSONL** | Newline-delimited JSON; streaming read/write for large corpora |
-| **JSON Schema** | Machine-checkable field contract in `data/schema/record.schema.json` |
-| **Processed layer** | `data/processed/<version>/` — training-ready rows only |
-| **Raw layer** | `data/raw/episodes/` — high-frequency capture logs (VLA-42) |
-| **`source`** | How the row was produced: `teleop`, `reference`, `synthetic`, `manual_review` |
-| **`parse_action()`** | Epic 103 strict token validator used after JSON Schema passes |
-
-## Guided code reading
-
-Read these in order:
-
-1. `data/schema/record.schema.json`
-   - Inspect `required`, `action.enum`, and `additionalProperties: false`.
-   - Ignore optional fields on first pass.
-
-2. `litevla/data/schema.py`
-   - Start at `TrainingRecord` and `parse_training_record()`.
-   - Then `read_jsonl()` / `write_jsonl()` for I/O boundaries.
-
-3. `data/fixtures/sample_train.jsonl`
-   - Six committed rows covering all five actions and three sources.
-
-4. `configs/default.example.yaml` (`data:` section)
-   - See how training scripts discover schema and processed paths.
-
-While reading, ask: Where does validation happen? Who raises on bad rows? What is allowed in `metadata`?
-
-## API contract and data flow
-
+### API Contract & Data Flow
 ```text
 Raw capture (VLA-42)                    Processed SFT (VLA-41)
 ─────────────────────                   ────────────────────────
@@ -75,160 +164,23 @@ raw/episodes/<id>/frames/*.png     ──>       (image_path + instruction + act
 reference_images/manifest.json     ──>  (via VLA-43 builder)
 ```
 
-| Contract surface | Rule |
-|------------------|------|
-| **Format** | JSONL — one JSON object per line, UTF-8 |
-| **`action`** | Exactly one of `MOVE_FORWARD`, `TURN_LEFT`, `TURN_RIGHT`, `SLOW_DOWN`, `STOP` |
-| **`source`** | `teleop`, `reference`, `synthetic`, or `manual_review` |
-| **`image_path`** | Repo-relative POSIX path; no backslashes |
-| **Validation** | JSON Schema + `parse_action()` before any row is written to processed files |
-| **Error behavior** | `RecordSchemaError` with file:line context on read; builder/import fail fast |
+### Naive Approach vs Chosen Approach
+- **Naive approach**: Store data in simple CSV tables. Breaks because nested metadata is poorly structured and streaming into PyTorch is slow.
+- **Chosen approach**: Newline-delimited JSON (JSONL) combined with a strict JSON Schema and frozen Python dataclass. Fast, appendable, and validates at boundaries.
 
-### Naive approach vs chosen approach
+### ADR Log Summary
+- **ADR (VLA-169)**: Newline-delimited JSON (JSONL) chosen for dataset records; human review uses CSV spreadsheets.
+- **ADR (VLA-170)**: Discrete action vocabulary is hardcoded in the schema, ensuring strict synchronization with Epic 103 commands.
 
-| Approach | Why it seems attractive | Why we did or did not choose it |
-|----------|-------------------------|----------------------------------|
-| CSV for training storage | Easy for humans to edit | Poor nested metadata; not the canonical training format |
-| Single giant JSON array | Simple to parse | Not stream-friendly; reloads entire file |
-| Parquet | Efficient columnar storage | Heavier dependency for MVP edge targets |
-| JSONL + Schema + dataclass | Slightly more setup | Streaming, shared validation, matches ROS log patterns |
+### Verification Patterns & Failure Modes
+- Command to run: `pytest tests/test_dataset_schema.py -q`
+- Common error: `RecordSchemaError` due to a typo or incorrect action value. Verify path separator forms and correct values using the validation report tool.
 
-## Implementation breakdown
-
-### JSON Schema — machine-readable contract
-
-**Snippet** (`data/schema/record.schema.json`):
-
-```json
-"action": {
-  "type": "string",
-  "enum": ["MOVE_FORWARD", "TURN_LEFT", "TURN_RIGHT", "SLOW_DOWN", "STOP"]
-},
-"additionalProperties": false
-```
-
-**What to notice:** Action enum duplicates Epic 103 on purpose — schema failures catch bad labels before Python imports.
-
-**Why it is written this way:** `additionalProperties: false` at the top level turns typos into CI failures instead of silent extra fields in training.
-
-**Risks and gotchas:** Raw episode `source` values (`dummy`, `scripted`) differ from training `source`; VLA-43 maps them during build.
-
----
-
-### Python API — parse, validate, stream
-
-**Snippet** (`litevla/data/schema.py`):
-
-```python
-@dataclass(frozen=True)
-class TrainingRecord:
-    image_path: str
-    instruction: str
-    action: str
-    timestamp: str
-    source: str
-    id: str | None = None
-    episode_id: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-def parse_training_record(raw: dict[str, Any], *, schema: dict[str, Any] | None = None) -> TrainingRecord:
-    validate_record_dict(raw, schema=schema)
-    action = parse_action(str(raw["action"]))
-    ...
-```
-
-**What to notice:** Schema validation runs before action parsing; both must pass.
-
-**Why it is written this way:** Single parse path for builder, label import, validator, and loader — one source of truth.
-
-**Risks and gotchas:** `read_jsonl()` fails on the **first** bad row (fail-fast). Use VLA-45 `validate_dataset()` when you need a full error report.
-
----
-
-### Fixtures and config wiring
-
-**Fixtures:** `data/fixtures/sample_train.jsonl` — six rows for CI without requiring PNG files on disk.
-
-**Config** (`configs/default.example.yaml`):
-
-```yaml
-data:
-  schema_path: data/schema/record.schema.json
-  processed_version: v0.1.0
-  train_path: data/processed/v0.1.0/train.jsonl
-```
-
-## Engineering decisions
-
-```text
-ADR: JSONL for training (VLA-169)
-Status: Accepted
-Context: Need nested metadata and streaming for large datasets.
-Decision: JSONL only for processed training; CSV only for label review spreadsheets (VLA-44).
-Alternatives Rejected: Parquet (heavier dependency), single JSON array (not stream-friendly).
-Consequences: All writers must use write_jsonl() or re-validate on import.
-```
-
-```text
-ADR: Epic 103 action enum in schema (VLA-170)
-Status: Accepted
-Context: Model output, dummy controller, and dataset must share one vocabulary.
-Decision: Hard-code the five DiscreteAction tokens in JSON Schema enum.
-Consequences: Teleop-only labels like MOVE_BACKWARD stay in raw logs, not training rows.
-```
-
-## Verification patterns and failure modes
-
-**Commands:**
-
-```bash
-pytest tests/test_dataset_schema.py -q
-python -c "
-from litevla.data.schema import read_jsonl, FIXTURES_PATH
-print(sum(1 for _ in read_jsonl(FIXTURES_PATH)))
-"
-```
-
-| Contract defended | Test / command |
-|-------------------|----------------|
-| Required fields present | `test_dataset_schema.py` |
-| Invalid action rejected | `parse_training_record` + `parse_action` |
-| Extra top-level keys rejected | `additionalProperties: false` |
-| JSONL round-trip | `write_jsonl` / `read_jsonl` |
-
-| Symptom | Likely cause | How to investigate | Fix |
-|---------|--------------|--------------------|-----|
-| `RecordSchemaError` on line N | Bad action, missing field, or typo key | Read message path (`action`, `source`, …) | Fix row or re-export from label CSV |
-| `FORWARD` rejected | Alias not in Epic 103 | Check `action` column | Use exact token from action schema doc |
-| Training can't find images | `image_path` wrong or PNG missing | Compare path to repo root | Run VLA-45 with image check |
-| Raw log won't load as training | Wrong layer | Check file is under `processed/` | Run VLA-43 builder |
-
-## Engineering principle taught by this task
-
-**Validate at the boundary, not inside the trainer.** Schema and action checks belong where data enters the processed layer; the training loop should assume rows are already trustworthy.
-
-## Active learning checks
-
-Before changing this module, answer:
-
-1. Why is raw `commands.jsonl` a different contract than `train.jsonl`?
-2. What happens if you add a field without updating `record.schema.json`?
-3. Why does `parse_training_record` call both JSON Schema and `parse_action()`?
-4. When should you use `read_jsonl()` vs `validate_dataset()`?
-
-**Small modification exercise:** Add an optional `metadata.review` object via the label import path (VLA-44), run `pytest tests/test_dataset_schema.py`, and confirm top-level shape is unchanged.
-
-## Open questions
-
-- **Lazy JSONL for large corpora:** `read_jsonl` streams, but `LiteVLADataset` eagerly lists all rows — streaming index may be needed beyond ~10k examples (VLA-46 follow-up).
-
-## Related
-
-- [action-schema.md](../action-interface-parser-and-safety-layer/action-schema.md) (Epic 103 labels)
-- [simulation-data-capture.md](simulation-data-capture.md) (VLA-42 raw layer)
-- [synthetic-starter-dataset.md](synthetic-starter-dataset.md) (VLA-43 builder output)
-- [labeling-workflow.md](labeling-workflow.md) (VLA-44 human review)
-- [dataset-validation.md](dataset-validation.md) (VLA-45 schema gate)
-- [dataset-loader.md](dataset-loader.md) (VLA-46 training consumer)
-- [dataset-versioning.md](dataset-versioning.md) (VLA-47 release packaging)
-- [`data/README.md`](../../../../data/README.md) (folder layout)
+### Related
+- [action-schema.md](../action-interface-parser-and-safety-layer/action-schema.md)
+- [simulation-data-capture.md](simulation-data-capture.md)
+- [synthetic-starter-dataset.md](synthetic-starter-dataset.md)
+- [labeling-workflow.md](labeling-workflow.md)
+- [dataset-validation.md](dataset-validation.md)
+- [dataset-loader.md](dataset-loader.md)
+- [dataset-versioning.md](dataset-versioning.md)

@@ -3,252 +3,218 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Simulation data capture tool — Lite-VLA</title>
+  <title>Tutorial: Understanding Lite-VLA Simulator Data Capture — Lite-VLA</title>
   <link rel="stylesheet" href="../../styles/doc.css">
 </head>
 <body>
   <div class="doc-shell">
     <header class="doc-header">
       <a class="back-link" href="index.html">Back to epic walkthrough</a>
-      <h1>Simulation data capture tool</h1>
+      <h1>Tutorial: Understanding Lite-VLA Simulator Data Capture</h1>
     </header>
     <main>
-      <p><strong>Epic:</strong> Dataset Generation, Labeling, and Validation (105) · <strong>Jira epic:</strong> VLA-6 · <strong>Story:</strong> VLA-42 / 1030 · <strong>Subtasks:</strong> 10090 (frame recorder), 10091 (command labels), 10092 (episode metadata)</p>
-<p><strong>Human-readable version (browser):</strong> <a href="simulation-data-capture.html"><code>simulation-data-capture.html</code></a></p>
-<h2 id="executive-summary">Executive summary</h2>
-<p>VLA-42 owns <strong>Layer A raw capture</strong> during Webots keyboard teleop: each session writes a self-contained directory under <code>data/raw/episodes/&lt;episode_id&gt;/</code> with <code>episode.json</code>, sim-stamped <code>commands.jsonl</code>, and <code>frames/*.png</code>. VLA-43 joins frames to commands and emits VLA-41 training JSONL. Capture reuses Epic 102 teleop nodes; the entry point is <code>run_episode_capture.sh</code> (interactive TTY required).</p>
-<h2 id="mental-model">Mental model</h2>
-<p>Think of raw capture as a <strong>flight recorder</strong>, not a training set.</p>
-<p>It exists because sim time, camera frames, and discrete action transitions happen at different rates — you need a durable log that preserves <em>when</em> each observation happened and <em>what</em> the operator last commanded.</p>
-<p>The key engineering tension is <strong>fidelity vs volume</strong>: commands log on action transitions (~few Hz) while frames arrive at ~5 Hz; the builder must join them later without guessing.</p>
-<p>A beginner mistake is running plain <code>run_teleop_sim.sh</code> and expecting <code>data/raw/episodes/</code> to populate, or assuming every frame gets a fresh label.</p>
-<p>A senior engineer watches for <strong>sim-time consistency</strong> — every recorder must use <code>use_sim_time:=true</code> and stamp rows with simulation clock, not wall clock.</p>
-<h2 id="backstory-why-this-exists">Backstory: why this exists</h2>
-<p>Before structured capture, teleop wrote lightweight logs under <code>outputs/teleop/</code> without episode metadata or a stable join key to camera frames. The naive solution would be “save a screenshot whenever I press a key.”</p>
-<p>That breaks because key events and camera frames are not synchronized, filenames would not align with <code>commands.jsonl</code>, and crashed sessions would leave no record of intent.</p>
-<p>So this design chooses <strong>episode directories created before ROS starts</strong>, with shared sim-stamp naming for frames and command rows. The pattern matches robotics dataset practices: raw multimodal logs first, curated training rows second.</p>
-<h2 id="prerequisites">Prerequisites</h2>
-<ul>
-<li>Epic 102 manual teleop: <a href="../ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md"><code>manual-teleoperation.md</code></a></li>
-<li>ROS 2 sim time and <code>/clock</code> in Webots</li>
-</ul>
-<h2 id="vocabulary">Vocabulary</h2>
+      <p><strong>Files Covered:</strong> <a href="file:///C:/Projects/Lite-VLA/litevla/data/episode.py"><code>litevla/data/episode.py</code></a><br />
+<strong>Epic Milestone:</strong> [Epic 105 / VLA-06: Dataset Generation, Labeling, and Validation]<br />
+<strong>Human-readable version (browser):</strong> <a href="simulation-data-capture.html"><code>simulation-data-capture.html</code></a></p>
+<hr />
+<h2 id="1-goal-objective">1. Goal &amp; Objective</h2>
+<p>The goal of the episode module is to provide a standardized directory structure and serialization protocol to capture raw Webots keyboard teleoperation runs under <code>data/raw/episodes/&lt;episode_id&gt;/</code>.</p>
+<hr />
+<h2 id="2-why-we-need-it">2. Why We Need It</h2>
+<p>Different elements of the simulator operate at different frequencies (camera feeds, user keypress commands, clock loops). Storing training records directly during a simulation run runs the risk of drops or desynchronizations if Webots lags. We need a "flight recorder" system that records raw timestamps and frames into a durable layout, allowing a compiler node (VLA-43) to align them offline without guessing.</p>
+<hr />
+<h2 id="3-how-to-start-thinking-about-it-ai-developer-thought-process">3. How to Start Thinking About It (AI Developer Thought Process)</h2>
+<p>When designing this code, I thought about the developer's sequential decision-making process:</p>
+<ol>
+<li><strong>Pre-flight metadata recording:</strong> "First, we must write metadata (instruction, world configuration, started_at) <em>before</em> the run starts. If the simulator crashes halfway, we need to know the session's original intent, so writing <code>episode.json</code> is our pre-flight check."</li>
+<li><strong>Padded frame naming:</strong> "Then, I needed a clean system to name visual camera observations. Using padded simulation clock timestamps (like <code>12_340000000.png</code>) guarantees that string-sorted files match simulation chronological time, preventing timestamp drifts."</li>
+<li><strong>Sim-time join keys:</strong> "Finally, operator commands must be logged with matching simulation clock stamps instead of host CPU clock stamps, ensuring VLA-43 can align them correctly regardless of simulation execution speed."</li>
+</ol>
+<hr />
+<h2 id="4-imports-global-constants-explained">4. Imports &amp; Global Constants Explained</h2>
+<h3 id="imports-table">Imports Table</h3>
 <div class="table-wrap"><table>
 <thead>
 <tr>
-<th>Term</th>
-<th>Meaning in this project</th>
+<th>Import Statement</th>
+<th>What it is</th>
+<th>Why it is used here</th>
+<th>Concept Link</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Episode</strong></td>
-<td>One capture session folder under <code>data/raw/episodes/&lt;episode_id&gt;/</code></td>
+<td><code>from __future__ import annotations</code></td>
+<td>Postponed type hints</td>
+<td>Solves self-referencing classes in type hints.</td>
+<td><a href="../../concepts/python_primer.md#postponed-annotations">Annotations</a></td>
 </tr>
 <tr>
-<td><strong><code>episode.json</code></strong></td>
-<td>Instruction, world, source, frame rate — written before ROS launch</td>
+<td><code>import json</code></td>
+<td>Standard JSON parser</td>
+<td>Used to read and write raw JSON/JSONL rows.</td>
+<td><a href="../../concepts/python_primer.md#json-serialization">JSON Serialization</a></td>
 </tr>
 <tr>
-<td><strong><code>commands.jsonl</code></strong></td>
-<td>Append-only log of action transitions with sim stamps</td>
+<td><code>from dataclasses import dataclass</code></td>
+<td>Boilerplate helper</td>
+<td>Defines the structured, read-only data structures for episodes.</td>
+<td><a href="../../concepts/python_primer.md#dataclasses-and-fields">Dataclasses</a></td>
 </tr>
 <tr>
-<td><strong>Sim stamp</strong></td>
-<td><code>{sim_sec}_{sim_nanosec}</code> shared by frames and command rows</td>
+<td><code>from datetime import datetime, timezone</code></td>
+<td>Time formatting tools</td>
+<td>Formats UTC timestamps for raw episodes.</td>
+<td><a href="../../concepts/python_primer.md#timezones--utc-datetime">Timezones</a></td>
 </tr>
 <tr>
-<td><strong><code>command_recorder</code></strong></td>
-<td>ROS node that logs <code>/litevla/current_action</code> changes</td>
+<td><code>from pathlib import Path</code></td>
+<td>Cross-platform file paths</td>
+<td>Handles directory paths, resolving slashes correctly on Windows and Linux.</td>
+<td><a href="../../concepts/python_primer.md#pathlib-file-resolution">Pathlib</a></td>
 </tr>
 <tr>
-<td><strong><code>camera_subscriber</code></strong></td>
-<td>ROS node that saves <code>/image_raw</code> to <code>frames/</code> at ~5 Hz</td>
+<td><code>from typing import Any</code></td>
+<td>Generic type hinting</td>
+<td>Indicates key-value dictionary returns.</td>
+<td><a href="../../concepts/python_primer.md#typing-and-type-checking">Typing</a></td>
+</tr>
+<tr>
+<td><code>import jsonschema</code></td>
+<td>Draft schema validator</td>
+<td>Checks that incoming dictionaries contain all mandatory variables.</td>
+<td><a href="../../concepts/python_primer.md#json-schema-validation">JSON Schema</a></td>
 </tr>
 </tbody>
 </table></div>
-<h2 id="guided-code-reading">Guided code reading</h2>
-<ol>
-<li><code>litevla/data/episode.py</code> — <code>init_raw_episode()</code>, <code>frame_filename()</code>; pure Python, no ROS.</li>
-<li><code>data/schema/episode.schema.json</code> — metadata contract for <code>episode.json</code>.</li>
-<li><code>ros_ws/src/litevla_bridge/litevla_bridge/capture_utils.py</code> — <code>build_command_record()</code>.</li>
-<li><code>ros_ws/src/litevla_bridge/litevla_bridge/command_recorder.py</code> — <code>episode_dir</code> parameter.</li>
-<li><code>ros_ws/scripts/run_episode_capture.sh</code> — orchestration order (metadata first, then nodes).</li>
-</ol>
-<p>While reading, ask: Who writes first? What triggers a command row? What names frames?</p>
-<h2 id="api-contract-and-data-flow">API contract and data flow</h2>
+<h3 id="global-constants">Global Constants</h3>
+<h4 id="repo_root"><code>REPO_ROOT</code></h4>
+<ul>
+<li><strong>What it is:</strong> Resolves the absolute parent directory of the active Lite-VLA repository.</li>
+<li><a href="../../concepts/python_primer.md#pathlib-file-resolution">Pathlib Concept Reference</a></li>
+</ul>
+<h4 id="episode_schema_path"><code>EPISODE_SCHEMA_PATH</code></h4>
+<ul>
+<li><strong>What it is:</strong> Absolute path to the JSON Schema contract for simulator episodes.</li>
+</ul>
+<h4 id="default_raw_episodes_dir"><code>DEFAULT_RAW_EPISODES_DIR</code></h4>
+<ul>
+<li><strong>What it is:</strong> The default directory where simulator records are saved (<code>data/raw/episodes</code>).</li>
+</ul>
+<hr />
+<h2 id="5-class-data-flow-diagrams">5. Class Data-Flow Diagrams</h2>
+<h3 id="episodemetadata-generation-loading-flow"><code>EpisodeMetadata</code> Generation &amp; Loading Flow</h3>
 <pre class="mermaid">flowchart TD
-  SH[&quot;run_episode_capture.sh&quot;] --&gt; INIT[&quot;init_raw_episode()&quot;]
-  INIT --&gt; EP[&quot;episode.json + frames/&quot;]
-  SH --&gt; WEBOTS[&quot;Webots + use_sim_time&quot;]
-  ACTION[&quot;/litevla/current_action&quot;] --&gt; REC[&quot;command_recorder&quot;]
-  REC --&gt; CMD[&quot;commands.jsonl&quot;]
-  IMG[&quot;/image_raw&quot;] --&gt; CAM[&quot;camera_subscriber&quot;]
-  CAM --&gt; PNG[&quot;frames/{sec}_{nanosec}.png&quot;]</pre>
+    Params[User Parameters] --&gt;|init_raw_episode| Meta[EpisodeMetadata Dataclass]
+    Meta --&gt;|episode_metadata_to_dict| Serialized[Serialized Episode Dict]
+    Serialized --&gt;|validate_episode_dict| SchemaCheck[Draft202012Validator]
+    SchemaCheck --&gt;|write_episode_json| DiskFile[episode.json File on Disk]
+    DiskFile --&gt;|read_episode_json| Load[Loaded EpisodeMetadata Instance]
 
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Contract</th>
-<th>Rule</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Episode init</td>
-<td><code>episode.json</code> written <strong>before</strong> ROS nodes start</td>
-</tr>
-<tr>
-<td>Frame naming</td>
-<td><code>{sim_sec}_{sim_nanosec:09d}.png</code> from image header stamp</td>
-</tr>
-<tr>
-<td>Command log</td>
-<td>Append on <strong>action transition</strong>; includes <code>sim_stamp_sec/nanosec</code></td>
-</tr>
-<tr>
-<td>Sim clock</td>
-<td>All recorders use <code>use_sim_time:=true</code></td>
-</tr>
-<tr>
-<td>Entry point</td>
-<td><code>./ros_ws/scripts/run_episode_capture.sh</code> — not plain <code>run_teleop_sim.sh</code></td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="naive-approach-vs-chosen-approach">Naive approach vs chosen approach</h3>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Approach</th>
-<th>Why it seems attractive</th>
-<th>Why we did or did not choose it</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Log every twist tick</td>
-<td>“More data”</td>
-<td>Floods JSONL; labels duplicate same action</td>
-</tr>
-<tr>
-<td>Wall-clock filenames</td>
-<td>Simple</td>
-<td>Breaks sim replay and VLA-43 join</td>
-</tr>
-<tr>
-<td>Reuse casual teleop script</td>
-<td>One script</td>
-<td>Mixes debug logs with dataset capture</td>
-</tr>
-<tr>
-<td>Dedicated capture script + episode dir</td>
-<td>Extra step</td>
-<td>Clear opt-in dataset sessions with metadata</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="implementation-breakdown">Implementation breakdown</h2>
-<h3 id="episode-layout-metadata-before-motion">Episode layout — metadata before motion</h3>
-<p><strong>Snippet</strong> (<code>litevla/data/episode.py</code>):</p>
-<pre><code class="language-python">def init_raw_episode(*, instruction: str, source: str = &quot;teleop&quot;, world: str = &quot;mvp_arena.wbt&quot;, ...) -&gt; Path:
-    episode_dir = root / eid
-    frames_dir = episode_dir / &quot;frames&quot;
-    frames_dir.mkdir(parents=True, exist_ok=True)
-    meta = EpisodeMetadata(episode_id=eid, instruction=instruction, ...)
-    write_episode_json(episode_dir, meta)
-    return episode_dir
-</code></pre>
-<p><strong>What to notice:</strong> <code>EpisodeMetadata</code> is validated against <code>episode.schema.json</code> before any PNG exists.</p>
-<p><strong>Why it is written this way:</strong> Crashed sim still leaves session intent and join parameters on disk.</p>
-<p><strong>Risks and gotchas:</strong> <code>episode_id</code> defaults to UTC timestamp — do not rename folders after capture without updating references.</p>
-<hr />
-<h3 id="command-rows-transition-triggered-logging">Command rows — transition-triggered logging</h3>
-<p><strong>Snippet</strong> (<code>capture_utils.py</code> pattern):</p>
-<pre><code class="language-python">def build_command_record(*, stamp, sim_stamp_sec, sim_stamp_nanosec, source, action, linear_x, angular_z):
-    ...
-</code></pre>
-<p>When <code>episode_dir</code> is set on <code>command_recorder</code>, rows append to <code>commands.jsonl</code> in the episode folder (not <code>outputs/teleop/</code>).</p>
-<p><strong>Risks and gotchas:</strong> Many consecutive frames may share one label until the operator changes action — VLA-43 forward-fills by design.</p>
-<hr />
-<h3 id="frame-recorder-rate-limited-sim-stamped-pngs">Frame recorder — rate-limited sim-stamped PNGs</h3>
-<p><code>camera_subscriber</code> with <code>record_frames:=true</code>, <code>frame_save_dir:=${EPISODE_DIR}/frames</code>, <code>record_interval_sec:=0.2</code> (~5 Hz).</p>
-<p><strong>Risks and gotchas:</strong> Rate limit uses wall-clock interval; filename still uses <strong>sim stamp</strong> from the image message — that stamp is the join key.</p>
-<h2 id="engineering-decisions">Engineering decisions</h2>
-<pre><code class="language-text">ADR: Sim-time alignment (10090)
-Status: Accepted
-Decision: Reuse camera_subscriber filename convention; command rows add matching sim stamp fields.
-Consequences: VLA-43 forward-fills without a separate index file.
-</code></pre>
-<pre><code class="language-text">ADR: Episode metadata before ROS (10092)
-Status: Accepted
-Decision: Shell/Python writes episode.json first; recorders only append runtime artifacts.
-Consequences: Partial sessions remain interpretable.
-</code></pre>
-<h2 id="verification-patterns-and-failure-modes">Verification patterns and failure modes</h2>
-<pre><code class="language-bash">pytest tests/test_episode_capture.py -q
-pytest ros_ws/src/litevla_bridge/test/test_capture_utils.py -q
+    style Meta fill:#FAF8F5,stroke:#B8602A,stroke-width:2px</pre>
 
-# Manual smoke (interactive terminal + Webots)
-./ros_ws/scripts/run_episode_capture.sh --instruction &quot;Move toward the red cube.&quot;
-./ros_ws/scripts/stop_teleop_sim.sh
-ls data/raw/episodes/&lt;latest&gt;/
-</code></pre>
-<div class="table-wrap"><table>
-<thead>
-<tr>
-<th>Symptom</th>
-<th>Likely cause</th>
-<th>Investigation</th>
-<th>Fix</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Empty <code>frames/</code></td>
-<td><code>record_frames</code> false or wrong dir</td>
-<td>Check launch params</td>
-<td>Re-run with <code>run_episode_capture.sh</code></td>
-</tr>
-<tr>
-<td>No <code>commands.jsonl</code></td>
-<td><code>episode_dir</code> not passed</td>
-<td>Inspect recorder params</td>
-<td>Use capture script, not casual teleop</td>
-</tr>
-<tr>
-<td>Frame/command times don't join</td>
-<td><code>use_sim_time</code> false</td>
-<td><code>ros2 param get</code> / clock topic</td>
-<td>Enable sim time on all nodes</td>
-</tr>
-<tr>
-<td>Script exits immediately</td>
-<td>No TTY</td>
-<td>Run in interactive terminal</td>
-<td>SSH with <code>-t</code> or local terminal</td>
-</tr>
-</tbody>
-</table></div>
-<h2 id="engineering-principle-taught-by-this-task">Engineering principle taught by this task</h2>
-<p><strong>Separate capture fidelity from training curation.</strong> Raw logs should be complete and timestamped; narrowing to SFT rows is a downstream compiler problem (VLA-43), not something the teleop operator should solve live.</p>
-<h2 id="active-learning-checks">Active learning checks</h2>
-<ol>
-<li>Why log commands on action <strong>transitions</strong> instead of every heartbeat tick?</li>
-<li>What file proves session intent if Webots crashes before any frame saves?</li>
-<li>Why must frame filenames use sim time, not wall time?</li>
-<li>How would you verify a new episode is joinable before running the builder?</li>
-</ol>
-<h2 id="open-questions">Open questions</h2>
+<hr />
+<h2 id="6-detailed-code-walkthrough">6. Detailed Code Walkthrough</h2>
+<h3 id="custom-classes">Custom Classes</h3>
+<h4 id="episodemetadata"><code>EpisodeMetadata</code></h4>
 <ul>
-<li><strong>Dummy/scripted capture:</strong> <code>episode.json</code> <code>source</code> enum includes <code>dummy</code> and <code>scripted</code>; wiring a dummy-driven capture session reuses the same layout (future work).</li>
+<li><strong>Intent:</strong> Represents the metadata description for a raw simulator run.</li>
+<li><strong>Code Snippet:</strong>
+  <code>python
+  @dataclass(frozen=True)
+  class EpisodeMetadata:
+      episode_id: str
+      instruction: str
+      source: str
+      world: str
+      started_at: str
+      record_frames_hz: float
+      schema_version: str = "1"
+      notes: str | None = None</code></li>
+<li><strong>Data Contract:</strong> Holds simulator parameters (<code>episode_id</code>, <code>instruction</code>, <code>source</code>, <code>world</code>, <code>started_at</code>, <code>record_frames_hz</code>, <code>notes</code>).</li>
+<li><strong>Why it's written this way:</strong> Ensures all simulator runs record the world configuration and frame rate identically.</li>
+<li><strong>System Connections:</strong> Written to <code>episode.json</code> inside the simulator directory.</li>
 </ul>
-<h2 id="related">Related</h2>
+<h4 id="episodeschemaerror"><code>EpisodeSchemaError</code></h4>
 <ul>
-<li><a href="../ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md">manual-teleoperation.md</a> (Epic 102 teleop stack)</li>
-<li><a href="dataset-schema.md">dataset-schema.md</a> (VLA-41 processed contract)</li>
-<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a> (VLA-43 consumes raw episodes)</li>
-<li><a href="../../../../data/schema/episode.schema.json"><code>data/schema/episode.schema.json</code></a></li>
+<li><strong>Intent:</strong> Custom exception raised when validation fails.</li>
+<li><strong>Why it's written this way:</strong> Inherits from <code>ValueError</code>. This allows training scripts to catch and handle schema validation errors specifically.</li>
+<li><a href="../../concepts/python_primer.md#custom-exceptions">Custom Exceptions Concept Reference</a></li>
+</ul>
+<hr />
+<h3 id="functions-in-episodepy">Functions in <code>episode.py</code></h3>
+<h4 id="episode_schema_path_1"><code>episode_schema_path()</code></h4>
+<ul>
+<li><strong>Intent:</strong> Computes the path to the episode schema file.</li>
+</ul>
+<h4 id="load_episode_schema"><code>load_episode_schema()</code></h4>
+<ul>
+<li><strong>Intent:</strong> Reads the episode schema file from disk.</li>
+</ul>
+<h4 id="new_episode_idwhen"><code>new_episode_id(when)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Generates a UTC directory-safe episode ID.</li>
+<li><strong>Data Contract:</strong> Inputs: optional <code>datetime</code>. Outputs: <code>str</code> ID (e.g. <code>20260705T200000Z</code>).</li>
+</ul>
+<h4 id="validate_episode_dictraw-schema"><code>validate_episode_dict(raw, *, schema)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Validates simulator episode metadata.</li>
+<li><strong>Data Contract:</strong> Inputs: raw dict, optional schema. Outputs: None.</li>
+</ul>
+<h4 id="episode_metadata_to_dictmeta"><code>episode_metadata_to_dict(meta)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Converts <code>EpisodeMetadata</code> to a dictionary.</li>
+</ul>
+<h4 id="write_episode_jsonepisode_dir-meta"><code>write_episode_json(episode_dir, meta)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Writes <code>episode.json</code> file inside the episode directory.</li>
+<li><strong>Data Contract:</strong> Inputs: target directory <code>Path</code>, <code>EpisodeMetadata</code>. Outputs: <code>Path</code> to the saved file.</li>
+</ul>
+<h4 id="init_raw_episode"><code>init_raw_episode(...)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Sets up a new episode folder on disk with <code>episode.json</code> and a <code>frames/</code> subdirectory.</li>
+<li><strong>Data Contract:</strong> Inputs: optional base directory, instruction text, source name, world name, recording frequency, optional episode ID, notes. Outputs: <code>Path</code> to the created episode directory.</li>
+<li><strong>Why it's chosen:</strong> Standardizes folder creation. Ensures the folder and its <code>frames</code> directory exist using <code>mkdir(parents=True, exist_ok=True)</code>.</li>
+</ul>
+<h4 id="frame_filenamesim_stamp_sec-sim_stamp_nanosec"><code>frame_filename(sim_stamp_sec, sim_stamp_nanosec)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Generates a padded PNG frame filename (e.g. <code>12_340000000.png</code>).</li>
+<li><strong>Data Contract:</strong> Inputs: seconds <code>int</code>, nanoseconds <code>int</code>. Outputs: <code>str</code> filename.</li>
+<li><strong>Why it's chosen:</strong> Uses <code>:09d</code> to pad nanoseconds with zeros, ensuring files are ordered correctly.</li>
+</ul>
+<h4 id="read_episode_jsonepisode_dir"><code>read_episode_json(episode_dir)</code></h4>
+<ul>
+<li><strong>Intent:</strong> Reads and validates <code>episode.json</code> from a directory.</li>
+<li><strong>Data Contract:</strong> Inputs: directory path. Outputs: <code>EpisodeMetadata</code>.</li>
+</ul>
+<hr />
+<h2 id="7-practical-engineering-context">7. Practical Engineering Context</h2>
+<h3 id="executive-summary">Executive Summary</h3>
+<p>VLA-42 owns <strong>Layer A raw capture</strong> during Webots keyboard teleop: each session writes a self-contained directory under <code>data/raw/episodes/&lt;episode_id&gt;/</code> with <code>episode.json</code>, sim-stamped <code>commands.jsonl</code>, and <code>frames/*.png</code>. VLA-43 joins frames to commands and emits VLA-41 training JSONL. Capture reuses Epic 102 teleop nodes; the entry point is <code>run_episode_capture.sh</code> (interactive TTY required).</p>
+<h3 id="api-contract-data-flow">API Contract &amp; Data Flow</h3>
+<pre><code class="language-text">Keyboard Input ──&gt; /litevla/current_action ──&gt; commands.jsonl
+Camera Feed    ──&gt; /image_raw              ──&gt; frames/{sec}_{nanosec}.png
+Start params   ──&gt; episode.json (durable metadata folder descriptor)
+</code></pre>
+<h3 id="naive-approach-vs-chosen-approach">Naive Approach vs Chosen Approach</h3>
+<ul>
+<li><strong>Naive approach</strong>: Store screenshot frames when keys are pressed. Breaks due to desynchronization and lack of session context.</li>
+<li><strong>Chosen approach</strong>: Split logging under UTC run subdirectories. Pre-flight JSON metadata plus padded frame names using simulation clock timestamps.</li>
+</ul>
+<h3 id="adr-log-summary">ADR Log Summary</h3>
+<ul>
+<li><strong>ADR (VLA-42)</strong>: Time stamps are tied strictly to ROS simulation time instead of localized host wall-clock time, allowing offline interpolation.</li>
+</ul>
+<h3 id="verification-patterns-failure-modes">Verification Patterns &amp; Failure Modes</h3>
+<ul>
+<li>CLI tool check: <code>./ros_ws/scripts/run_episode_capture.sh</code></li>
+<li>Common error: Empty <code>frames/</code> or missing <code>commands.jsonl</code> due to running in non-interactive / non-TTY terminals. Ensure ROS execution maps coordinates correctly.</li>
+</ul>
+<h3 id="related">Related</h3>
+<ul>
+<li><a href="../ros-2-simulation-and-robot-control-skeleton/manual-teleoperation.md">manual-teleoperation.md</a></li>
+<li><a href="dataset-schema.md">dataset-schema.md</a></li>
+<li><a href="synthetic-starter-dataset.md">synthetic-starter-dataset.md</a></li>
 </ul>
     </main>
     <footer class="doc-footer">

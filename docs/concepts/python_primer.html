@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Python Concept Primers — Lite-VLA Mentorship</title>
-  <link rel="stylesheet" href="../../styles/doc.css">
+  <link rel="stylesheet" href="../styles/doc.css">
   <style>
     /* Custom sidebar layout for concepts */
     .layout-container {
@@ -98,6 +98,9 @@
           <li><a href="#sorting">Sorting & Lambdas</a></li>
           <li><a href="#regex">Regular Expressions</a></li>
           <li><a href="#generators">Generators & Yield</a></li>
+          <li><a href="#csv">CSV Parsing</a></li>
+          <li><a href="#collections">Collections & Counters</a></li>
+          <li><a href="#datetime">Timezones & UTC Datetime</a></li>
         </ul>
       </div>
     </aside>
@@ -463,10 +466,107 @@ for number in read_numbers(3):
           <li><strong>Avoid this when:</strong> You need to randomly access items by index, or when you need to write/modify the data collection dynamically.</li>
         </ul>
       </section>
+
+      <section id="csv">
+        <h2>CSV Parsing</h2>
+        <h3>Overview</h3>
+        <p>CSV (Comma-Separated Values) is a plain-text format for tabular data. Python's built-in <code>csv</code> module provides:</p>
+        <ul>
+          <li><code>csv.DictReader()</code>: Reads CSV rows into Python dictionaries using the header row for keys.</li>
+          <li><code>csv.DictWriter()</code>: Writes dictionaries to CSV rows using standard header column names.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">import csv
+
+# Writing to a CSV file
+fields = ["id", "action"]
+with open("actions.csv", "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=fields)
+    writer.writeheader()
+    writer.writerow({"id": "a1", "action": "STOP"})
+
+# Reading from a CSV file
+with open("actions.csv", "r", newline="", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        print(row["id"], row["action"]) # Output: a1 STOP</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Importing and exporting spreadsheet data between databases and programs.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Creating review sheets so developers can audit machine labels in Excel.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You need to export structured logs or metadata for humans to inspect in tabular sheets.</li>
+          <li><strong>Avoid this when:</strong> Storing highly nested tree structures or model weights.</li>
+        </ul>
+      </section>
+
+      <section id="collections">
+        <h2>Collections and Counters</h2>
+        <h3>Overview</h3>
+        <p>Python's <code>collections</code> module provides specialized container datatypes. One of the most useful is <code>Counter</code>, which counts occurrences of hashable items in a list or sequence automatically.</p>
+        <ul>
+          <li><code>Counter(list)</code>: Computes counts of all unique items.</li>
+          <li><code>most_common(n)</code>: Returns the top <code>n</code> most frequent items.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from collections import Counter
+
+actions = ["STOP", "MOVE", "STOP", "STOP", "TURN"]
+counts = Counter(actions)
+print(counts["STOP"]) # Output: 3
+print(counts.most_common(1)) # Output: [('STOP', 3)]</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Frequency analyses, voting counts, or category counts.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Checking label distributions in datasets to warning developers about class imbalance.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You need to quickly tally objects or find the most frequent elements in a sequence.</li>
+          <li><strong>Avoid this when:</strong> You are doing complex multi-dimensional filtering (use pandas or NumPy instead).</li>
+        </ul>
+      </section>
+
+      <section id="datetime">
+        <h2>Timezones & UTC Datetime</h2>
+        <h3>Overview</h3>
+        <p>In standard Python, <code>datetime.now()</code> returns the local time of the computer running the script, which changes depending on time zones. To guarantee consistent timestamps across servers, we use timezone-aware UTC times.</p>
+        <ul>
+          <li><code>datetime.now(timezone.utc)</code>: Returns the current date and time pinned to the UTC timezone.</li>
+          <li><code>isoformat()</code>: Converts the datetime object into a standardized ISO-8601 string.</li>
+        </ul>
+
+        <h3>Code Example</h3>
+        <pre><code class="language-python">from datetime import datetime, timezone
+
+# Get current time in UTC timezone
+now_utc = datetime.now(timezone.utc)
+print("UTC ISO String:", now_utc.isoformat())</code></pre>
+
+        <h3>Use-Case Scenarios</h3>
+        <ul>
+          <li><strong>General Use-Case:</strong> Database logging, network packet timing, and transaction timestamps.</li>
+          <li><strong>Robotics & VLA Use-Case:</strong> Generating unique run IDs and tracking exactly when model logs were reviewed.</li>
+        </ul>
+
+        <h3>When to Use vs. When NOT to Use</h3>
+        <ul>
+          <li><strong>Choose this when:</strong> You need standardized, cross-region timestamps to audit execution histories.</li>
+          <li><strong>Avoid this when:</strong> You are asking a user for their local calendar input (which requires timezone offset translation).</li>
+        </ul>
+      </section>
     </main>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
-  <script src="../../scripts/doc-code.js"></script>
+  <script src="../scripts/doc-code.js"></script>
 </body>
 </html>

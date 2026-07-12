@@ -1,185 +1,125 @@
-# Dataset validation checks
-
-**Epic:** Dataset Generation, Labeling, and Validation (105) · **Jira epic:** VLA-6 · **Story:** VLA-45 / 1033 · **Subtasks:** 10099 (schema), 10100 (images), 10101 (distribution)
-
+# Tutorial: Understanding Dataset Validation Checks
+**Files Covered:** [`litevla/data/validator.py`](file:///C:/Projects/Lite-VLA/litevla/data/validator.py)  
+**Epic Milestone:** [Epic 105 / VLA-06: Dataset Generation, Labeling, and Validation]  
 **Human-readable version (browser):** [`dataset-validation.html`](dataset-validation.html)
-
-## Executive summary
-
-VLA-45 owns the **automated quality gate** on processed JSONL before fine-tuning and after human review (VLA-44). Unlike `read_jsonl()` which fails on the first bad row, `validate_dataset()` scans the entire file, collects every schema/filesystem problem with line numbers, and emits action/source distribution summaries with imbalance warnings. Output feeds CI, the CLI, and VLA-47 `validation_report.json` artifacts.
-
-## Mental model
-
-Think of the validator as a **pre-flight checklist with a printed diagnostic report**.
-
-It exists because dataset bugs are expensive — a missing PNG or duplicate `id` discovered mid-epoch wastes GPU time and produces confusing loss curves.
-
-The key engineering tension is **fail-fast loading vs collect-all-errors QA**: training wants to stop immediately; release review wants every issue in one pass.
-
-A beginner mistake is running training without validation, or treating imbalance **warnings** as hard failures.
-
-A senior engineer watches for **`report.valid` vs `warning_count`** — warnings inform release notes; only errors block `valid`.
-
-## Backstory: why this exists
-
-Wrapping `read_jsonl()` in a try/except loop seems enough for QA. The naive approach stops at the first bad line.
-
-That breaks because a spreadsheet import may introduce dozens of bad actions — you need line numbers for *all* of them before sending work back to reviewers.
-
-So this design chooses a non-throwing scanner that aggregates `ValidationIssue` objects into `DatasetValidationReport`, with optional image and review-CSV gates.
-
-## Prerequisites
-
-- VLA-41 schema: [dataset-schema.md](dataset-schema.md)
-- Optional VLA-44 review CSV: [labeling-workflow.md](labeling-workflow.md)
-
-## Vocabulary
-
-| Term | Meaning in this project |
-|------|-------------------------|
-| **`DatasetValidationReport`** | Aggregated scan result for one JSONL file |
-| **`ValidationIssue`** | One error or warning with `code`, `line`, `record_id` |
-| **`report.valid`** | True when `error_count == 0` (warnings allowed) |
-| **`resolve_image_path`** | Repo-root join rule shared with VLA-46 loader |
-| **`action_imbalance`** | Warning when one action exceeds 50% of rows |
-
-## Guided code reading
-
-1. `litevla/data/validator.py` — `validate_dataset`, issue codes, `IMBALANCE_WARNING_RATIO`.
-2. `scripts/validate_dataset.py` — CLI flags (`--skip-image-check`, `--review-csv`, `--write-artifacts`).
-3. `tests/test_dataset_validator.py` — contracts per issue type.
-4. `litevla/data/versioning.py` — consumes reports for release artifacts.
-
-## API contract and data flow
-
-```text
-train.jsonl ──> validate_dataset()
-                  ├── per-line: JSON parse
-                  ├── parse_training_record()  (VLA-41 + Epic 103)
-                  ├── resolve_image_path() + is_file()   [optional]
-                  ├── duplicate id tracking
-                  └── Counter: action + source
-              ──> DatasetValidationReport
-                      ├── valid (error_count == 0)
-                      └── issues[] with code + line + record_id
-              ──> validation_report.json  (VLA-47)
-```
-
-| Check | Severity | Code |
-|-------|----------|------|
-| Invalid JSON | error | `invalid_json` |
-| Schema / action | error | `schema_invalid` |
-| Missing PNG | error | `missing_image` |
-| Duplicate `id` | error | `duplicate_id` |
-| One action > 50% | warning | `action_imbalance` |
-| Missing action token | warning | `missing_action_coverage` |
-| Pending review row | error | via `--review-csv` gate |
-
-### Naive approach vs chosen approach
-
-| Approach | Why it seems attractive | Why we did or did not choose it |
-|----------|-------------------------|----------------------------------|
-| Fail on first error (`read_jsonl`) | Simple | Poor QA feedback for batch imports |
-| Collect-all-errors report | More code | Enables CI artifacts and reviewer loops |
-| Imbalance as hard error | Strict balance | Blocks MVP starter set; warning only |
-| Optional image check | Complexity | Fixtures CI lacks gitignored PNGs |
-
-## Implementation breakdown
-
-### Report types
-
-**Snippet** (`litevla/data/validator.py`):
-
-```python
-@dataclass
-class DatasetValidationReport:
-    jsonl_path: str
-    record_count: int = 0
-    error_count: int = 0
-    warning_count: int = 0
-    action_counts: dict[str, int] = field(default_factory=dict)
-    ...
-
-    @property
-    def valid(self) -> bool:
-        return self.error_count == 0
-```
-
-**Risks and gotchas:** Warnings increment `warning_count` but do not flip `valid` to False.
 
 ---
 
-### Shared image path resolution
+## 1. Goal & Objective
+The goal of the validator is to scan compiled JSONL files and ensure they are clean, structured, free of duplicates, have existing visual frames on disk, and match vocabulary constraints.
 
-```python
-def resolve_image_path(image_path: str, *, repo_root: Path) -> Path:
-    path = Path(image_path)
-    if path.is_absolute():
-        return path
-    return repo_root / path
+---
+
+## 2. Why We Need It
+ML pipelines are fragile. If an image path is wrong (e.g. referencing a missing PNG frame) or a steering action is malformed, standard training scripts will run for several hours before crashing mid-epoch. We need a pre-flight validator that checks all constraints, lists all errors with line numbers in a single output, warns if class category allocations are biased, and blocks release builds if errors are found.
+
+---
+
+## 3. How to Start Thinking About It (AI Developer Thought Process)
+When designing this code, I thought about the developer's sequential decision-making process:
+
+1. **Eager error accumulation:** "Usually, Python parsing fails fast on the first error. However, a developer wants to see *all* dataset problems in one pass instead of fixing one, running again, and hitting another error. I need to catch exceptions and collect them into a validation issues list."
+2. **Verification of frames on disk:** "A record's path reference is just text. The training loop will fail if the actual PNG does not exist. The validator must check `Path.is_file()` for every record, verifying that image files are truly present on the drive."
+3. **Category distribution warnings:** "If a dataset has 95% `MOVE_FORWARD` and 5% other commands, training will produce a biased model. The validator should count occurrences and flag warnings if distributions are highly unbalanced, without failing the run."
+
+---
+
+## 4. Imports & Global Constants Explained
+
+### Imports Table
+
+| Import Statement | What it is | Why it is used here | Concept Link |
+|------------------|------------|---------------------|--------------|
+| `from collections import Counter` | Counting helper | Computes action category totals for imbalance checks. | [Collections Counter](../../concepts/python_primer.md#collections-counter) |
+| `from dataclasses import asdict, dataclass, field` | Boilerplate helper | Defines structured validation issue and report classes. | [Dataclasses](../../concepts/python_primer.md#dataclasses-and-fields) |
+| `from pathlib import Path` | Path resolution utility | Resolves relative image locations across platforms. | [Pathlib](../../concepts/python_primer.md#pathlib-file-resolution) |
+| `from typing import Any` | Generic type hinting | Indicates dictionary keys return signatures. | [Typing](../../concepts/python_primer.md#typing-and-type-checking) |
+| `from jsonschema.exceptions import ValidationError` | Schema validator exception | Catches raw schema violations. | [JSON Schema](../../concepts/python_primer.md#json-schema-validation) |
+| `from litevla.data.schema import RecordSchemaError` | Schema error class | Catches and logs schema validation errors. | N/A |
+
+### Global Constants
+
+#### `IMBALANCE_WARNING_RATIO`
+* **What it is:** The ratio (0.50) above which a single action warning is flagged.
+* **Why it is defined here:** If one command is >50% of the dataset, it warns the user of bias.
+
+---
+
+## 5. Class Data-Flow Diagrams
+
+### `DatasetValidationReport` Generation & Accumulation Flow
+
+```mermaid
+flowchart TD
+    File[JSONL File on Disk] -->|validate_dataset| Line[Parse Line-by-Line]
+    Line -->|parse_training_record| SchemaCheck{Matches Schema?}
+    SchemaCheck -->|No| Err1[Add Schema Error Issue]
+    SchemaCheck -->|Yes| ImageCheck{PNG File Exists?}
+    ImageCheck -->|No| Err2[Add Missing Image Error]
+    ImageCheck -->|Yes| IDCheck{ID Unique?}
+    IDCheck -->|No| Err3[Add Duplicate ID Error]
+    IDCheck -->|Yes| Counter[Increment Counters]
+    
+    Err1 & Err2 & Err3 & Counter -->|Accumulate| Rep[DatasetValidationReport]
+    Rep -->|to_dict| Serialized[JSON Dictionary]
+    Serialized -->|write_validation_report| Output[validation_report.json on Disk]
+
+    style Rep fill:#FAF8F5,stroke:#B8602A,stroke-width:2px
 ```
 
-Same rule as `LiteVLADataset.resolve_image_path()` — validate and train must agree.
+---
 
-### CLI
+## 6. Detailed Code Walkthrough
 
-```bash
-python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train.jsonl
-python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check
-python scripts/validate_dataset.py --version v0.1.0 --write-artifacts
-```
+### Custom Classes
 
-Exit code: `0` if `report.valid`, else `1`.
+#### `ValidationIssue`
+* **Intent:** Holds description details for a single schema/file failure.
+* **Data Contract:** Defines `severity` (error/warning), `code`, `message`, `line`, and `record_id`.
 
-## Engineering decisions
+#### `DatasetValidationReport`
+* **Intent:** Holds the overall results of a validation audit.
+* **Why it's chosen:** Implements a `@property` named `valid` that returns `True` only if `error_count == 0`, making validation checks easy to check.
 
-```text
-ADR: Collect-all-errors validator (10099)
-Status: Accepted
-Decision: validate_dataset() never raises on row errors; aggregates into report.
-Alternatives Rejected: try/except around read_jsonl only (loses full scan).
-```
+---
 
-```text
-ADR: Imbalance as warning not error (10101)
-Status: Accepted
-Decision: action_imbalance warns at 50% threshold; does not set valid=False.
-Consequences: Epic 106 can proceed; team reviews warnings in validation_report.json.
-```
+### Functions in `validator.py`
 
-## Verification patterns and failure modes
+#### `resolve_image_path(image_path, *, repo_root)`
+* **Intent:** Resolves relative image paths.
+* **Data Contract:** Inputs: path string, repo root. Outputs: absolute `Path`.
 
-```bash
-pytest tests/test_dataset_validator.py -q
-python scripts/validate_dataset.py --jsonl data/fixtures/sample_train.jsonl --skip-image-check
-```
+#### `validate_dataset(...)`
+* **Intent:** Audits a processed JSONL file line-by-line for structural issues.
+* **Data Contract:** Inputs: JSONL path, check flags. Outputs: `DatasetValidationReport`.
+* **Why it's chosen:** Loops through JSONL rows. Checks path existence using `is_file()` and checks for duplicate IDs using a mapping.
 
-| Symptom | Likely cause | Investigation | Fix |
-|---------|--------------|---------------|-----|
-| `missing_image` errors | PNG not on disk | Open `image_path` from report | Build/copy images or fix paths |
-| `duplicate_id` | Re-import or builder bug | Grep ids in JSONL | Regenerate unique ids |
-| `schema_invalid` line N | Bad action or extra key | Read issue message | Fix row or re-import CSV |
-| CI passes but train fails images | `--skip-image-check` in CI | Run full validate locally | Add PNGs before training |
-| `pending` review blocks release | `--review-csv` gate | Open label_review.csv | Approve or reject rows |
+#### `write_validation_report(report, output_path)`
+* **Intent:** Writes the validation report to disk.
 
-## Engineering principle taught by this task
+#### `format_report_summary(report)`
+* **Intent:** Formats a summary screen for command-line output.
 
-**Separate transport validation from policy warnings.** Schema and filesystem errors are blockers; distribution skew is signal for humans, not always a build failure.
+---
 
-## Active learning checks
+## 7. Practical Engineering Context
 
-1. When should you use `read_jsonl()` vs `validate_dataset()`?
-2. Why does CI use `--skip-image-check` on fixtures?
-3. Does `action_imbalance` make `report.valid` false?
-4. Which issue codes are errors vs warnings?
+### Executive Summary
+VLA-45 owns the **automated quality gate** on processed JSONL before fine-tuning and after human review (VLA-44). Unlike `read_jsonl()` which fails on the first bad row, `validate_dataset()` scans the entire file, collects every schema/filesystem problem with line numbers, and emits action/source distribution summaries with imbalance warnings. Output feeds CI, the CLI, and VLA-47 `validation_report.json` artifacts.
 
-## Open questions
+### Naive Approach vs Chosen Approach
+- **Naive approach**: Fail-fast loading. Stops execution at the first line discrepancy, missing other issues.
+- **Chosen approach**: Collect-all-errors loop returning validation issue records with line counts and warnings, making debugging easier.
 
-- **Val split in CI:** Validate `val.jsonl` separately in release pipeline (supported via `build_version_artifacts`).
+### ADR Log Summary
+- **ADR (VLA-45)**: Action imbalances (>50% frequency) emit policy warnings but do not flag `report.valid` as false, allowing flexible setups.
 
-## Related
+### Verification Patterns & Failure Modes
+- CLI verification: `python scripts/validate_dataset.py --jsonl data/processed/v0.1.0/train_reviewed.jsonl`
+- Verification tests: `pytest tests/test_dataset_validator.py -q`
 
-- [dataset-schema.md](dataset-schema.md) (VLA-41 schema under test)
-- [labeling-workflow.md](labeling-workflow.md) (VLA-44 — run validator after import)
-- [dataset-versioning.md](dataset-versioning.md) (VLA-47 — consumes reports)
-- [dataset-loader.md](dataset-loader.md) (VLA-46 — fail-fast load after validate in CI)
+### Related
+- [dataset-schema.md](dataset-schema.md)
+- [labeling-workflow.md](labeling-workflow.md)
+- [dataset-versioning.md](dataset-versioning.md)
+- [dataset-loader.md](dataset-loader.md)
