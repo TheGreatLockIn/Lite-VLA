@@ -8,9 +8,11 @@ When creating or updating project documentation in `docs/`, follow these rules.
 
 Create or expand `docs/` content only for **durable project knowledge** — things a new teammate needs to build, run, train, deploy, or operate Lite-VLA without reading chat history.
 
+**Epic/task docs are deferred:** do not create or update `docs/epics/` walkthroughs or architecture/code task docs while implementing a coding task. Write those only when the user explicitly asks, or as a separate documentation pass after the implementation is complete. See root [`AGENTS.md`](../AGENTS.md).
+
 When documentation is required, write it as asynchronous engineering communication. It should teach architectural intent and system contracts: what the feature is for, how data enters and exits, which trade-offs were chosen, what risks or deferred logic remain, and how tests defend behavior.
 
-For Jira epic/task docs, follow the **architectural walkthrough framework** in [`epics/AGENTS.md`](epics/AGENTS.md). Cross-cutting docs with substantial code should use the same grouped-snippet, design-notes, and verification-pattern style where applicable.
+For Jira epic/task docs, follow the **architecture walkthrough framework** in [`epics/AGENTS.md`](epics/AGENTS.md) and the **code teaching standard** in [`epics/code/AGENTS.md`](epics/code/AGENTS.md). Cross-cutting docs with substantial code should use the same grouped-snippet, design-notes, and verification-pattern style where applicable.
 
 | Write docs | Skip docs (chat reply is enough) |
 |------------|----------------------------------|
@@ -28,7 +30,7 @@ If a topic is not in the table, prefer updating an existing page or answering in
 
 - Do **not** open, read, search, grep, or cite HTML under `docs/html/`, `docs/epics/`, or elsewhere in `docs/`.
 - HTML is for **humans viewing in a browser only** — not for agent consumption.
-- If you need documentation content, always use the paired **`.md`** file instead (`docs/<topic>.md` or `docs/epics/<epic-slug>/<task-slug>.md`).
+- If you need documentation content, always use the paired **`.md`** file instead (`docs/<topic>.md`, `docs/epics/<epic-slug>/architecture/<task-slug>.md`, or `docs/epics/<epic-slug>/code/<task-slug>.md`).
 - When a human or the README points to an HTML path, resolve it to the matching `.md` for your own work.
 - When updating documentation, edit the `.md` file first (or in the same change as the `.html`); never treat `.html` as the source of truth.
 
@@ -42,16 +44,17 @@ Documentation uses paired `.md` + `.html` files in three locations:
 |-------|--------------|---------------|
 | Cross-cutting project topics | `docs/<topic>.md` | `docs/html/<topic>.html` |
 | Epic walkthrough | — (HTML only) | `docs/epics/<epic-slug>/index.html` |
-| Jira story/task deliverables | `docs/epics/<epic-slug>/<task-slug>.md` | `docs/epics/<epic-slug>/<task-slug>.html` |
+| Jira story/task — architecture | `docs/epics/<epic-slug>/architecture/<task-slug>.md` | `docs/epics/<epic-slug>/architecture/<task-slug>.html` |
+| Jira story/task — code teaching | `docs/epics/<epic-slug>/code/<task-slug>.md` | `docs/epics/<epic-slug>/code/<task-slug>.html` |
 
-Epic walkthrough pages are HTML-only; agents follow [`epics/AGENTS.md`](epics/AGENTS.md) for structure, the **Agent contract**, the **architectural walkthrough framework**, and task-doc depth standards. Update them alongside code changes.
+Epic walkthrough pages are HTML-only; agents follow [`epics/AGENTS.md`](epics/AGENTS.md) for architecture docs and [`epics/code/AGENTS.md`](epics/code/AGENTS.md) for code teaching docs. Update them alongside code changes.
 
 **Do not** place Jira task deliverables in `docs/` root or `docs/html/`. **Do not** place cross-cutting topics inside `docs/epics/`.
 
 Rules:
 
 - Add new **cross-cutting** docs as **both** `docs/<topic>.md` and `docs/html/<topic>.html`.
-- Add new **Jira task** docs as **both** `docs/epics/<epic-slug>/<task-slug>.md` and `.html` (see root `AGENTS.md` and `epics/AGENTS.md`).
+- Add new **Jira task** docs as **both** `.md` and `.html` under `architecture/` and/or `code/` (see root `AGENTS.md`, `epics/AGENTS.md`, and `epics/code/AGENTS.md`).
 - Keep factual content in sync between each `.md` / `.html` pair. The `.md` file is the **agent source of truth**.
 - The `.html` file may add presentation-only extras (layout, styling, interactive widgets) but must not drift in substance from the `.md` file.
 - Do **not** remove `.md` files when adding HTML counterparts.
@@ -68,7 +71,7 @@ At the top of each `.md` doc, include a line pointing humans to the HTML version
 When creating or updating the **`.html`** counterpart in `docs/html/` or `docs/epics/` (without reading existing HTML as input — derive from the `.md` instead):
 
 - Include `<meta name="viewport" content="width=device-width, initial-scale=1">`.
-- Link the shared stylesheet: `../styles/doc.css` (from `docs/html/`) or `../../styles/doc.css` (from `docs/epics/<epic-slug>/`).
+- Link the shared stylesheet: `../styles/doc.css` (from `docs/html/`) or `../../../styles/doc.css` (from `docs/epics/<epic-slug>/architecture/` or `code/`).
 - Epic walkthroughs use `../../styles/presentation.css` (from `docs/epics/<epic-slug>/index.html`).
 - Wrap wide tables in `<div class="table-wrap">` so they scroll horizontally on small screens.
 - Use semantic structure: `<header>`, `<main>`, `<section>`, `<nav>`, `<footer>`.
@@ -156,10 +159,10 @@ Interactive docs are encouraged when they help readers **explore** behavior. Use
 
 ## Existing assets
 
-- Agent instructions: `docs/AGENTS.md` (this file) · `docs/epics/AGENTS.md` (epic walkthroughs and task docs)
+- Agent instructions: `docs/AGENTS.md` (this file) · `docs/epics/AGENTS.md` (architecture) · `docs/epics/code/AGENTS.md` (code teaching)
 - Cross-cutting human HTML: `docs/html/`
 - Epic index and walkthroughs: `docs/epics/`
 - Shared styles: `docs/styles/doc.css` · `docs/styles/presentation.css` · `docs/styles/prism-litevla.css` · `docs/scripts/doc-code.js`
 - Example cross-cutting pair: `docs/requirements.md` · `docs/html/requirements.html`
 - Experiment logging: `docs/experiment-logging.md` · `docs/html/experiment-logging.html`
-- Example task pair: `docs/epics/action-interface-parser-and-safety-layer/action-schema.md` · `action-schema.html`
+- Example task pair: `docs/epics/action-interface-parser-and-safety-layer/architecture/action-schema.md` (architecture) · `docs/epics/action-interface-parser-and-safety-layer/code/action-schema.md` (code, when present)
