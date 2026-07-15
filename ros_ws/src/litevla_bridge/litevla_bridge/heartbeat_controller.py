@@ -11,10 +11,11 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from litevla_bridge.action_schema import CommandSmoother, DiscreteAction, SmoothingConfig, is_stop_bypass
+from litevla_bridge.action_schema import DiscreteAction
 from litevla_bridge.cmd_vel_publisher import CmdVelPublisher
 from litevla_bridge.heartbeat_utils import (
     build_diagnostics,
+    format_age_ms,
     is_timed_out,
     seconds_since,
     select_velocities,
@@ -38,9 +39,7 @@ class HeartbeatController(Node):
         self.declare_parameter("max_angular_vel", 0.6)
         self.declare_parameter("require_frame", True)
         self.declare_parameter("control_mode", "dummy")
-        self.declare_parameter("smoothing_enabled", True)
-        self.declare_parameter("max_linear_rate", 0.5)
-        self.declare_parameter("max_angular_rate", 1.5)
+        self.declare_parameter("teleop_startup_grace_sec", 0.0)
 
         self._heartbeat_hz = float(self.get_parameter("heartbeat_hz").value)
         if self._heartbeat_hz <= 0:
@@ -50,6 +49,7 @@ class HeartbeatController(Node):
         self._frame_timeout = float(self.get_parameter("frame_timeout_sec").value)
         self._require_frame = bool(self.get_parameter("require_frame").value)
         self._control_mode = str(self.get_parameter("control_mode").value)
+        self._teleop_grace = float(self.get_parameter("teleop_startup_grace_sec").value)
 
         self._desired_linear = 0.0
         self._desired_angular = 0.0
@@ -58,14 +58,8 @@ class HeartbeatController(Node):
         self._last_frame_time: float | None = None
         self._last_publish_stamp = ""
         self._timed_out = True
-        self._heartbeat_period = 1.0 / self._heartbeat_hz
-        self._smoother = CommandSmoother(
-            SmoothingConfig(
-                enabled=bool(self.get_parameter("smoothing_enabled").value),
-                max_linear_rate=float(self.get_parameter("max_linear_rate").value),
-                max_angular_rate=float(self.get_parameter("max_angular_rate").value),
-            )
-        )
+        self._warned_no_teleop = False
+        self._started_at = self._now()
 
         self._cmd_vel = CmdVelPublisher(
             self,
@@ -118,7 +112,11 @@ class HeartbeatController(Node):
             frame_timeout_sec=self._frame_timeout,
             require_frame=self._require_frame,
         )
-        linear, angular = self._select_output_velocities()
+        linear, angular = select_velocities(
+            self._desired_linear,
+            self._desired_angular,
+            timed_out=self._timed_out,
+        )
         self._cmd_vel.publish_twist(linear, angular)
         stamp = self.get_clock().now().to_msg()
         self._last_publish_stamp = f"{stamp.sec}.{stamp.nanosec:09d}"
@@ -134,40 +132,31 @@ class HeartbeatController(Node):
             timed_out=self._timed_out,
         )
         payload["control_mode"] = self._control_mode
-        payload["smoothing_enabled"] = self._smoother.config.enabled
         diag = String()
         diag.data = json.dumps(payload)
         self._diagnostics_pub.publish(diag)
-
-
-    def _select_output_velocities(self) -> tuple[float, float]:
-        if self._timed_out or is_stop_bypass(self._current_action):
-            self._smoother.reset()
-            return 0.0, 0.0
-
-        if not self._smoother.config.enabled:
-            return select_velocities(
-                self._desired_linear,
-                self._desired_angular,
-                timed_out=False,
-            )
-
-        return self._smoother.step_velocities(
-            target_linear=self._desired_linear,
-            target_angular=self._desired_angular,
-            action=self._current_action,
-            dt=self._heartbeat_period,
-        )
 
     def _on_diag_log(self) -> None:
         now = self._now()
         action_age = seconds_since(self._last_action_time, now)
         frame_age = seconds_since(self._last_frame_time, now)
+        if (
+            self._control_mode == "teleop"
+            and action_age is None
+            and not self._warned_no_teleop
+            and (now - self._started_at) >= self._teleop_grace
+        ):
+            self._warned_no_teleop = True
+            self.get_logger().error(
+                "No teleop commands received (action_age=n/a). "
+                "teleop_keyboard is idle or not in an interactive terminal — "
+                "run ./ros_ws/scripts/run_teleop_sim.sh from GNOME Terminal / Konsole."
+            )
         self.get_logger().info(
             f"heartbeat health timed_out={self._timed_out} "
             f"action={self._current_action} "
-            f"action_age_ms={None if action_age is None else action_age * 1000.0:.1f} "
-            f"frame_age_ms={None if frame_age is None else frame_age * 1000.0:.1f}",
+            f"action_age_ms={format_age_ms(action_age)} "
+            f"frame_age_ms={format_age_ms(frame_age)}",
             throttle_duration_sec=1.0,
         )
 

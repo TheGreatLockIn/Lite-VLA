@@ -21,6 +21,28 @@ def test_mvp_arena_world_exists() -> None:
     text = _world_path().read_text(encoding="utf-8")
     assert "litevla_robot" in text
     assert "red_cube" in text
+    assert "PositionSensor" in text
+
+
+def test_mvp_arena_robot_uses_wheel_contact_only() -> None:
+    text = _world_path().read_text(encoding="utf-8")
+    robot_block = text[text.rindex("Robot {") :]
+    assert "maxTorque 0.2" in robot_block
+    assert 'contactMaterial "wheel"' in robot_block
+    assert "  boundingObject Box" not in robot_block
+
+
+def _urdf_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "resource" / "litevla_robot.urdf"
+
+
+def test_litevla_robot_urdf_enables_ros2_control() -> None:
+    text = _urdf_path().read_text(encoding="utf-8")
+    assert 'plugin type="webots_ros2_control::Ros2Control"' in text
+    assert "<ros2_control" in text
+    assert "left wheel motor" in text
+    assert "right wheel motor" in text
+    assert "<link name=\"base_link\"/>" in text
 
 
 def test_webots_topics_match_project_defaults() -> None:

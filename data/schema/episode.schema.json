@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lite-vla.local/data/schema/episode.schema.json",
+  "title": "LiteVLARawEpisode",
+  "description": "Metadata for one raw simulation capture session (Epic 105 / VLA-42).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "episode_id",
+    "instruction",
+    "source",
+    "world",
+    "started_at",
+    "record_frames_hz"
+  ],
+  "properties": {
+    "episode_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory name under data/raw/episodes/ (UTC timestamp)."
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Goal text used for this capture session."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["teleop", "dummy", "reference_script", "scripted"],
+      "description": "How commands were generated during capture."
+    },
+    "world": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Webots world file name."
+    },
+    "started_at": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601 UTC session start time."
+    },
+    "record_frames_hz": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Target camera frame save rate."
+    },
+    "schema_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Episode metadata schema version."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional operator notes."
+    }
+  }
+}

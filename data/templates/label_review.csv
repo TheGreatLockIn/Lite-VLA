@@ -1,0 +1,3 @@
+id,image_path,instruction,action_proposed,action_reviewed,review_status,reviewer,review_notes,reviewed_at
+ref_001,data/reference_images/red_cone_centered.png,Move toward the red cube.,MOVE_FORWARD,,pending,,,
+ref_002,data/reference_images/red_cone_left.png,Turn left until you see the red cube.,TURN_LEFT,,pending,,,

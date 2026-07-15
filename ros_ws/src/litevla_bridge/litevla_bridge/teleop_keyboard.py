@@ -12,8 +12,13 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from litevla_bridge.action_schema import DiscreteAction, action_to_twist
-from litevla_bridge.teleop_utils import TELEOP_HELP, key_to_action
+from litevla_bridge.action_schema import DiscreteAction
+from litevla_bridge.teleop_utils import (
+    TELEOP_HELP,
+    active_keys,
+    apply_key_hold,
+    twist_from_keys,
+)
 
 
 class TeleopKeyboard(Node):
@@ -22,7 +27,8 @@ class TeleopKeyboard(Node):
     def __init__(self) -> None:
         super().__init__("litevla_teleop_keyboard")
         self.declare_parameter("control_mode", "teleop")
-        self.declare_parameter("refresh_hz", 10.0)
+        self.declare_parameter("poll_hz", 50.0)
+        self.declare_parameter("hold_sec", 0.12)
         self.declare_parameter("desired_twist_topic", "/litevla/desired_twist")
         self.declare_parameter("current_action_topic", "/litevla/current_action")
         self.declare_parameter("max_linear_vel", 0.2)
@@ -44,21 +50,22 @@ class TeleopKeyboard(Node):
         self._active = True
         self._max_linear = float(self.get_parameter("max_linear_vel").value)
         self._max_angular = float(self.get_parameter("max_angular_vel").value)
-        refresh_hz = float(self.get_parameter("refresh_hz").value)
+        poll_hz = float(self.get_parameter("poll_hz").value)
+        self._hold_sec = float(self.get_parameter("hold_sec").value)
 
         desired_topic = str(self.get_parameter("desired_twist_topic").value)
         action_topic = str(self.get_parameter("current_action_topic").value)
         self._twist_pub = self.create_publisher(Twist, desired_topic, 10)
         self._action_pub = self.create_publisher(String, action_topic, 10)
 
-        self.current_action = DiscreteAction.STOP.value
+        self._key_holds: dict[str, float] = {}
+        self._last_action = DiscreteAction.STOP.value
         self._stdin_fd = sys.stdin.fileno()
         self._term_settings = termios.tcgetattr(self._stdin_fd)
         tty.setcbreak(self._stdin_fd)
 
-        self._refresh_timer = self.create_timer(1.0 / refresh_hz, self._refresh_command)
-        self._poll_timer = self.create_timer(0.05, self._poll_keyboard)
-        self._emit_stop()
+        self._poll_timer = self.create_timer(1.0 / poll_hz, self._tick)
+        self._publish_twist(0.0, 0.0, DiscreteAction.STOP.value)
         self.get_logger().info(TELEOP_HELP.strip())
 
     def destroy_node(self) -> bool:
@@ -66,13 +73,10 @@ class TeleopKeyboard(Node):
             termios.tcsetattr(self._stdin_fd, termios.TCSADRAIN, self._term_settings)
         return super().destroy_node()
 
-    def _publish(self, action: str) -> None:
-        self.current_action = action
-        linear, angular = action_to_twist(
-            action,
-            max_linear_vel=self._max_linear,
-            max_angular_vel=self._max_angular,
-        )
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds / 1e9
+
+    def _publish_twist(self, linear: float, angular: float, action: str) -> None:
         twist = Twist()
         twist.linear.x = linear
         twist.angular.z = angular
@@ -80,17 +84,12 @@ class TeleopKeyboard(Node):
         action_msg = String()
         action_msg.data = action
         self._action_pub.publish(action_msg)
-        self.get_logger().info(f"teleop action={action} linear={linear:.3f} angular={angular:.3f}")
-
-    def _emit_stop(self) -> None:
-        self._publish(DiscreteAction.STOP.value)
-
-    def _refresh_command(self) -> None:
-        if not self._active:
-            return
-        if self.current_action == DiscreteAction.STOP.value:
-            return
-        self._publish(self.current_action)
+        changed = action != self._last_action
+        self._last_action = action
+        if changed:
+            self.get_logger().info(
+                f"teleop action={action} linear={linear:.3f} angular={angular:.3f}"
+            )
 
     def _read_key(self) -> str | None:
         ready, _, _ = select.select([sys.stdin], [], [], 0.0)
@@ -99,29 +98,57 @@ class TeleopKeyboard(Node):
         ch = sys.stdin.read(1)
         if ch != "\x1b":
             return ch
-        ready, _, _ = select.select([sys.stdin], [], [], 0.01)
+        ready, _, _ = select.select([sys.stdin], [], [], 0.0)
         if not ready:
             return ch
         ch += sys.stdin.read(1)
-        ready, _, _ = select.select([sys.stdin], [], [], 0.01)
+        ready, _, _ = select.select([sys.stdin], [], [], 0.0)
         if not ready:
             return ch
         return ch + sys.stdin.read(1)
 
-    def _poll_keyboard(self) -> None:
+    def _drain_keys(self) -> list[str]:
+        keys: list[str] = []
+        while True:
+            key = self._read_key()
+            if key is None:
+                break
+            keys.append(key)
+        return keys
+
+    def _tick(self) -> None:
         if not self._active:
             return
-        key = self._read_key()
-        if key is None:
+
+        now = self._now()
+        for key in self._drain_keys():
+            if key in {"q", "Q"}:
+                self.get_logger().info("Teleop quit requested")
+                self._publish_twist(0.0, 0.0, DiscreteAction.STOP.value)
+                raise KeyboardInterrupt
+            updated = apply_key_hold(
+                key,
+                self._key_holds,
+                now=now,
+                hold_sec=self._hold_sec,
+            )
+            if updated is None:
+                continue
+            self._key_holds = updated
+
+        active = active_keys(self._key_holds, now=now)
+        if active:
+            linear, angular, action = twist_from_keys(
+                active,
+                max_linear_vel=self._max_linear,
+                max_angular_vel=self._max_angular,
+            )
+            self._publish_twist(linear, angular, action)
             return
-        if key in {"q", "Q"}:
-            self.get_logger().info("Teleop quit requested")
-            self._emit_stop()
-            raise KeyboardInterrupt
-        action = key_to_action(key)
-        if action is None:
-            return
-        self._publish(action)
+
+        if self._last_action != DiscreteAction.STOP.value:
+            self._key_holds.clear()
+            self._publish_twist(0.0, 0.0, DiscreteAction.STOP.value)
 
 
 def main(args: list[str] | None = None) -> None:
@@ -133,7 +160,7 @@ def main(args: list[str] | None = None) -> None:
         pass
     finally:
         if getattr(node, "_active", False):
-            node._emit_stop()
+            node._publish_twist(0.0, 0.0, DiscreteAction.STOP.value)
         node.destroy_node()
         rclpy.shutdown()
 

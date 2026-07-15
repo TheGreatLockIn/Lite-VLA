@@ -185,6 +185,42 @@
         }
       }
     },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JSON Schema path for training JSONL records."
+        },
+        "processed_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dataset version directory under data/processed/."
+        },
+        "train_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Training split JSONL path."
+        },
+        "val_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Validation split JSONL path."
+        },
+        "raw_episodes_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Root directory for raw simulation capture episodes."
+        },
+        "default_instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Default instruction text when an episode omits one."
+        }
+      }
+    },
     "training": {
       "type": "object",
       "additionalProperties": false,

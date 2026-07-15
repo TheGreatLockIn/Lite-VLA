@@ -59,7 +59,8 @@ litevla_heartbeat_controller:
 litevla_teleop_keyboard:
   ros__parameters:
     control_mode: teleop
-    refresh_hz: 10.0
+    poll_hz: 50.0
+    hold_sec: 0.12
     max_linear_vel: 0.2
     max_angular_vel: 0.6
 
