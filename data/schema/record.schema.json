@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lite-vla.local/data/schema/record.schema.json",
+  "title": "LiteVLATrainingRecord",
+  "description": "One supervised fine-tuning example: camera frame + instruction + discrete action (Epic 105 / VLA-41).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "image_path",
+    "instruction",
+    "action",
+    "timestamp",
+    "source"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique record id within a dataset version."
+    },
+    "image_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\\\]+$",
+      "description": "Repo-relative POSIX path to an RGB/BGR image file (PNG/JPEG/WebP)."
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Natural-language goal shown to the VLA at training time."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "MOVE_FORWARD",
+        "TURN_LEFT",
+        "TURN_RIGHT",
+        "SLOW_DOWN",
+        "STOP"
+      ],
+      "description": "Discrete label from litevla.actions.DiscreteAction (Epic 103)."
+    },
+    "timestamp": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601 UTC timestamp when the frame/action was captured."
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "teleop",
+        "reference",
+        "synthetic",
+        "manual_review"
+      ],
+      "description": "How this row was produced."
+    },
+    "episode_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Groups rows from one capture session (teleop run or reference batch)."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional capture context (sim stamps, velocities, world, review flags).",
+      "additionalProperties": true
+    }
+  }
+}

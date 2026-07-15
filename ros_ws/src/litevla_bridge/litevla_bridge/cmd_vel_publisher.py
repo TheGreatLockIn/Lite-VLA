@@ -1,13 +1,23 @@
-"""Publish geometry_msgs/Twist on /cmd_vel (VLA-25)."""
+"""Publish velocity commands for diff-drive (VLA-25).
+
+On ROS 2 Jazzy+, diff_drive_controller requires geometry_msgs/TwistStamped on
+~/cmd_vel. Older distros use unstamped Twist.
+"""
 
 from __future__ import annotations
 
-from geometry_msgs.msg import Twist
+import os
+
+from geometry_msgs.msg import Twist, TwistStamped
 
 import rclpy
 from rclpy.node import Node
 
 from litevla_bridge.twist_utils import clamp_velocity, make_twist
+
+
+def use_twist_stamped() -> bool:
+    return os.environ.get("ROS_DISTRO", "") in {"jazzy", "kilted", "rolling"}
 
 
 class CmdVelPublisher:
@@ -20,15 +30,20 @@ class CmdVelPublisher:
         max_linear_vel: float = 0.2,
         max_angular_vel: float = 0.6,
         queue_size: int = 10,
+        frame_id: str = "base_link",
     ) -> None:
         self._node = node
         self._max_linear = float(max_linear_vel)
         self._max_angular = float(max_angular_vel)
         self._topic = cmd_vel_topic
-        self._publisher = node.create_publisher(Twist, cmd_vel_topic, queue_size)
+        self._frame_id = frame_id
+        self._stamped = use_twist_stamped()
+        msg_type = TwistStamped if self._stamped else Twist
+        self._publisher = node.create_publisher(msg_type, cmd_vel_topic, queue_size)
         self._last_twist = make_twist(0.0, 0.0)
         node.get_logger().info(
             f"cmd_vel publisher ready on {cmd_vel_topic} "
+            f"type={'TwistStamped' if self._stamped else 'Twist'} "
             f"(limits: linear={self._max_linear}, angular={self._max_angular})"
         )
 
@@ -41,12 +56,19 @@ class CmdVelPublisher:
         return self._last_twist
 
     def publish_twist(self, linear_x: float, angular_z: float) -> Twist:
-        """Clamp, publish, and return the Twist message."""
+        """Clamp, publish, and return the Twist payload."""
         linear_x, angular_z = clamp_velocity(
             linear_x, angular_z, self._max_linear, self._max_angular
         )
         twist = make_twist(linear_x, angular_z)
-        self._publisher.publish(twist)
+        if self._stamped:
+            stamped = TwistStamped()
+            stamped.header.stamp = self._node.get_clock().now().to_msg()
+            stamped.header.frame_id = self._frame_id
+            stamped.twist = twist
+            self._publisher.publish(stamped)
+        else:
+            self._publisher.publish(twist)
         self._last_twist = twist
         return twist
 

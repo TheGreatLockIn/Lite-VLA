@@ -42,6 +42,13 @@ def select_velocities(
     return desired_linear, desired_angular
 
 
+def format_age_ms(age_sec: float | None) -> str:
+    """Format seconds-since for log lines; safe when age is unknown."""
+    if age_sec is None:
+        return "n/a"
+    return f"{age_sec * 1000.0:.1f}"
+
+
 def build_diagnostics(
     *,
     heartbeat_hz: float,

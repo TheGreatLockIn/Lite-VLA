@@ -1,6 +1,6 @@
 # Lite-VLA Webots MVP world (VLA-23)
 
-World file for the red-cube navigation arena. See the full runbook: [webots-sim-environment.md](../../../../docs/docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md).
+World file for the red-cube navigation arena. See the full runbook: [webots-sim-environment.md](../../../../docs/epics/ros-2-simulation-and-robot-control-skeleton/webots-sim-environment.md).
 
 ## Prerequisites (two installs)
 

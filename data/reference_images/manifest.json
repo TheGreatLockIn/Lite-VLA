@@ -1,0 +1,26 @@
+{
+  "episode_id": "ref_capture_v1",
+  "world": "mvp_arena.wbt",
+  "entries": [
+    {
+      "filename": "red_cone_centered.png",
+      "instruction": "Move toward the red cube.",
+      "action": "MOVE_FORWARD"
+    },
+    {
+      "filename": "red_cone_left.png",
+      "instruction": "Turn left until you see the red cube.",
+      "action": "TURN_LEFT"
+    },
+    {
+      "filename": "red_cone_right.png",
+      "instruction": "Turn right until you see the red cube.",
+      "action": "TURN_RIGHT"
+    },
+    {
+      "filename": "stop_barrier_close.png",
+      "instruction": "Stop when close to the red cube.",
+      "action": "STOP"
+    }
+  ]
+}

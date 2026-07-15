@@ -8,8 +8,10 @@ WorldInfo {
   basicTimeStep 16
 }
 Viewpoint {
-  orientation 0.35 -0.35 -0.85 1.4
-  position 2.8 1.5 2.5
+  orientation 0.2 -0.2 -0.95 1.2
+  position 0.8 0.6 0.35
+  follow "litevla_robot"
+  followType "Follow Behind"
 }
 TexturedBackground {
 }
@@ -43,6 +45,7 @@ Robot {
   rotation 0 0 1 0
   children [
     Transform {
+      translation 0 0 0.02
       children [
         Shape {
           appearance PBRAppearance {
@@ -59,16 +62,20 @@ Robot {
     HingeJoint {
       jointParameters HingeJointParameters {
         axis 0 1 0
-        anchor 0 0.03 0
+        anchor 0 0.03 0.02
       }
       device [
         RotationalMotor {
           name "left wheel motor"
           maxVelocity 10
+          maxTorque 0.2
+        }
+        PositionSensor {
+          name "left wheel motor sensor"
         }
       ]
       endPoint Solid {
-        translation 0 0.03 0
+        translation 0 0.03 0.02
         rotation 1 0 0 1.5708
         children [
           Shape {
@@ -82,6 +89,7 @@ Robot {
           }
         ]
         name "left wheel"
+        contactMaterial "wheel"
         boundingObject Cylinder {
           height 0.02
           radius 0.02
@@ -95,16 +103,20 @@ Robot {
     HingeJoint {
       jointParameters HingeJointParameters {
         axis 0 1 0
-        anchor 0 -0.03 0
+        anchor 0 -0.03 0.02
       }
       device [
         RotationalMotor {
           name "right wheel motor"
           maxVelocity 10
+          maxTorque 0.2
+        }
+        PositionSensor {
+          name "right wheel motor sensor"
         }
       ]
       endPoint Solid {
-        translation 0 -0.03 0
+        translation 0 -0.03 0.02
         rotation 1 0 0 1.5708
         children [
           Shape {
@@ -118,6 +130,7 @@ Robot {
           }
         ]
         name "right wheel"
+        contactMaterial "wheel"
         boundingObject Cylinder {
           height 0.02
           radius 0.02
@@ -129,20 +142,17 @@ Robot {
       }
     }
     Camera {
-      translation 0.06 0 0.03
+      translation 0.06 0 0.04
       rotation 0 1 0 0
       name "camera"
-      width 320
-      height 240
+      width 640
+      height 480
       fieldOfView 1.2
     }
   ]
   name "litevla_robot"
   controller "<extern>"
   supervisor FALSE
-  boundingObject Box {
-    size 0.12 0.08 0.04
-  }
   physics Physics {
     density -1
     mass 0.15
