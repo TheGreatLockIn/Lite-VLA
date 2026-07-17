@@ -1,20 +1,33 @@
-# Epic documentation instructions
+# Epic documentation instructions (architecture track)
 
-The `docs/epics/` folder contains living HTML walkthroughs for each Jira epic, plus paired task docs for completed stories. These files explain why the code exists, how it works, what decisions were made, how data/control flows through the system, and how a newcomer should learn to reason about the engineering behind the code.
+The `docs/epics/` folder contains living HTML walkthroughs for each Jira epic, plus paired task docs for completed stories.
 
-**This file is the canonical source** for epic and task documentation standards. Agents should follow it whenever they implement, modify, review, or explain code tied to a Jira epic or task.
+**This file is the canonical source** for the **architecture track**: system contracts, data/control flow, trade-offs, ADRs, and operational risks. Agents should follow it whenever they implement, modify, review, or explain code tied to a Jira epic or task.
+
+For **code teaching** docs (imports, syntax, function-by-function walkthroughs, tests as learning material), follow [`code/AGENTS.md`](code/AGENTS.md).
+
+## Two documentation tracks
+
+| Track | Folder | Teaches |
+|-------|--------|---------|
+| **Architecture** | `docs/epics/<epic-slug>/architecture/` | Why the feature exists, contracts, flow, trade-offs, debugging at system level |
+| **Code** | `docs/epics/<epic-slug>/code/` | How to read and write the implementation from fundamentals upward |
+
+Update both tracks in a **documentation pass after implementation** (or when the user explicitly asks for docs) — **not** in the same change as coding the task. See root [`AGENTS.md`](../../AGENTS.md). Cross-link sibling docs; do not merge into one mega-doc.
 
 ## Agent contract
 
-When implementing, modifying, reviewing, or explaining project code, keep the matching epic and task documentation current when the root [`AGENTS.md`](../../AGENTS.md) documentation thresholds say docs are required.
+**Do not generate or update epic/task documentation while implementing the task.** Code and tests come first. Write docs only when the user asks, or as a separate pass after the implementation is complete.
+
+When documenting project code:
 
 - Use `LiteVLA_Edge_Jira_TeamManaged_Kanban_IMPORT_READY.csv`, branch names, task titles, Jira IDs, changed paths, and conversation context to infer the active epic. Ask only when two or more epics remain equally plausible.
 - Update the paired epic/task docs in source order. Do not append tasks randomly; preserve the epic sequence from Jira or the current board.
 - Treat task docs as teaching artifacts for asynchronous review and code mastery. A reader dropping into the project cold should understand the task purpose, how it fits the codebase, what modules/classes/functions changed, how data/control flows through them, why the code is shaped that way, how to run or validate the work, what trade-offs were accepted, and what instincts a senior engineer applies when debugging or extending it.
-- Write architectural walkthroughs, not code narration. Focus on system contracts, data integrity, trade-offs, and operational risks. Do not explain trivial syntax (for example, "here we define a function") or walk a file line-by-line.
+- Write architectural walkthroughs, not line-by-line code narration. Focus on system contracts, data integrity, trade-offs, and operational risks. Do not explain trivial syntax (for example, "here we define a function") or walk a file line-by-line — that belongs in [`code/AGENTS.md`](code/AGENTS.md).
 - Explain named modules, classes, functions, commands, topics, schemas, and config keys when they are mentioned. Prefer a short walkthrough of the call path or runtime lifecycle over a bare inventory of names.
 - Write like a senior engineer mentoring a junior engineer: concrete, accurate, and approachable. Define project-specific concepts the first time they appear, and connect code details back to engineering intent.
-- Prefer visual explanation: maintain task-specific Mermaid flowcharts or sequence diagrams, plus HTML/SVG/interactive visuals when they improve the human `.html` counterpart. Do not default to C4 context/container diagrams unless the user explicitly asks for architecture modeling.
+- Prefer visual explanation: maintain task-specific Mermaid flowcharts or sequence diagrams on story/task sections, plus HTML/SVG/interactive visuals when they improve the human `.html` counterpart. Do **not** add C4 system-context or container sections to epic `index.html` walkthrough pages.
 - Record validation evidence, open risks, and ADRs for meaningful technical decisions. Never invent completed work; mark unverified work as Planned, Seeded, or explicitly unvalidated.
 - For file placement, `.md`/`.html` pairing, and HTML generation rules, also follow [`docs/AGENTS.md`](../AGENTS.md).
 
@@ -77,7 +90,9 @@ This pattern appears in real systems as...
 
 ### Concept primer and vocabulary
 
-Define project-local and domain-local terms before asking the reader to understand diagrams, tables, or code. Keep primers short and task-local; link out when a full topic page exists.
+Define project-local and domain-local terms before asking the reader to understand diagrams, tables, or code. Keep primers short and task-local.
+
+Architecture docs may use a vocabulary table. Code docs use a separate compact **Concepts in this task** checklist (see [`code/AGENTS.md`](code/AGENTS.md)) — names only, not tutorials.
 
 Use a vocabulary table for terms a novice may pretend to understand:
 
@@ -162,27 +177,34 @@ Change one safe parameter, then verify the config is loaded, the clamp still app
 
 ```
 docs/epics/
-├── AGENTS.md                 # this file
+├── AGENTS.md                 # architecture track (this file)
+├── code/
+│   └── AGENTS.md             # code teaching track
 ├── index.html                # epic index (human)
 └── <epic-slug>/
     ├── index.html            # epic walkthrough (required)
-    ├── <task-slug>.md        # task doc — agent source of truth
-    └── <task-slug>.html      # task doc — human browser page
+    ├── architecture/
+    │   ├── <task-slug>.md    # architecture doc — agent source of truth
+    │   └── <task-slug>.html  # architecture doc — human browser page
+    └── code/
+        ├── <task-slug>.md    # code teaching doc — agent source of truth
+        └── <task-slug>.html  # code teaching doc — human browser page
 ```
+
+Legacy flat task docs at `docs/epics/<epic-slug>/<task-slug>.md` are architecture docs; move them to `architecture/` when you next touch them.
 
 Shared styles: `docs/styles/presentation.css` (walkthroughs) and `docs/styles/doc.css` (task docs and cross-cutting topics).
 
 ## When to update
 
-Update the relevant epic whenever you:
+Update the relevant epic in a **documentation pass** (user-requested, or after the coding task is done) whenever you previously:
 
-- implement or modify code for a story, task, or subtask;
-- add tests, scripts, configs, schemas, ROS nodes, ML modules, data tooling, deployment logic, or docs that change the architecture;
-- add or update **task documentation** for a Jira story (`.md` + `.html` in the epic folder);
-- make or reverse a meaningful technical decision;
-- discover a constraint, risk, trade-off, or integration detail future teammates need to understand.
+- implemented or modified code for a story, task, or subtask;
+- added tests, scripts, configs, schemas, ROS nodes, ML modules, data tooling, or deployment logic;
+- made or reversed a meaningful technical decision;
+- discovered a constraint, risk, trade-off, or integration detail future teammates need to understand.
 
-Do this in the same change as the implementation. Do not wait for the epic to finish.
+**Do not** update epic walkthroughs or task docs during the implementation itself. Do not treat docs as part of finishing the coding task unless the user asks for documentation.
 
 ## How to infer the epic
 
@@ -196,25 +218,19 @@ Teammates should not need to specify the epic manually. Infer it from:
 
 If two epics remain equally plausible after checking those signals, ask the user one concise clarification question.
 
-## Epic task documentation
+## Epic task documentation (architecture track)
 
-When a Jira story/task produces durable docs (schemas, APIs, runbooks), store them in the **same epic folder** as the walkthrough:
-
-```
-docs/epics/<epic-slug>/
-├── index.html              # epic walkthrough (required)
-├── <task-slug>.md          # agent source of truth
-└── <task-slug>.html        # human browser page
-```
+When a Jira story/task produces durable docs (schemas, APIs, runbooks), store the **architecture** pair under `architecture/` and the **code teaching** pair under `code/` in the same epic folder.
 
 Rules:
 
-- **Location:** `docs/epics/<epic-slug>/` — never `docs/` root or `docs/html/`.
-- **Naming:** kebab-case `<task-slug>` from the story title (`action-schema`, `discrete-action-parser`, etc.).
-- **Header:** start each `.md` with epic name, Jira key, and a link to the `.html` pair.
-- **Teaching depth:** explain the task purpose, where it sits in the epic, the important modules/classes/functions, the runtime flow, validation commands, design trade-offs, and any risks or follow-ups.
-- **Styles:** link `../../styles/doc.css` from task HTML; include viewport meta and `table-wrap` for tables (same as `docs/AGENTS.md`).
-- **Cross-link:** add a link from the story section in `index.html` to the task HTML.
+- **Location:** `docs/epics/<epic-slug>/architecture/` and `docs/epics/<epic-slug>/code/` — never `docs/` root or `docs/html/`.
+- **Naming:** kebab-case `<task-slug>` from the story title (`action-schema`, `discrete-action-parser`, etc.). Same slug in both tracks.
+- **Header:** start each `.md` with epic name, Jira key, link to the paired `.html`, and link to the sibling track when it exists.
+- **Architecture teaching depth:** explain task purpose, system fit, runtime flow, validation commands, design trade-offs, and risks (see framework below).
+- **Code teaching depth:** follow [`code/AGENTS.md`](code/AGENTS.md).
+- **Styles:** link `../../../styles/doc.css` from task HTML under `architecture/` or `code/`; include viewport meta and `table-wrap` for tables (same as `docs/AGENTS.md`).
+- **Cross-link:** add links from the story section in `index.html` to both task HTML pages when both exist.
 - **Agents:** read and edit `.md` only; do not read task or walkthrough `.html` files (derive HTML from `.md` when updating).
 
 ## Task doc depth standard
@@ -235,7 +251,7 @@ Explain how to think about the module before explaining implementation details:
 
 - **Mental model:** what the module is analogous to, why it exists, its core engineering tension, beginner mistake, and senior-engineer watchpoint.
 - **Backstory:** what problem existed, what naive approach would seem tempting, why it fails, and what this design chooses instead.
-- **Prerequisites:** concepts the reader should understand first, with links to existing primers when available.
+- **Prerequisites:** background the reader should understand first, with links to prerequisite epic docs when available.
 - **Vocabulary:** short definitions for project terms, file formats, ROS topics, schemas, model artifacts, commands, and config keys used in the page.
 
 Do not bury this material after the code. A novice needs it before the API contract and implementation tables.
@@ -294,7 +310,7 @@ Each task doc should usually include:
 - **Executive summary** - architectural responsibility and system fit.
 - **Mental model** - analogy, purpose, engineering tension, beginner mistake, senior watchpoint.
 - **Backstory** - prior problem, naive approach, failure of the naive approach, chosen design.
-- **Concept primer / vocabulary** - local definitions for terms, artifacts, topics, schemas, configs, and model/data concepts.
+- **Vocabulary** - local definitions for terms, artifacts, topics, schemas, configs, and model/data terms.
 - **Guided code reading / file index** - what each referenced file or artifact is, why it matters, and what to inspect first.
 - **API contract and data flow** - inputs, outputs, invariants, errors, trade-offs, and plain-English definitions for table labels.
 - **Naive approach vs chosen approach** - explicit design comparison when there is meaningful trade-off.
@@ -363,9 +379,9 @@ Use diagrams to teach the runtime lifecycle or data path, not just to decorate t
 ## Style rules
 
 - Keep epic walkthroughs at `docs/epics/<epic-slug>/index.html`.
-- Keep task docs as paired `.md` + `.html` siblings in the same epic folder.
+- Keep task docs as paired `.md` + `.html` siblings under `architecture/` or `code/`.
 - Link walkthrough stylesheets with `../../styles/presentation.css`.
-- Link task doc stylesheets with `../../styles/doc.css`.
+- Link task doc stylesheets with `../../../styles/doc.css` from `architecture/` or `code/`.
 - Preserve the warm-neutral project styling inherited from `docs/styles/doc.css`.
 - Keep updates concrete and readable. Do not compress task docs into bare module lists; include enough explanation for asynchronous review and junior-engineer onboarding.
 - Never invent completed work. If a page is seeded from Jira but implementation has not been verified, leave it marked as Planned or Seeded.
