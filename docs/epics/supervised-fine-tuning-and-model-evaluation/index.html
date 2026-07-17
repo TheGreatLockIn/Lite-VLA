@@ -74,22 +74,45 @@ Rel(validation, presentation, "summarized in")
           <li><a href="#story-1042">Story 1042: Make training runs reproducible</a></li>
         </ol>
 
-      <article class="task-card" id="story-1036">
-        <span class="status-pill">Seeded</span>
-        <h3>Story 1036: Prepare model training format</h3>
-        <dl>
-          <dt>Intent</dt>
-          <dd>Convert labeled examples into the model-specific supervised fine-tuning format.</dd>
-          <dt>Implementation Walkthrough</dt>
-          <dd class="update-note">Not populated yet. When this story is worked, replace this note with the modules, functions, configs, commands, and tests that explain the implementation.</dd>
-          <dt>Data And Control Flow</dt>
-          <dd class="update-note">Add inputs, outputs, state transitions, ROS topics, model artifacts, files written, or benchmark records created by this story.</dd>
-          <dt>ADR Notes</dt>
-          <dd class="update-note">Record short ADR entries for meaningful technical decisions: context, decision, alternatives rejected, consequences, and status.</dd>
-          <dt>Validation</dt>
-          <dd class="update-note">Add test commands, smoke checks, benchmark evidence, manual checks, or an explicit reason validation was not run.</dd>
-        </dl>
-      </article>
+      <!-- story-1036-docs:start -->
+<article class="story-card" id="prepare-model-training-format">
+  <p class="eyebrow">Story 1 · Jira 1036 · Complete</p>
+  <h2>Prepare model training format</h2>
+  <p><strong>Intent:</strong> Translate validated Epic 105 image–instruction–action records into an inference-aligned SFT contract with an explicit assistant-only target boundary.</p>
+  <p><a href="architecture/prepare-model-training-format.html">Architecture walkthrough</a> · <a href="code/prepare-model-training-format.html">Code walkthrough</a></p>
+
+  <h3>Implementation walkthrough</h3>
+  <ul>
+    <li><code>ml/finetune/prompt_template.py</code> reuses <code>PromptFormatter</code>, validates actions, and separates prompt, target, and full text.</li>
+    <li><code>ml/finetune/format_dataset.py</code> converts <code>TrainingRecord</code> values into immutable <code>FormattedSFTExample</code> objects and compact JSONL.</li>
+    <li>The conversion and inspection CLIs make formatting repeatable and distinguish format errors from missing-image warnings.</li>
+  </ul>
+
+  <h3>Data and control flow</h3>
+  <pre><code>Epic 105 JSONL → read_jsonl → TrainingRecord
+    → TrainingPromptTemplate → FormattedSFTExample
+    → SFT JSONL / inspection
+    → tokenizer + assistant-only labels (Story 1038)</code></pre>
+  <p><strong>Invariants:</strong> prompts contain <code>&lt;image&gt;</code> and end with <code>ASSISTANT:</code>; targets are exact Epic 103 actions; full text contains the target only after the assistant boundary. Token-level masking remains deferred to the processor-aware training collator.</p>
+
+  <h3>ADR notes</h3>
+  <p><strong>Accepted:</strong> reuse the inference prompt formatter, persist prompt/target/full-text separately, and keep generated SFT JSONL under gitignored <code>data/processed/</code>. This prevents prompt drift while keeping tokenizer-specific work out of the dataset adapter.</p>
+
+  <h3>Verification patterns</h3>
+  <ul>
+    <li><code>tests/test_training_format.py</code>: 8 tests passed.</li>
+    <li>Ruff passed for the ML modules, CLIs, and tests.</li>
+    <li>501 reviewed records converted locally; 10 of 10 real samples passed format inspection.</li>
+  </ul>
+
+  <h3>Open questions</h3>
+  <ul>
+    <li>Which multimodal processor will Story 1038 use?</li>
+    <li>How will the collator identify assistant tokens after image-token expansion?</li>
+    <li>When should conversion move from list materialization to streaming?</li>
+  </ul>
+</article>
+<!-- story-1036-docs:end -->
       <article class="task-card" id="story-1037">
         <span class="status-pill">Seeded</span>
         <h3>Story 1037: Configure LoRA fine-tuning</h3>

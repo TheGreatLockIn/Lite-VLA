@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prepare model training format — architecture — Lite-VLA</title>
+  <link rel="stylesheet" href="../../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to epic walkthrough</a>
+      <h1>Prepare model training format — architecture</h1>
+    </header>
+    <main>
+      <p><strong>Epic:</strong> Supervised Fine-Tuning and Model Evaluation (106) · <strong>Jira:</strong> Story 1036, subtasks 10108–10110 · <strong>Status:</strong> Complete (verified locally)</p>
+<p><strong>Human-readable version (browser):</strong> <a href="prepare-model-training-format.html"><code>prepare-model-training-format.html</code></a></p>
+<p><strong>Code walkthrough:</strong> <a href="../code/prepare-model-training-format.md"><code>../code/prepare-model-training-format.md</code></a></p>
+<h2 id="executive-summary">Executive summary</h2>
+<p>Story 1036 creates the boundary between Epic 105's model-neutral training records and the model-specific supervised fine-tuning (SFT) representation consumed by later training stories. It guarantees that every example has a visual placeholder, the same prompt shape used by inference, one validated discrete action target, and an explicit split between prompt tokens and target tokens.</p>
+<p>The implementation deliberately does not tokenize examples or calculate loss masks yet. It records the masking contract—prompt tokens are ignored and action tokens are supervised—so Story 1038 can implement the processor-aware collator without changing this data contract.</p>
+<h2 id="mental-model">Mental model</h2>
+<p>Think of this feature as a <strong>shipping adapter between two warehouses</strong>. Epic 105 packages a validated observation as an image path, instruction, and action. The VLM training stack needs the same contents repacked as a conversation: <code>USER: &lt;image&gt; ... ASSISTANT:</code> followed by the expected action.</p>
+<p>It exists because storage format and training format solve different problems. JSONL records should remain model-neutral and auditable, while prompts must match the selected model and inference runtime.</p>
+<p>The key engineering tension is <strong>model specificity without duplicating runtime behavior</strong>. Training needs a model-facing conversation format, but defining a second independent prompt would allow training and inference to drift.</p>
+<p>A beginner mistake is concatenating the action directly into one opaque text field and later asking the trainer to guess which tokens should contribute to loss.</p>
+<p>A senior engineer watches for three forms of drift: prompt-version drift between training and inference, action-vocabulary drift between data and runtime, and masking drift where user/system tokens accidentally become supervised labels.</p>
+<h2 id="backstory-why-this-exists">Backstory: why this exists</h2>
+<p>Before this story, <code>LiteVLADataset</code> could load validated images, instructions, and actions, but no component expressed how those values should appear to a VLM during supervised training.</p>
+<p>The naive solution would be to generate an arbitrary string such as <code>"&lt;image&gt; Move toward the cube =&gt; MOVE_FORWARD"</code> inside the training loop. That breaks because the baseline inference path uses <code>PromptFormatter</code>, not that ad-hoc syntax. The model would learn one conversation boundary during training and receive another at runtime. Keeping prompt and target in one undifferentiated field also makes assistant-only loss masking fragile.</p>
+<p>This design therefore reuses <code>litevla.prompting.PromptFormatter</code>, validates labels against the shared action vocabulary, and emits three explicit fields:</p>
+<ul>
+<li><code>prompt</code>: user/system context ending at <code>ASSISTANT:</code></li>
+<li><code>target</code>: one exact action token</li>
+<li><code>full_text</code>: the concatenation used for tokenization</li>
+</ul>
+<p>This is the same separation commonly used in instruction-tuning pipelines: storage remains task-oriented, formatting is model-oriented, and tokenization/masking remains processor-oriented.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>Before reading this task, understand these upstream contracts:</p>
+<ul>
+<li><strong>Epic 103 action vocabulary</strong> — <code>ACTION_NAMES</code> and <code>is_valid_action</code> define the five exact labels accepted by training. See <a href="../../action-interface-parser-and-safety-layer/action-schema.md"><code>../../action-interface-parser-and-safety-layer/action-schema.md</code></a>.</li>
+<li><strong>Epic 104 inference prompting</strong> — <code>PromptFormatter</code> owns the runtime <code>USER: &lt;image&gt; ... ASSISTANT:</code> shape. See <a href="../../baseline-vision-language-inference-prototype/prompting-strategy.md"><code>../../baseline-vision-language-inference-prototype/prompting-strategy.md</code></a>.</li>
+<li><strong>Epic 105 record validation</strong> — <code>read_jsonl</code> validates persisted JSONL and returns <code>TrainingRecord</code>. A directly constructed dataclass does not rerun JSON Schema validation.</li>
+<li><strong>JSONL</strong> — each line is one independent JSON object; conversion preserves this one-example-per-line structure.</li>
+<li><strong>Causal language-model labels</strong> — token labels select which positions contribute to loss; Story 1038 will create them after model-specific tokenization.</li>
+</ul>
+<h2 id="vocabulary">Vocabulary</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning in this task</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SFT</td>
+<td>Supervised fine-tuning: updating a model using examples with known desired outputs.</td>
+</tr>
+<tr>
+<td><code>TrainingRecord</code></td>
+<td>Epic 105 dataclass containing an image path, instruction, action, and audit metadata.</td>
+</tr>
+<tr>
+<td>Prompt</td>
+<td>Input context shown to the model; here it ends at <code>ASSISTANT:</code> without the answer.</td>
+</tr>
+<tr>
+<td>Target</td>
+<td>Exact discrete action the model should learn to generate.</td>
+</tr>
+<tr>
+<td><code>full_text</code></td>
+<td>Prompt and target joined into one string for later tokenization.</td>
+</tr>
+<tr>
+<td><code>&lt;image&gt;</code></td>
+<td>Placeholder marking where a multimodal processor inserts visual embeddings/tokens.</td>
+</tr>
+<tr>
+<td>Assistant-only masking</td>
+<td>Loss policy where prompt tokens receive ignore labels and only the assistant action contributes to optimization.</td>
+</tr>
+<tr>
+<td>Prompt version</td>
+<td><code>v1</code> or <code>v2</code> selection owned by the shared inference <code>PromptFormatter</code>.</td>
+</tr>
+<tr>
+<td>Model-neutral</td>
+<td>Dataset representation that is not tied to one chat syntax or tokenizer.</td>
+</tr>
+<tr>
+<td><code>TrainingPromptParts</code></td>
+<td>Immutable prompt, target, full-text, and version result from one template call.</td>
+</tr>
+<tr>
+<td><code>FormattedSFTExample</code></td>
+<td>Immutable model-ready example plus source provenance and optional image-check result.</td>
+</tr>
+<tr>
+<td><code>PROMPT_VERSIONS</code></td>
+<td>Shared registry used to constrain CLI prompt choices.</td>
+</tr>
+<tr>
+<td><code>read_jsonl</code></td>
+<td>Epic 105 boundary that schema-validates persisted rows before formatting.</td>
+</tr>
+<tr>
+<td><code>--from-sft</code></td>
+<td>Inspection mode that reads a previously generated SFT JSONL instead of formatting source data on the fly.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="guided-code-reading">Guided code reading</h2>
+<p>Read these artifacts in order:</p>
+<ol>
+<li><code>litevla/prompting.py</code></li>
+<li>Start with <code>PromptFormatter.format_prompt</code>.</li>
+<li>Notice that this pre-existing inference contract ends with <code>ASSISTANT:</code>.</li>
+<li>
+<p>Ignore few-shot prompting on the first pass; Story 1036 uses single-turn examples.</p>
+</li>
+<li>
+<p><code>ml/finetune/prompt_template.py</code></p>
+</li>
+<li>Read <code>TrainingPromptParts</code>, then <code>TrainingPromptTemplate.build</code>.</li>
+<li>
+<p>Focus on the invariants around <code>&lt;image&gt;</code>, <code>ASSISTANT:</code>, and exact action labels.</p>
+</li>
+<li>
+<p><code>ml/finetune/format_dataset.py</code></p>
+</li>
+<li>Follow one <code>TrainingRecord</code> through <code>format_training_record</code>.</li>
+<li>
+<p>Then see how list conversion and JSONL persistence reuse that one-record contract.</p>
+</li>
+<li>
+<p><code>scripts/format_training_data.py</code></p>
+</li>
+<li>
+<p>See how operators choose input, output, prompt version, and optional image checks.</p>
+</li>
+<li>
+<p><code>scripts/inspect_training_samples.py</code></p>
+</li>
+<li>Inspect the distinction between hard format errors and soft missing-image warnings.</li>
+<li>Follow both input paths: Epic 105 JSONL is formatted on the fly; <code>--from-sft</code> reconstructs <code>FormattedSFTExample</code> from generated JSONL.</li>
+<li>
+<p>Notice that filesystem image checks always run during inspection. <code>--check-image</code> additionally records <code>image_exists</code> during on-the-fly conversion; <code>--require-images</code> makes absence fatal.</p>
+</li>
+<li>
+<p><code>tests/test_training_format.py</code></p>
+</li>
+<li>Treat the assertions as executable contracts: inference alignment, target placement, all five actions, JSONL output, and optional-field behavior.</li>
+</ol>
+<p>While reading, ask:</p>
+<ul>
+<li>Which layer validates persisted data shape, and which layer validates model-facing prompt shape?</li>
+<li>At what point does <code>action</code> become <code>target</code>?</li>
+<li>Which values are audit provenance rather than model input?</li>
+<li>Why can inspection read either source JSONL or generated SFT JSONL?</li>
+<li>Which component will eventually turn the string boundary into token labels?</li>
+</ul>
+<h2 id="file-and-artifact-index">File and artifact index</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>File or artifact</th>
+<th>What it is</th>
+<th>Why it matters</th>
+<th>First thing to inspect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ml/finetune/prompt_template.py</code></td>
+<td>Prompt/target boundary</td>
+<td>Prevents train/inference and vocabulary drift</td>
+<td><code>TrainingPromptTemplate.build</code></td>
+</tr>
+<tr>
+<td><code>ml/finetune/format_dataset.py</code></td>
+<td>Record conversion and JSONL output</td>
+<td>Defines the model-ready SFT schema</td>
+<td><code>FormattedSFTExample</code></td>
+</tr>
+<tr>
+<td><code>scripts/format_training_data.py</code></td>
+<td>Conversion CLI</td>
+<td>Makes formatting repeatable outside notebooks</td>
+<td>Argument defaults and summary</td>
+</tr>
+<tr>
+<td><code>scripts/inspect_training_samples.py</code></td>
+<td>Human inspection CLI</td>
+<td>Provides the pre-training quality gate</td>
+<td><code>_check_example</code></td>
+</tr>
+<tr>
+<td><code>tests/test_training_format.py</code></td>
+<td>Behavioral verification</td>
+<td>Defends label placement and prompt alignment</td>
+<td><code>test_labels_visible_in_target_tokens_for_all_actions</code></td>
+</tr>
+<tr>
+<td><code>data/processed/v0.1.0/train_reviewed.jsonl</code></td>
+<td>Reviewed Epic 105 input</td>
+<td>Source records used for the real conversion check</td>
+<td><code>instruction</code>, <code>action</code>, <code>image_path</code></td>
+</tr>
+<tr>
+<td><code>data/processed/v0.1.0/sft_train.jsonl</code></td>
+<td>Generated, gitignored output</td>
+<td>Model-ready inspection/training artifact</td>
+<td><code>prompt</code>, <code>target</code>, <code>full_text</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="api-contract-and-data-flow">API contract and data flow</h2>
+<h3 id="task-local-flow">Task-local flow</h3>
+<pre class="mermaid">flowchart LR
+  A[&quot;Epic 105 JSONL&quot;] --&gt; B[&quot;read_jsonl&quot;]
+  B --&gt; C[&quot;TrainingRecord&quot;]
+  C --&gt; D[&quot;TrainingPromptTemplate&quot;]
+  D --&gt; E[&quot;FormattedSFTExample&quot;]
+  E --&gt; F[&quot;SFT JSONL&quot;]
+  E --&gt; G[&quot;Inspection CLI&quot;]
+  E -. &quot;Story 1038&quot; .-&gt; H[&quot;Tokenizer + assistant-only labels&quot;]</pre>
+
+<h3 id="contract-table">Contract table</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Promise</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Persisted input</td>
+<td><code>read_jsonl</code> schema-validates JSONL, including required/non-empty fields, then returns <code>TrainingRecord</code></td>
+</tr>
+<tr>
+<td>In-memory input</td>
+<td><code>format_training_record</code> trusts caller-supplied <code>TrainingRecord</code> field shape; it normalizes and validates the action target but does not rerun JSON Schema</td>
+</tr>
+<tr>
+<td>Prompt</td>
+<td>Contains <code>&lt;image&gt;</code> and ends with <code>ASSISTANT:</code></td>
+</tr>
+<tr>
+<td>Target</td>
+<td>Uppercase action accepted by <code>litevla.actions.is_valid_action</code></td>
+</tr>
+<tr>
+<td>Full text</td>
+<td>Exactly <code>prompt + " " + target</code>; action is the only answer after the assistant boundary</td>
+</tr>
+<tr>
+<td>Prompt version</td>
+<td>Passed through from <code>PromptFormatter</code>; <code>v1</code> is the CLI default</td>
+</tr>
+<tr>
+<td>Output</td>
+<td><code>FormattedSFTExample</code> in memory or compact JSONL object on disk</td>
+</tr>
+<tr>
+<td>Source/target equality</td>
+<td>Guaranteed on the JSONL path because Epic 105 parsing canonicalizes action labels; a manually constructed lowercase <code>TrainingRecord.action</code> is preserved while <code>target</code> becomes uppercase</td>
+</tr>
+<tr>
+<td>Error behavior</td>
+<td>Invalid actions, unsupported prompt versions, malformed input JSONL, and missing required fields in <code>--from-sft</code> input fail explicitly</td>
+</tr>
+<tr>
+<td>Image behavior</td>
+<td>Conversion records <code>image_exists</code> only when requested; inspection independently checks the filesystem on every reviewed sample, warns by default, and fails with <code>--require-images</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="masking-contract">Masking contract</h3>
+<p>Story 1036 defines, but does not yet execute, this token-level policy (simplified to one line below):</p>
+<pre><code class="language-text">USER: &lt;image&gt; ... ASSISTANT: MOVE_FORWARD
+└──────── prompt tokens ─────┘ └─ target ─┘
+          label = -100          label = token id
+</code></pre>
+<p>The processor/tokenizer in Story 1038 must preserve this boundary. Masking at raw-string character offsets would be unsafe because multimodal processors may expand <code>&lt;image&gt;</code> into model-specific token sequences.</p>
+<h2 id="naive-approach-vs-chosen-approach">Naive approach vs chosen approach</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Why it seems attractive</th>
+<th>Decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Invent a training-only prompt</td>
+<td>Fast and isolated</td>
+<td>Rejected: creates train/inference skew</td>
+</tr>
+<tr>
+<td>Store only one <code>text</code> field</td>
+<td>Simple trainer input</td>
+<td>Rejected: obscures masking boundary and inspection</td>
+</tr>
+<tr>
+<td>Bake token IDs now</td>
+<td>Appears training-ready</td>
+<td>Deferred: tokenization is model/processor-specific and belongs with the training collator</td>
+</tr>
+<tr>
+<td>Copy action vocabulary into ML code</td>
+<td>Avoids imports</td>
+<td>Rejected: vocabulary would drift from Epic 103</td>
+</tr>
+<tr>
+<td>Reuse <code>PromptFormatter</code> and expose prompt/target/full text</td>
+<td>Clear contract and runtime alignment</td>
+<td>Chosen</td>
+</tr>
+<tr>
+<td>Treat every missing fixture image as fatal</td>
+<td>Strict data hygiene</td>
+<td>Optional: real training may require it, but lightweight fixtures intentionally reference absent artifacts</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="implementation-breakdown">Implementation breakdown</h2>
+<h3 id="shared-prompt-and-target-boundary">Shared prompt and target boundary</h3>
+<pre><code class="language-python">prompt = self.formatter.format_prompt(instruction)
+if not prompt.endswith(ASSISTANT_PREFIX):
+    raise ValueError(...)
+if IMAGE_TOKEN not in prompt:
+    raise ValueError(...)
+
+full_text = f&quot;{prompt} {token}&quot;
+</code></pre>
+<p><code>TrainingPromptTemplate</code> delegates prompt wording to the existing inference formatter, then checks the two structural markers training depends on. It does not silently repair a malformed shared prompt; failing early reveals a contract-breaking change in Epic 104.</p>
+<p>The action is normalized to uppercase and validated through the Epic 103 vocabulary before being appended. This allows harmless surrounding whitespace while rejecting aliases and prose.</p>
+<p><strong>What to notice:</strong> Prompt wording is not defined in <code>ml/finetune</code>; only the supervised boundary and action normalization are.</p>
+<p><strong>Why it is written this way:</strong> Reusing the runtime formatter prevents a model from being trained on conversation syntax it will never see during inference.</p>
+<p><strong>Risks and gotchas:</strong> Any change to <code>PromptFormatter</code> is now a training contract change. The format test must fail if <code>&lt;image&gt;</code> or the trailing assistant marker disappears.</p>
+<h3 id="model-ready-record">Model-ready record</h3>
+<pre><code class="language-python">@dataclass(frozen=True)
+class FormattedSFTExample:
+    image_path: str
+    instruction: str
+    action: str
+    prompt: str
+    target: str
+    full_text: str
+    prompt_version: str
+    id: str | None = None
+    source: str | None = None
+    episode_id: str | None = None
+    image_exists: bool | None = None
+</code></pre>
+<p><strong>What to notice:</strong> Required model-facing fields appear first; optional audit fields follow with <code>None</code> defaults. <code>image_exists</code> has three states: true, false, or not checked.</p>
+<p><strong>Why it is written this way:</strong> The frozen dataclass makes the representation explicit and inspectable. Keeping both <code>action</code> and <code>target</code> appears redundant, but they represent different contracts: <code>action</code> is the source label and <code>target</code> is normalized supervision text.</p>
+<p><strong>Risks and gotchas:</strong> Equality is guaranteed for records loaded through Epic 105 parsing. Direct construction with lowercase <code>action</code> preserves lowercase in the audit field while producing an uppercase target.</p>
+<h3 id="conversion-and-persistence">Conversion and persistence</h3>
+<pre><code class="language-python">parts = tmpl.build(record.instruction, record.action)
+
+return FormattedSFTExample(
+    id=record.id,
+    image_path=record.image_path,
+    instruction=record.instruction,
+    action=record.action,
+    prompt=parts.prompt,
+    target=parts.target,
+    full_text=parts.full_text,
+    prompt_version=parts.prompt_version,
+    source=record.source,
+    episode_id=record.episode_id,
+    image_exists=image_exists,
+)
+</code></pre>
+<p><strong>What to notice:</strong> <code>format_training_record</code> preserves source provenance while replacing no source values. Prompt-derived fields come only from <code>TrainingPromptParts</code>.</p>
+<p><strong>Why it is written this way:</strong> One single-record transformation becomes the source of truth. <code>format_training_records</code> creates one template and reuses it across a collection; <code>convert_jsonl_to_sft</code> composes Epic 105 validation, formatting, and persistence.</p>
+<p><strong>Risks and gotchas:</strong> <code>timestamp</code> and <code>metadata</code> are not carried into <code>FormattedSFTExample</code>. This is acceptable for current training input but means run provenance must still identify the source dataset. Batch conversion materializes all examples in memory.</p>
+<pre><code class="language-python">def formatted_example_to_dict(example: FormattedSFTExample) -&gt; dict[str, Any]:
+    raw = asdict(example)
+    return {key: value for key, value in raw.items() if value is not None}
+</code></pre>
+<p><strong>What to notice:</strong> Optional <code>id</code>, <code>source</code>, <code>episode_id</code>, and <code>image_exists</code> fields disappear only when their value is <code>None</code>; <code>False</code> is preserved.</p>
+<p><strong>Why it is written this way:</strong> JSONL retains available audit metadata without manufacturing null-valued fields.</p>
+<p><strong>Risks and gotchas:</strong> Generated files are compact and gitignored. They must be regenerated with the same prompt version when reproducing a run.</p>
+<h3 id="human-inspection-gate">Human inspection gate</h3>
+<pre><code class="language-python">if IMAGE_TOKEN not in example.prompt:
+    issues.append(&quot;prompt missing &lt;image&gt; token&quot;)
+if not example.prompt.rstrip().endswith(ASSISTANT_PREFIX):
+    issues.append(f&quot;prompt does not end with {ASSISTANT_PREFIX}&quot;)
+if example.target != example.action:
+    issues.append(f&quot;target {example.target!r} != action {example.action!r}&quot;)
+if f&quot;{ASSISTANT_PREFIX} {example.target}&quot; in example.prompt:
+    issues.append(&quot;action already present after ASSISTANT: in prompt&quot;)
+</code></pre>
+<p><strong>What to notice:</strong> The inspection CLI checks structural correctness independently of model training:</p>
+<ul>
+<li><code>&lt;image&gt;</code> exists in the prompt.</li>
+<li>Prompt ends at the assistant boundary.</li>
+<li>Target equals the source action and belongs to the shared vocabulary.</li>
+<li><code>full_text</code> ends with the target.</li>
+<li>Prompt has not already leaked the answer after <code>ASSISTANT:</code>.</li>
+</ul>
+<p><strong>Why it is written this way:</strong> Human review receives precise diagnostics before GPU work begins. <code>--from-sft</code> verifies generated artifacts using the same checks.</p>
+<p><strong>Risks and gotchas:</strong> Filesystem image existence is checked every time inspection runs, regardless of <code>--check-image</code>. Missing images are warnings by default because fixtures may reference uncommitted artifacts; <code>--require-images</code> promotes them to errors for a real training release. <code>--from-sft</code> requires the generated fields and reports missing keys with file/line context.</p>
+<h2 id="engineering-decisions">Engineering decisions</h2>
+<h3 id="adr-reuse-the-inference-prompt-formatter">ADR: Reuse the inference prompt formatter</h3>
+<p><strong>Status:</strong> Accepted</p>
+<p><strong>Context:</strong> Training and inference need the same conversation syntax.</p>
+<p><strong>Decision:</strong> <code>TrainingPromptTemplate</code> wraps <code>litevla.prompting.PromptFormatter</code> instead of defining independent wording.</p>
+<p><strong>Alternatives rejected:</strong> A second ML-only template and direct string construction in the conversion script.</p>
+<p><strong>Consequences:</strong> Prompt changes are shared automatically, but changing <code>PromptFormatter</code> can now break training-format tests and must be treated as a cross-epic contract change.</p>
+<h3 id="adr-separate-raw-prompt-target-and-full-text">ADR: Separate raw prompt, target, and full text</h3>
+<p><strong>Status:</strong> Accepted</p>
+<p><strong>Context:</strong> Later tokenization needs a reliable assistant-only supervision boundary.</p>
+<p><strong>Decision:</strong> Persist all three representations on <code>FormattedSFTExample</code>.</p>
+<p><strong>Alternatives rejected:</strong> One opaque text field or precomputed token IDs.</p>
+<p><strong>Consequences:</strong> Output files are larger, but inspection and masking logic are straightforward. Token IDs remain deferred until the model processor is selected.</p>
+<h3 id="adr-generated-sft-files-remain-local-artifacts">ADR: Generated SFT files remain local artifacts</h3>
+<p><strong>Status:</strong> Accepted</p>
+<p><strong>Context:</strong> <code>data/processed/</code> is gitignored and may be regenerated from versioned/reviewed data.</p>
+<p><strong>Decision:</strong> Commit conversion code and tests, not <code>sft_train.jsonl</code>.</p>
+<p><strong>Consequences:</strong> Training runs must record which source dataset and prompt version produced their local SFT file.</p>
+<h2 id="verification-patterns">Verification patterns</h2>
+<pre><code class="language-bash">PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest \
+  tests/test_training_format.py -q
+
+.venv/bin/ruff check \
+  ml/ \
+  scripts/format_training_data.py \
+  scripts/inspect_training_samples.py \
+  tests/test_training_format.py
+
+.venv/bin/python scripts/format_training_data.py \
+  --input data/processed/v0.1.0/train_reviewed.jsonl \
+  --output data/processed/v0.1.0/sft_train.jsonl \
+  --prompt-version v1
+
+.venv/bin/python scripts/inspect_training_samples.py \
+  --input data/processed/v0.1.0/train_reviewed.jsonl \
+  --n 10
+</code></pre>
+<p>Observed evidence:</p>
+<ul>
+<li><code>8 passed</code> in <code>tests/test_training_format.py</code></li>
+<li>Ruff reported all checks passed</li>
+<li>501 reviewed records converted successfully in the local processed dataset</li>
+<li>10 of 10 inspected real samples passed format checks</li>
+</ul>
+<h2 id="failure-modes-and-debugging">Failure modes and debugging</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Investigation</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Unknown action</code></td>
+<td>Dataset label is outside Epic 103 vocabulary</td>
+<td>Run Epic 105 validator and inspect the failing row</td>
+<td>Correct/review the label; do not add an ML-only alias</td>
+</tr>
+<tr>
+<td>Prompt does not end with <code>ASSISTANT:</code></td>
+<td>Shared inference template changed</td>
+<td>Run <code>tests/test_training_format.py</code> and inspect <code>PromptFormatter.format_prompt</code></td>
+<td>Update the shared contract deliberately, then adapt both train and inference</td>
+</tr>
+<tr>
+<td>Prompt missing <code>&lt;image&gt;</code></td>
+<td>Wrong prompt formatter or template regression</td>
+<td>Print one formatted sample</td>
+<td>Restore the multimodal placeholder</td>
+</tr>
+<tr>
+<td>Target appears inside assistant portion of prompt</td>
+<td>Answer leakage during construction</td>
+<td>Run inspection CLI</td>
+<td>Keep prompt answer-free; append target only to <code>full_text</code></td>
+</tr>
+<tr>
+<td>Missing image warning</td>
+<td>Fixture/raw asset is absent locally</td>
+<td>Re-run with <code>--require-images</code>; inspect <code>image_path</code></td>
+<td>Restore/download/rebuild the source images before training</td>
+</tr>
+<tr>
+<td>Unsupported prompt version</td>
+<td>CLI/config references unknown version</td>
+<td>Check <code>PROMPT_VERSIONS</code></td>
+<td>Use a supported version and keep train/inference settings equal</td>
+</tr>
+<tr>
+<td>Generated JSONL is absent from git</td>
+<td>Expected behavior: <code>data/processed/</code> is ignored</td>
+<td>Check <code>.gitignore</code> and rerun conversion</td>
+<td>Regenerate locally; record provenance in later run metadata</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="engineering-principle-taught-by-this-task">Engineering principle taught by this task</h2>
+<p>This story teaches <strong>separation of durable data from model adapters</strong>. The dataset owns semantic truth—what image, instruction, and action belong together. The formatter owns model-facing syntax. The future collator owns tokenizer-specific labels and masking. Keeping those boundaries explicit makes each layer replaceable and testable.</p>
+<h2 id="active-learning-checks">Active learning checks</h2>
+<ol>
+<li>Why would a training-only prompt create a failure even if training loss decreases?</li>
+<li>Why are both <code>target</code> and <code>full_text</code> stored?</li>
+<li>Why should assistant-only masking be applied after tokenization rather than by raw character count?</li>
+<li>Which test would reveal that an action leaked into the prompt before the target boundary?</li>
+<li>When should missing images be warnings, and when must they be fatal?</li>
+</ol>
+<h2 id="small-modification-exercise">Small modification exercise</h2>
+<p>Run conversion once with <code>--prompt-version v1</code> and once with <code>v2</code> on the fixture dataset. Compare <code>prompt</code>, confirm <code>target</code> remains identical, and run <code>tests/test_training_format.py</code> to verify both versions preserve the assistant boundary.</p>
+<h2 id="open-questions">Open questions</h2>
+<ul>
+<li>Which exact multimodal processor/model will Story 1038 use to turn <code>&lt;image&gt;</code> into model-specific inputs?</li>
+<li>What token-level strategy will identify the assistant boundary robustly after chat-template processing?</li>
+<li>Should future conversion stream records rather than materializing the complete dataset in memory for larger releases?</li>
+<li>Should prompt version become an explicit required field in the training run configuration and metadata?</li>
+</ul>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA documentation</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+<script src="../../../scripts/doc-code.js"></script>
+  <script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      background: "#FAF8F5",
+      primaryColor: "#F0EDE8",
+      primaryBorderColor: "#D4CFC7",
+      primaryTextColor: "#2C2825",
+      lineColor: "#B8602A",
+      textColor: "#2C2825"
+    }
+  });
+</script>
+</body>
+</html>

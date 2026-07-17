@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prepare model training format — code walkthrough — Lite-VLA</title>
+  <link rel="stylesheet" href="../../../styles/doc.css">
+</head>
+<body>
+  <div class="doc-shell">
+    <header class="doc-header">
+      <a class="back-link" href="../index.html">Back to epic walkthrough</a>
+      <h1>Prepare model training format — code walkthrough</h1>
+    </header>
+    <main>
+      <p><strong>Epic:</strong> Supervised Fine-Tuning and Model Evaluation (106) · <strong>Jira:</strong> Story 1036, subtasks 10108–10110 · <strong>Status:</strong> Complete (verified locally)</p>
+<p><strong>Human-readable version (browser):</strong> <a href="prepare-model-training-format.html"><code>prepare-model-training-format.html</code></a></p>
+<p><strong>Architecture doc (system design):</strong> <a href="../architecture/prepare-model-training-format.md"><code>../architecture/prepare-model-training-format.md</code></a></p>
+<h2 id="files-touched">Files touched</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>File</th>
+<th>Role in this task</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ml/__init__.py</code></td>
+<td>Declares <code>ml</code> as the project’s ML package</td>
+</tr>
+<tr>
+<td><code>ml/finetune/__init__.py</code></td>
+<td>Exposes the public Story 1036 formatting API</td>
+</tr>
+<tr>
+<td><code>ml/finetune/prompt_template.py</code></td>
+<td>Builds inference-aligned prompt, target, and full-text parts</td>
+</tr>
+<tr>
+<td><code>ml/finetune/format_dataset.py</code></td>
+<td>Converts <code>TrainingRecord</code> objects and writes SFT JSONL</td>
+</tr>
+<tr>
+<td><code>scripts/format_training_data.py</code></td>
+<td>Command-line entry point for conversion</td>
+</tr>
+<tr>
+<td><code>scripts/inspect_training_samples.py</code></td>
+<td>Command-line quality gate for reviewing formatted examples</td>
+</tr>
+<tr>
+<td><code>tests/test_training_format.py</code></td>
+<td>Automated contract checks; run with pytest</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="plain-english-purpose">Plain-English purpose</h2>
+<p>The code turns an Epic 105 <code>TrainingRecord</code> into a small, explicit Python object containing the image path, input prompt, expected action, and complete prompt-plus-answer text. It reuses the inference prompt formatter instead of inventing a training-only syntax.</p>
+<p>This walkthrough focuses on how the Python implementation performs that transformation. For the system contract, masking boundary, trade-offs, and ADRs, read the <a href="../architecture/prepare-model-training-format.md">architecture doc</a>.</p>
+<h2 id="concepts-in-this-task">Concepts in this task</h2>
+<ul>
+<li>Frozen dataclasses (<code>@dataclass(frozen=True)</code>)</li>
+<li>Type annotations and union types (<code>str | None</code>)</li>
+<li>Keyword-only arguments (<code>*</code>)</li>
+<li>Package public APIs (<code>__all__</code>)</li>
+<li>Iterator and list transformations</li>
+<li>JSONL serialization</li>
+<li><code>pathlib.Path</code></li>
+<li><code>argparse</code> command-line interfaces</li>
+<li>Prompt/target separation</li>
+<li>Assistant-only loss masking boundary</li>
+<li>Train/inference prompt alignment</li>
+<li>Hard errors vs soft warnings</li>
+<li>Process exit codes</li>
+</ul>
+<h2 id="how-to-run-and-verify">How to run and verify</h2>
+<pre><code class="language-bash">PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest \
+  tests/test_training_format.py -q
+</code></pre>
+<p>Expected result: <code>8 passed</code>.</p>
+<pre><code class="language-bash">.venv/bin/ruff check \
+  ml/ \
+  scripts/format_training_data.py \
+  scripts/inspect_training_samples.py \
+  tests/test_training_format.py
+</code></pre>
+<p>Expected result: <code>All checks passed!</code></p>
+<pre><code class="language-bash">.venv/bin/python scripts/format_training_data.py \
+  --input data/processed/v0.1.0/train_reviewed.jsonl \
+  --output data/processed/v0.1.0/sft_train.jsonl \
+  --prompt-version v1
+</code></pre>
+<p>Expected result for the local v0.1.0 reviewed dataset: <code>Wrote 501 SFT examples → data/processed/v0.1.0/sft_train.jsonl</code>, followed by prompt-version and first-sample details.</p>
+<pre><code class="language-bash">.venv/bin/python scripts/inspect_training_samples.py \
+  --input data/processed/v0.1.0/train_reviewed.jsonl \
+  --n 10
+</code></pre>
+<p>Expected result: <code>Summary: 10/10 samples passed format checks (0 with image warnings)</code> when all reviewed images are present.</p>
+<h2 id="follow-one-example-through-the-pipeline">Follow one example through the pipeline</h2>
+<p>Use this validated Epic 105 record throughout:</p>
+<pre><code class="language-json">{
+  &quot;id&quot;: &quot;ref_001&quot;,
+  &quot;image_path&quot;: &quot;data/reference_images/red_cone_centered.png&quot;,
+  &quot;instruction&quot;: &quot;Move toward the red cube.&quot;,
+  &quot;action&quot;: &quot;MOVE_FORWARD&quot;,
+  &quot;timestamp&quot;: &quot;2026-06-24T12:00:00+00:00&quot;,
+  &quot;source&quot;: &quot;reference&quot;
+}
+</code></pre>
+<pre><code class="language-text">JSON line
+  ↓ read_jsonl
+TrainingRecord
+  ↓ TrainingPromptTemplate.build
+TrainingPromptParts
+  ↓ format_training_record
+FormattedSFTExample
+  ↓ write_sft_jsonl
+compact JSON line
+</code></pre>
+<h3 id="stage-1-read_jsonl-litevladataschemapy">Stage 1: <code>read_jsonl</code> — <code>litevla/data/schema.py</code></h3>
+<p><code>litevla.data.schema.read_jsonl</code> (an existing dependency) validates the JSON object and returns a <code>TrainingRecord</code>. At this point the important values are Python strings:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>record.instruction</code></td>
+<td><code>"Move toward the red cube."</code></td>
+</tr>
+<tr>
+<td><code>record.action</code></td>
+<td><code>"MOVE_FORWARD"</code></td>
+</tr>
+<tr>
+<td><code>record.image_path</code></td>
+<td><code>"data/reference_images/red_cone_centered.png"</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>The type transition is JSON text on disk → Python dictionary during parsing → frozen <code>TrainingRecord</code>.</p>
+<h3 id="stage-2-trainingprompttemplatebuild-mlfinetuneprompt_templatepy">Stage 2: <code>TrainingPromptTemplate.build</code> — <code>ml/finetune/prompt_template.py</code></h3>
+<p><code>format_training_record</code> passes <code>record.instruction</code> and <code>record.action</code> to the shared template:</p>
+<pre><code class="language-python">parts = tmpl.build(record.instruction, record.action)
+</code></pre>
+<p>Inside <code>build</code>, <code>action.strip().upper()</code> produces <code>"MOVE_FORWARD"</code>. <code>is_valid_action</code> accepts it. <code>PromptFormatter.format_prompt</code> then returns:</p>
+<pre><code class="language-text">USER: &lt;image&gt;
+You are an autonomous mobile robot navigator. Analyze the visual frame and goal instruction, then select the single best action from the following allowed list:
+Allowed Actions: MOVE_FORWARD, TURN_LEFT, TURN_RIGHT, STOP, SLOW_DOWN
+
+Respond with exactly one action token from the allowed list and absolutely nothing else. Do not include explanation, punctuation, or conversational text.
+
+Goal Instruction: Move toward the red cube.
+ASSISTANT:
+</code></pre>
+<p>The method appends one space and the normalized action to produce <code>full_text</code>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Shape after this stage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>parts.prompt</code></td>
+<td>Input text ending in <code>ASSISTANT:</code></td>
+</tr>
+<tr>
+<td><code>parts.target</code></td>
+<td><code>"MOVE_FORWARD"</code></td>
+</tr>
+<tr>
+<td><code>parts.full_text</code></td>
+<td>Prompt followed by <code>" MOVE_FORWARD"</code></td>
+</tr>
+<tr>
+<td><code>parts.prompt_version</code></td>
+<td><code>"v1"</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>The type transition is two source strings → <code>TrainingPromptParts</code>.</p>
+<h3 id="stage-3-format_training_record-mlfinetuneformat_datasetpy">Stage 3: <code>format_training_record</code> — <code>ml/finetune/format_dataset.py</code></h3>
+<p>The formatter combines <code>parts</code> with audit fields from the source record:</p>
+<pre><code class="language-python">return FormattedSFTExample(
+    id=record.id,
+    image_path=record.image_path,
+    instruction=record.instruction,
+    action=record.action,
+    prompt=parts.prompt,
+    target=parts.target,
+    full_text=parts.full_text,
+    prompt_version=parts.prompt_version,
+    source=record.source,
+    episode_id=record.episode_id,
+    image_exists=image_exists,
+)
+</code></pre>
+<p>The result is another frozen dataclass. The source <code>action</code> and formatted <code>target</code> are intentionally both visible, allowing the inspection tool to verify equality.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Output field</th>
+<th>Concrete value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td><code>"ref_001"</code></td>
+</tr>
+<tr>
+<td><code>image_path</code></td>
+<td><code>"data/reference_images/red_cone_centered.png"</code></td>
+</tr>
+<tr>
+<td><code>instruction</code></td>
+<td><code>"Move toward the red cube."</code></td>
+</tr>
+<tr>
+<td><code>action</code> / <code>target</code></td>
+<td><code>"MOVE_FORWARD"</code> / <code>"MOVE_FORWARD"</code></td>
+</tr>
+<tr>
+<td><code>prompt_version</code></td>
+<td><code>"v1"</code></td>
+</tr>
+<tr>
+<td><code>image_exists</code></td>
+<td><code>None</code> when no check was requested</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="stage-4-formatted_example_to_dict-and-write_sft_jsonl-mlfinetuneformat_datasetpy">Stage 4: <code>formatted_example_to_dict</code> and <code>write_sft_jsonl</code> — <code>ml/finetune/format_dataset.py</code></h3>
+<p><code>formatted_example_to_dict</code> calls <code>asdict(example)</code>, then removes keys whose values are <code>None</code>. <code>write_sft_jsonl</code> encodes the remaining mapping as compact JSON and writes one newline.</p>
+<p>The final object contains:</p>
+<pre><code class="language-json">{
+  &quot;image_path&quot;: &quot;data/reference_images/red_cone_centered.png&quot;,
+  &quot;instruction&quot;: &quot;Move toward the red cube.&quot;,
+  &quot;action&quot;: &quot;MOVE_FORWARD&quot;,
+  &quot;prompt&quot;: &quot;USER: &lt;image&gt;\nYou are an autonomous mobile robot navigator. Analyze the visual frame and goal instruction, then select the single best action from the following allowed list:\nAllowed Actions: MOVE_FORWARD, TURN_LEFT, TURN_RIGHT, STOP, SLOW_DOWN\n\nRespond with exactly one action token from the allowed list and absolutely nothing else. Do not include explanation, punctuation, or conversational text.\n\nGoal Instruction: Move toward the red cube.\nASSISTANT:&quot;,
+  &quot;target&quot;: &quot;MOVE_FORWARD&quot;,
+  &quot;full_text&quot;: &quot;USER: &lt;image&gt;\nYou are an autonomous mobile robot navigator. Analyze the visual frame and goal instruction, then select the single best action from the following allowed list:\nAllowed Actions: MOVE_FORWARD, TURN_LEFT, TURN_RIGHT, STOP, SLOW_DOWN\n\nRespond with exactly one action token from the allowed list and absolutely nothing else. Do not include explanation, punctuation, or conversational text.\n\nGoal Instruction: Move toward the red cube.\nASSISTANT: MOVE_FORWARD&quot;,
+  &quot;prompt_version&quot;: &quot;v1&quot;,
+  &quot;id&quot;: &quot;ref_001&quot;,
+  &quot;source&quot;: &quot;reference&quot;
+}
+</code></pre>
+<p>The type transition is <code>FormattedSFTExample</code> → dictionary → JSON text.</p>
+<h3 id="stage-5-_check_example-and-main-scriptsinspect_training_samplespy">Stage 5: <code>_check_example</code> and <code>main</code> — <code>scripts/inspect_training_samples.py</code></h3>
+<p><code>scripts/inspect_training_samples.py</code> checks that:</p>
+<ul>
+<li><code>&lt;image&gt;</code> occurs in <code>prompt</code>;</li>
+<li><code>prompt</code> ends with <code>ASSISTANT:</code>;</li>
+<li><code>target == action</code>;</li>
+<li><code>target</code> is valid;</li>
+<li><code>full_text</code> ends with <code>target</code>;</li>
+<li>the answer was not already inserted into <code>prompt</code>.</li>
+</ul>
+<p>For <code>ref_001</code>, the shared markers are present, <code>action == target == "MOVE_FORWARD"</code>, and the checked reference image exists, so <code>_check_example</code> returns <code>([], [])</code>. <code>_print_example</code> therefore renders status <code>OK</code>; <code>main</code> includes it in the passed count.</p>
+<h2 id="related-dependencies">Related dependencies</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Dependency</th>
+<th>Role in this task</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>litevla.data.schema.TrainingRecord</code></td>
+<td>Validated, model-neutral source record from Epic 105</td>
+</tr>
+<tr>
+<td><code>litevla.data.schema.read_jsonl</code></td>
+<td>Parses and validates input JSONL before formatting</td>
+</tr>
+<tr>
+<td><a href="../../baseline-vision-language-inference-prototype/prompting-strategy.md"><code>litevla.prompting.PromptFormatter</code></a></td>
+<td>Shared inference prompt syntax used to prevent train/runtime drift</td>
+</tr>
+<tr>
+<td><a href="../../baseline-vision-language-inference-prototype/prompting-strategy.md"><code>litevla.prompting.PROMPT_VERSIONS</code></a></td>
+<td>Allowed CLI values for <code>--prompt-version</code></td>
+</tr>
+<tr>
+<td><a href="../../action-interface-parser-and-safety-layer/action-schema.md"><code>litevla.actions.ACTION_NAMES</code></a></td>
+<td>Shared five-action vocabulary used in messages and inspection</td>
+</tr>
+<tr>
+<td><a href="../../action-interface-parser-and-safety-layer/action-schema.md"><code>litevla.actions.is_valid_action</code></a></td>
+<td>Exact action-label validator</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="file-walkthrough-mlfinetuneprompt_templatepy">File walkthrough: <code>ml/finetune/prompt_template.py</code></h2>
+<p>This is the heart of the prompt boundary. It does not read files or tokenize text; it receives one instruction/action pair and returns a validated, immutable representation.</p>
+<h3 id="imports">Imports</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Import</th>
+<th>Plain meaning</th>
+<th>Why it is needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>from __future__ import annotations</code></td>
+<td>Defers annotation evaluation</td>
+<td>Keeps modern type annotations lightweight</td>
+</tr>
+<tr>
+<td><code>from dataclasses import dataclass</code></td>
+<td>Dataclass decorator</td>
+<td>Defines immutable value objects without manual constructors</td>
+</tr>
+<tr>
+<td><code>from litevla.actions import ACTION_NAMES, is_valid_action</code></td>
+<td>Shared action API</td>
+<td>Validates targets and builds useful errors</td>
+</tr>
+<tr>
+<td><code>from litevla.prompting import PromptFormatter</code></td>
+<td>Existing inference formatter</td>
+<td>Makes training prompt text match runtime</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="module-level-constants">Module-level constants</h3>
+<p><code>ASSISTANT_PREFIX = "ASSISTANT:"</code> names the boundary instead of scattering a string literal across the implementation and inspection script.</p>
+<p><code>IMAGE_TOKEN = "&lt;image&gt;"</code> names the multimodal placeholder. The template only verifies its presence; a future model processor decides how it expands into model inputs.</p>
+<h3 id="trainingpromptparts"><code>TrainingPromptParts</code></h3>
+<pre><code class="language-python">@dataclass(frozen=True)
+class TrainingPromptParts:
+    prompt: str
+    target: str
+    full_text: str
+    prompt_version: str
+</code></pre>
+<p><code>@dataclass</code> generates <code>__init__</code>, equality, and representation methods. <code>frozen=True</code> prevents field reassignment after construction, which is useful because these strings form a contract: later conversion code should copy them, not mutate them.</p>
+<p>The class separates four related values:</p>
+<ul>
+<li><code>prompt</code> is answer-free input.</li>
+<li><code>target</code> is the expected action.</li>
+<li><code>full_text</code> is the tokenization string.</li>
+<li><code>prompt_version</code> records which shared template produced the text.</li>
+</ul>
+<h3 id="trainingprompttemplate__init__"><code>TrainingPromptTemplate.__init__</code></h3>
+<pre><code class="language-python">def __init__(self, version: str = &quot;v1&quot;) -&gt; None:
+    self.formatter = PromptFormatter(version=version)
+    self.version = version
+</code></pre>
+<p>Calling <code>PromptFormatter</code> performs version validation, so unsupported versions fail during template construction. <code>self</code> refers to the new <code>TrainingPromptTemplate</code> instance. Saving one formatter allows <code>format_training_records</code> to reuse it for every row rather than rebuilding it repeatedly.</p>
+<h3 id="trainingprompttemplatebuild"><code>TrainingPromptTemplate.build</code></h3>
+<p>The method accepts an instruction and action and returns <code>TrainingPromptParts</code>.</p>
+<pre><code class="language-python">token = action.strip().upper()
+if not is_valid_action(token):
+    valid = &quot;, &quot;.join(ACTION_NAMES)
+    raise ValueError(...)
+</code></pre>
+<p><code>.strip()</code> removes accidental surrounding whitespace and <code>.upper()</code> normalizes case. The resulting token still must be a real Epic 103 action. <code>", ".join(ACTION_NAMES)</code> creates an error-friendly list such as <code>"MOVE_FORWARD, TURN_LEFT, ..."</code>.</p>
+<pre><code class="language-python">prompt = self.formatter.format_prompt(instruction)
+if not prompt.endswith(ASSISTANT_PREFIX):
+    raise ValueError(...)
+if IMAGE_TOKEN not in prompt:
+    raise ValueError(...)
+</code></pre>
+<p>These are structural assertions against the external <code>PromptFormatter</code> result. The method fails rather than silently adding missing markers because a changed inference prompt is a contract event that maintainers need to see.</p>
+<pre><code class="language-python">full_text = f&quot;{prompt} {token}&quot;
+return TrainingPromptParts(...)
+</code></pre>
+<p>The f-string adds exactly one separator space. The returned dataclass preserves both pieces and their joined form.</p>
+<h3 id="build_training_prompt"><code>build_training_prompt</code></h3>
+<p>This function is a convenience for callers formatting one example:</p>
+<pre><code class="language-python">return TrainingPromptTemplate(version=version).build(instruction, action)
+</code></pre>
+<p>The <code>*</code> in its signature makes <code>version</code> keyword-only, so callers write <code>version="v2"</code> instead of passing an unexplained third positional argument.</p>
+<h2 id="file-walkthrough-mlfinetuneformat_datasetpy">File walkthrough: <code>ml/finetune/format_dataset.py</code></h2>
+<p>This module owns representation conversion and persistence. It composes the Story 1036 prompt boundary with Epic 105’s record type.</p>
+<h3 id="imports_1">Imports</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Import</th>
+<th>Plain meaning</th>
+<th>Why it is needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>from __future__ import annotations</code></td>
+<td>Deferred annotations</td>
+<td>Supports concise modern type hints</td>
+</tr>
+<tr>
+<td><code>import json</code></td>
+<td>Standard JSON encoder</td>
+<td>Writes one compact object per line</td>
+</tr>
+<tr>
+<td><code>from collections.abc import Iterator</code></td>
+<td>Iterator protocol type</td>
+<td>Describes streaming record inputs</td>
+</tr>
+<tr>
+<td><code>from dataclasses import asdict, dataclass</code></td>
+<td>Dataclass tools</td>
+<td>Defines and serializes the output value object</td>
+</tr>
+<tr>
+<td><code>from pathlib import Path</code></td>
+<td>Filesystem path abstraction</td>
+<td>Resolves images and output files</td>
+</tr>
+<tr>
+<td><code>from typing import Any</code></td>
+<td>Unconstrained value type</td>
+<td>Types serialized dictionary values</td>
+</tr>
+<tr>
+<td><code>from litevla.data.schema import REPO_ROOT, TrainingRecord, read_jsonl</code></td>
+<td>Epic 105 data API</td>
+<td>Supplies root, source type, and validated reader</td>
+</tr>
+<tr>
+<td><code>from ml.finetune.prompt_template import TrainingPromptTemplate</code></td>
+<td>Story prompt adapter</td>
+<td>Builds prompt/target parts</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="formattedsftexample"><code>FormattedSFTExample</code></h3>
+<p>This frozen dataclass is the public in-memory schema:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value carried through the pipeline</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>image_path</code></td>
+<td>Source image reference; the image itself is not loaded</td>
+</tr>
+<tr>
+<td><code>instruction</code></td>
+<td>Natural-language goal from the reviewed record</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td>Source label retained for audit/comparison</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>Answer-free runtime-aligned text ending at <code>ASSISTANT:</code></td>
+</tr>
+<tr>
+<td><code>target</code></td>
+<td>Normalized action text used as supervision</td>
+</tr>
+<tr>
+<td><code>full_text</code></td>
+<td>Prompt plus one space plus target</td>
+</tr>
+<tr>
+<td><code>prompt_version</code></td>
+<td>Shared formatter version that produced the prompt</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td>Optional source record identifier</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>Optional provenance such as <code>manual_review</code> or <code>reference</code></td>
+</tr>
+<tr>
+<td><code>episode_id</code></td>
+<td>Optional capture episode identifier</td>
+</tr>
+<tr>
+<td><code>image_exists</code></td>
+<td><code>True</code>/<code>False</code> when checked; <code>None</code> when not checked</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>TrainingRecord.timestamp</code> and <code>TrainingRecord.metadata</code> are deliberately not copied into the SFT example. They remain available in the source dataset; later experiment metadata must identify that source dataset for provenance.</p>
+<h3 id="format_training_record"><code>format_training_record</code></h3>
+<p>The signature uses <code>*</code>, making all configuration arguments keyword-only. This prevents confusing calls where <code>"v2"</code> or a path appears positionally.</p>
+<pre><code class="language-python">tmpl = template or TrainingPromptTemplate(version=prompt_version)
+parts = tmpl.build(record.instruction, record.action)
+</code></pre>
+<p>Callers formatting a single record may rely on <code>prompt_version</code>; batch conversion passes a shared <code>template</code>. The <code>or</code> expression chooses the supplied template when it is truthy.</p>
+<p>The optional image branch resolves relative paths against <code>repo_root</code> or the repository default:</p>
+<pre><code class="language-python">if check_image:
+    root = repo_root or REPO_ROOT
+    path = Path(record.image_path)
+    if not path.is_absolute():
+        path = root / path
+    image_exists = path.is_file()
+</code></pre>
+<p>No image is loaded here; only filesystem existence is checked. The function then creates <code>FormattedSFTExample</code>, combining source fields with formatted fields.</p>
+<h3 id="format_training_records"><code>format_training_records</code></h3>
+<p>This function creates one <code>TrainingPromptTemplate</code> and uses a list comprehension to transform every source record:</p>
+<pre><code class="language-python">return [
+    format_training_record(record, template=template, ...)
+    for record in records
+]
+</code></pre>
+<p>The input accepts either an <code>Iterator[TrainingRecord]</code> or a list. The output is intentionally a list because current starter datasets are small and subsequent writing/inspection needs repeated access. For much larger datasets, this is the place to introduce streaming.</p>
+<h3 id="formatted_example_to_dict"><code>formatted_example_to_dict</code></h3>
+<p><code>asdict(example)</code> recursively converts the dataclass to a normal dictionary. The dictionary comprehension keeps each <code>(key, value)</code> pair only when <code>value is not None</code>. It does not remove <code>False</code>, which matters for <code>image_exists=False</code>.</p>
+<h3 id="write_sft_jsonl"><code>write_sft_jsonl</code></h3>
+<p><code>Path(path)</code> normalizes either a string or existing <code>Path</code>. <code>mkdir(parents=True, exist_ok=True)</code> creates missing output directories without failing if they already exist.</p>
+<p>The loop encodes each example with compact separators, writes <code>"\n"</code>, and increments <code>count</code>. Returning the count gives CLI callers a simple completion metric.</p>
+<h3 id="convert_jsonl_to_sft"><code>convert_jsonl_to_sft</code></h3>
+<p>This orchestration function composes the module’s three stages:</p>
+<ol>
+<li><code>read_jsonl</code> validates and yields records.</li>
+<li><code>format_training_records</code> builds examples.</li>
+<li><code>write_sft_jsonl</code> persists them.</li>
+</ol>
+<p>It returns the examples after writing so the CLI can report sample details without rereading the output.</p>
+<h2 id="file-walkthrough-mlfinetune__init__py">File walkthrough: <code>ml/finetune/__init__.py</code></h2>
+<p>This package initializer creates a stable import surface such as:</p>
+<pre><code class="language-python">from ml.finetune import TrainingPromptTemplate, format_training_record
+</code></pre>
+<h3 id="imports_2">Imports</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Import</th>
+<th>Plain meaning</th>
+<th>Why it is needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>from ml.finetune.format_dataset import FormattedSFTExample, format_training_record, format_training_records, write_sft_jsonl</code></td>
+<td>Imports four conversion symbols</td>
+<td>Re-exports the common record-formatting API</td>
+</tr>
+<tr>
+<td><code>from ml.finetune.prompt_template import ASSISTANT_PREFIX, TrainingPromptTemplate, build_training_prompt</code></td>
+<td>Imports three prompt symbols</td>
+<td>Re-exports the common prompt-boundary API</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>__all__</code> lists exactly seven public names:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Public role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ASSISTANT_PREFIX</code></td>
+<td>Shared answer-boundary marker</td>
+</tr>
+<tr>
+<td><code>FormattedSFTExample</code></td>
+<td>Model-ready record type</td>
+</tr>
+<tr>
+<td><code>TrainingPromptTemplate</code></td>
+<td>Reusable prompt builder</td>
+</tr>
+<tr>
+<td><code>build_training_prompt</code></td>
+<td>One-example convenience function</td>
+</tr>
+<tr>
+<td><code>format_training_record</code></td>
+<td>Single-record converter</td>
+</tr>
+<tr>
+<td><code>format_training_records</code></td>
+<td>Batch converter</td>
+</tr>
+<tr>
+<td><code>write_sft_jsonl</code></td>
+<td>Output writer</td>
+</tr>
+</tbody>
+</table></div>
+<p>Lower-level or orchestration symbols such as <code>IMAGE_TOKEN</code>, <code>formatted_example_to_dict</code>, and <code>convert_jsonl_to_sft</code> are intentionally not re-exported.</p>
+<h2 id="file-walkthrough-ml__init__py">File walkthrough: <code>ml/__init__.py</code></h2>
+<p>This one-line module docstring declares the package’s purpose. Creating <code>ml/__init__.py</code> makes package intent explicit to Python tooling and gives future training, inference, and evaluation modules a common namespace.</p>
+<p>It defines no imports, constants, classes, or functions.</p>
+<h2 id="file-walkthrough-scriptsformat_training_datapy">File walkthrough: <code>scripts/format_training_data.py</code></h2>
+<p>This CLI is a thin operator-facing wrapper around <code>convert_jsonl_to_sft</code>.</p>
+<h3 id="imports_3">Imports</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Import</th>
+<th>Plain meaning</th>
+<th>Why it is needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>from __future__ import annotations</code></td>
+<td>Deferred annotations</td>
+<td>Consistent typing behavior</td>
+</tr>
+<tr>
+<td><code>import argparse</code></td>
+<td>CLI parser</td>
+<td>Defines options and help</td>
+</tr>
+<tr>
+<td><code>import sys</code></td>
+<td>Runtime/system access</td>
+<td>Writes errors and extends import path</td>
+</tr>
+<tr>
+<td><code>from pathlib import Path</code></td>
+<td>Path abstraction</td>
+<td>Locates repository and input</td>
+</tr>
+<tr>
+<td><code>from litevla.prompting import PROMPT_VERSIONS</code></td>
+<td>Imports the shared version registry</td>
+<td>Restricts CLI choices</td>
+</tr>
+<tr>
+<td><code>from ml.finetune.format_dataset import convert_jsonl_to_sft</code></td>
+<td>Imports the conversion orchestrator</td>
+<td>Performs the actual work</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="module-level-constant-root">Module-level constant: <code>ROOT</code></h3>
+<p><code>ROOT = Path(__file__).resolve().parent.parent</code> starts from the script file, moves to <code>scripts/</code>, then to the repository root. Adding that string to <code>sys.path</code> lets direct script execution import <code>litevla</code> and <code>ml</code>.</p>
+<h3 id="_parse_args"><code>_parse_args</code></h3>
+<p>The function creates an <code>ArgumentParser</code> and registers:</p>
+<ul>
+<li><code>--input</code>: Epic 105 JSONL;</li>
+<li><code>--output</code>: generated SFT JSONL;</li>
+<li><code>--prompt-version</code>: constrained to shared prompt versions;</li>
+<li><code>--check-image</code>: optional existence reporting.</li>
+</ul>
+<p>It returns <code>argparse.Namespace</code>, whose attributes match the option names with hyphens converted to underscores.</p>
+<h3 id="main"><code>main</code></h3>
+<p><code>main</code> parses arguments and returns an integer process status. A missing input prints to <code>stderr</code> and returns <code>1</code>.</p>
+<p>On success it calls <code>convert_jsonl_to_sft</code>, counts examples whose <code>image_exists is False</code>, then prints the row count, prompt version, and a concise first-sample preview. It returns <code>0</code>.</p>
+<p>The bottom guard:</p>
+<pre><code class="language-python">if __name__ == &quot;__main__&quot;:
+    raise SystemExit(main())
+</code></pre>
+<p>runs only during direct execution. <code>SystemExit</code> turns the returned integer into the shell exit code.</p>
+<h2 id="file-walkthrough-scriptsinspect_training_samplespy">File walkthrough: <code>scripts/inspect_training_samples.py</code></h2>
+<p>This script supports the human review subtask while also applying deterministic structural checks.</p>
+<h3 id="imports_4">Imports</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Import</th>
+<th>Plain meaning</th>
+<th>Why it is needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>from __future__ import annotations</code></td>
+<td>Deferred annotations</td>
+<td>Consistent typing behavior</td>
+</tr>
+<tr>
+<td><code>import argparse</code></td>
+<td>CLI parser</td>
+<td>Defines inspection options</td>
+</tr>
+<tr>
+<td><code>import json</code></td>
+<td>JSON decoder</td>
+<td>Reads already-formatted SFT JSONL</td>
+</tr>
+<tr>
+<td><code>import sys</code></td>
+<td>Runtime/system access</td>
+<td>Errors, path setup, exit status</td>
+</tr>
+<tr>
+<td><code>from pathlib import Path</code></td>
+<td>Path abstraction</td>
+<td>Input and image resolution</td>
+</tr>
+<tr>
+<td><code>from litevla.actions import ACTION_NAMES, is_valid_action</code></td>
+<td>Imports shared action names and validator</td>
+<td>Prints vocabulary and validates targets</td>
+</tr>
+<tr>
+<td><code>from litevla.data.schema import read_jsonl</code></td>
+<td>Imports the Epic 105 reader</td>
+<td>Loads model-neutral input</td>
+</tr>
+<tr>
+<td><code>from litevla.prompting import PROMPT_VERSIONS</code></td>
+<td>Imports the prompt registry</td>
+<td>Restricts CLI choices</td>
+</tr>
+<tr>
+<td><code>from ml.finetune.format_dataset import FormattedSFTExample, format_training_records</code></td>
+<td>Imports SFT type and batch formatter</td>
+<td>Loads or creates inspectable examples</td>
+</tr>
+<tr>
+<td><code>from ml.finetune.prompt_template import ASSISTANT_PREFIX, IMAGE_TOKEN</code></td>
+<td>Imports structural markers</td>
+<td>Applies prompt checks</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="module-level-constant-root_1">Module-level constant: <code>ROOT</code></h3>
+<p>The inspection script computes <code>ROOT</code> exactly like the conversion CLI. It supports repository imports and resolves relative image paths during filesystem checks.</p>
+<h3 id="_parse_args_1"><code>_parse_args</code></h3>
+<p>In addition to input, prompt version, and sample count, the parser provides two modes:</p>
+<ul>
+<li><code>--from-sft</code> reads an existing converted file instead of converting input on the fly.</li>
+<li><code>--require-images</code> promotes missing images from warnings to hard failures.</li>
+</ul>
+<p><code>--check-image</code> asks on-the-fly conversion to populate the <code>image_exists</code> field. It does not control whether inspection checks paths: <code>_check_example</code> always performs its own filesystem existence check. <code>--require-images</code> changes missing paths from warnings to hard issues.</p>
+<h3 id="_load_sft_jsonl"><code>_load_sft_jsonl</code></h3>
+<p>This function opens an already-formatted file, skips blank lines, parses each JSON object, and constructs <code>FormattedSFTExample</code> explicitly.</p>
+<p>Required keys use <code>raw["field"]</code>, which raises <code>KeyError</code> if missing, and their values are coerced with <code>str(...)</code>. Optional provenance keys use <code>.get</code>; <code>prompt_version</code> defaults to <code>"v1"</code> when absent, while <code>image_exists</code> passes through from JSON as-is. The <code>except KeyError</code> block adds file and line context before raising <code>ValueError</code>.</p>
+<h3 id="_check_example"><code>_check_example</code></h3>
+<p>The function returns <code>(issues, warnings)</code>, a tuple of two string lists. Structural failures always enter <code>issues</code>. It uses <code>example.prompt.rstrip().endswith(ASSISTANT_PREFIX)</code>, allowing harmless trailing whitespace while requiring the same semantic boundary. Missing images are always checked on disk; they enter <code>issues</code> only when <code>require_images=True</code>, otherwise <code>warnings</code>.</p>
+<p>The check:</p>
+<pre><code class="language-python">if f&quot;{ASSISTANT_PREFIX} {example.target}&quot; in example.prompt:
+    issues.append(&quot;action already present after ASSISTANT: in prompt&quot;)
+</code></pre>
+<p>specifically detects answer leakage after the assistant boundary. It does not reject action names appearing in the system prompt’s allowed-action list.</p>
+<h3 id="_print_example"><code>_print_example</code></h3>
+<p>Status selection prioritizes <code>ISSUES</code>, then <code>WARN</code>, then <code>OK</code>. The function prints provenance, prompt, target, and a shortened tail of <code>full_text</code>. It then prints hard issues with <code>!</code> and warnings with <code>~</code>.</p>
+<p>The last-six-lines preview keeps the repeated system prompt from overwhelming terminal output while still showing the assistant boundary and target.</p>
+<h3 id="main_1"><code>main</code></h3>
+<p>The function validates the input path, chooses either <code>_load_sft_jsonl</code> or <code>read_jsonl</code> plus <code>format_training_records</code>, and rejects empty datasets. In <code>--from-sft</code> mode, <code>--prompt-version</code> is not used because the artifact carries its own version (or receives the loader's <code>v1</code> default).</p>
+<pre><code class="language-python">n = min(max(args.n, 1), len(examples))
+</code></pre>
+<p>The nested <code>max</code> prevents zero/negative review counts; <code>min</code> prevents indexing beyond the dataset.</p>
+<p>Before the loop, the script prints the shared allowed-action list. The loop checks and prints each selected example while counting samples with issues and warnings. Its summary has the form <code>Summary: 10/10 samples passed format checks (0 with image warnings)</code>. Hard issues produce exit code <code>1</code>; warnings preserve exit code <code>0</code>.</p>
+<p>The direct-execution guard converts that return value into the shell status just like the conversion CLI.</p>
+<h2 id="check-your-understanding">Check your understanding</h2>
+<ol>
+<li>Why does batch formatting pass one <code>TrainingPromptTemplate</code> into each single-record call?</li>
+<li>What is the semantic difference between <code>image_exists=False</code> and <code>image_exists=None</code>?</li>
+<li>Why does <code>_check_example</code> search for <code>ASSISTANT: &lt;target&gt;</code> instead of rejecting any target name found in the prompt?</li>
+<li>Which function should change if future datasets become too large to materialize in memory?</li>
+</ol>
+    </main>
+    <footer class="doc-footer">
+      <p>Lite-VLA documentation</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-diff.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/diff-highlight/prism-diff-highlight.min.js"></script>
+<script src="../../../scripts/doc-code.js"></script>
+  
+</body>
+</html>
